@@ -367,6 +367,8 @@ set xprs [glob -nocomplain -directory $script_dir *.xpr]
 if {[llength $xprs] != 1} {
     die "expected exactly one .xpr in $script_dir (found [llength $xprs])"
 }
+# バッチ起動時にも Nexys A7 のボード定義を登録する。
+set_param board.repoPaths [list C:/Users/n1rat/vivado-boards/new/board_files]
 open_project [lindex $xprs 0]
 
 set rc 0
