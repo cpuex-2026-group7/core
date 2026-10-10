@@ -136,16 +136,6 @@ module uart_rx #(CLK_PER_HALF_BIT = 5208) (
          end
 
          s_stop_bit: begin
-            // if (bit_mid && ~rxd_clean) begin
-            //    ferr <= ~rxd_clean;
-            //    state <= s_idle;
-            // end
-
-            // if (bit_end) begin
-            //    rdata <= rxbuf;
-            //    rdata_ready <= 1'b1;
-            //    state <= s_idle;
-            // end
             if(bit_mid) begin
                ferr <= ~rxd_clean;
                rdata <= rxbuf;

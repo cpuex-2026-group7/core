@@ -38,12 +38,12 @@ module uart_tx #(CLK_PER_HALF_BIT = 5208) (
          next <= 1'b0;
          fin_stop_bit <= 1'b0;
       end else begin
-         if (counter == e_clk_bit || rst_ctr) begin
+         if (counter == e_clk_bit || rst_ctr || status == s_idle) begin
             counter <= 32'b0;
          end else begin
             counter <= counter + 32'd1;
          end
-         if (~rst_ctr && counter == e_clk_bit) begin
+         if (~rst_ctr && counter == e_clk_bit && status != s_idle) begin
             next <= 1'b1;
          end else begin
             next <= 1'b0;
