@@ -4,14 +4,14 @@
 #include <string>
 
 #include "commit.h"
-// 以下は命令シミュレータ（src/sim_repository/src）のヘッダ
+// 以下は命令シミュレータ（sim/sim_repository/src）のヘッダ
 #include "mem.h"
 #include "reg.h"
 
 // 命令シミュレータの Reg / Mem / Inst をそのまま使った参照モデル。
 // RTL が命令を 1 つ完了するたびに、こちらも 1 命令実行して結果を比べる。
 class RefModel {
-public:
+ public:
   // $readmemh 形式の .mem を命令シミュレータのメモリに読み込む（RTL
   // と同じファイルを渡す）
   bool load(const std::string &path);
@@ -24,7 +24,7 @@ public:
   // RTL が pc の halt で止まったとき、sim も同じ場所で止まるかを確かめる
   bool check_halt(uint32_t pc, std::string &why);
 
-private:
+ private:
   Reg reg;
   Mem mem;
   // RTL のコミットから復元したレジスタの値（0-31: x, 32-63: f）。

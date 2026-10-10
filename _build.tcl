@@ -12,6 +12,7 @@
 #   timing   前回の結果からクリティカルパスを分析して表示（ビルドはしない）
 #            配置配線が終わっていればその結果、無ければ合成の結果を使う
 #            timing 20 のように数を付けるとワースト 20 本（既定 10 本）
+#   ip       IP の状態を表示し、ロックされた IP を更新して、出力ファイルを作り直す
 # clean      合成と配置配線を強制的にやり直す
 #
 # 終了コード: 0 = 成功、1 = 失敗（シェルスクリプトから判定に使える）
@@ -242,17 +243,65 @@ proc show_critical_paths {n} {
 }
 
 # ---------------------------------------------------------------
+# IP（clk_wiz_0 など）
+# ---------------------------------------------------------------
+
+# IP の状態（ロックされているか、その理由）を表示する
+proc show_ip_status {} {
+    set f [file join $::script_dir ip_status.rpt]
+    report_ip_status -file $f
+    set fh [open $f r]
+    puts [read $fh]
+    close $fh
+    file delete $f
+}
+
+# IP の出力ファイルを作り直す。出力ファイルは git に入れていないので、
+# clone 直後や別の PC では無い、または古い状態になっている
+proc regenerate_ips {} {
+    foreach ip [get_ips -quiet] {
+        if {[catch {generate_target all $ip} err]} {
+            puts "  generate_target failed for $ip: $err"
+        }
+        catch {export_ip_user_files -of_objects $ip -no_script -sync -force -quiet}
+    }
+}
+
+# ip モード：ロックされた IP を今の Vivado 向けに更新し、出力ファイルを作り直す
+proc fix_ips {} {
+    section "IP status (before)"
+    show_ip_status
+    set locked [get_ips -quiet -filter {IS_LOCKED == 1}]
+    if {[llength $locked] > 0} {
+        puts "Upgrading locked IP: $locked"
+        upgrade_ip $locked
+    }
+    puts "Regenerating IP output products ..."
+    regenerate_ips
+    section "IP status (after)"
+    show_ip_status
+    set still [get_ips -quiet -filter {IS_LOCKED == 1}]
+    if {[llength $still] > 0} {
+        die "still locked: $still  (see the status above)"
+    }
+    puts "IP OK. now run: build.bat build"
+}
+
+# ---------------------------------------------------------------
 # ビルド
 # ---------------------------------------------------------------
 proc build_bitstream {force} {
     section "Build"
     update_compile_order -fileset sources_1
 
+    # ロックされた IP があれば理由を表示して止まる（直すのは ip モード）
     set locked [get_ips -quiet -filter {IS_LOCKED == 1}]
     if {[llength $locked] > 0} {
-        die "locked IP: $locked\n    (Vivado version mismatch?)\
-             Open GUI -> Reports -> Report IP Status -> Upgrade"
+        show_ip_status
+        die "locked IP: $locked  -> run: build.bat ip"
     }
+    # IP の出力ファイルが無い、または古いときに備えて作り直しておく
+    regenerate_ips
 
     set synth [get_runs synth_1]
     set impl  [get_runs impl_1]
@@ -350,13 +399,13 @@ set force 0
 set npaths 10
 foreach a $argv {
     switch -- $a {
-        all - build - program - errors - status - timing { set mode $a }
+        all - build - program - errors - status - timing - ip { set mode $a }
         clean   { set force 1 }
         default {
             if {[string is integer -strict $a] && $a > 0} {
                 set npaths $a
             } else {
-                die "unknown argument: $a  (all|build|program|errors|status|timing [N] [clean])"
+                die "unknown argument: $a  (all|build|program|errors|status|timing \[N\]|ip \[clean\])"
             }
         }
     }
@@ -379,6 +428,7 @@ switch -- $mode {
     errors  { set rc [expr {[show_run_messages] > 0}]; show_timing }
     status  { show_status; show_timing }
     timing  { show_critical_paths $npaths }
+    ip      { fix_ips }
 }
 
 close_project

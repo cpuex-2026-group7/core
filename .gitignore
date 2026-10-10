@@ -27,6 +27,7 @@ sim/sim_repository/
 sim/obj_dir/
 *.trace
 *.fst
+*.dump
 
 timing/
 
