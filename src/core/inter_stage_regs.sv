@@ -1,39 +1,64 @@
 module if_id_reg (
     input logic clk,
     input logic rst_n,
-    input if_id_t d,
-    output if_id_t q
+    if_id_if.cons d,
+    if_id_if.prod q
 );
+
+always_ff @(posedge clk) begin
+    if (~rst_n) begin
+        q.data <= '0;
+    end else begin
+        q.data <= d.data;
+    end
+end
+
 endmodule
 
 module id_ex_reg (
     input logic clk,
     input logic rst_n,
-    input id_ex_t d,
-    output id_ex_t q
+    id_ex_if.cons d,
+    id_ex_if.prod q
 );
+always_ff @(posedge clk) begin
+    if (~rst_n) q.data <= '0;
+    else q.data <= d.data;
+end
 endmodule
 
 module ex_mem_reg (
     input logic clk,
     input logic rst_n,
-    input ex_mem_t d,
-    output ex_mem_t q
+    ex_mem_if.cons d,
+    ex_mem_if.prod q
 );
+always_ff @(posedge clk) begin
+    if (~rst_n) q.data <= '0;
+    else q.data <= d.data;
+end
 endmodule
 
 module mem_wb_reg (
     input logic clk,
     input logic rst_n,
-    input mem_wb_t d,
-    output mem_wb_t q
+    mem_wb_if.cons d,
+    mem_wb_if.prod q
 );
+always_ff @(posedge clk) begin
+    if (~rst_n) q.data <= '0;
+    else q.data <= d.data;
+end
 endmodule
 
 module wb_if_reg (
     input logic clk,
     input logic rst_n,
-    input wb_if_t d,
-    output wb_if_t q
+    wb_if_if.cons d,
+    wb_if_if.prod q
 );
+always_ff @(posedge clk) begin
+    if (~rst_n) q.data <= '0;
+    else q.data <= d.data;
+end
 endmodule
