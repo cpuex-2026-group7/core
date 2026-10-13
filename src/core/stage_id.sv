@@ -5,12 +5,12 @@ module stage_id
   import isa::*;
   import types::*;
 (
-  input clk,
+  input wire clk,
   if_id_if.cons if_id,
-  input logic reg_we_W,
-  input rf_idx_t rd_W,
-  input word_t result_W,
-  input rf_idx_t r_dbg,  // dbg
+  input wire logic reg_we_W,
+  input wire rf_idx_t rd_W,
+  input wire word_t result_W,
+  input wire rf_idx_t r_dbg,  // dbg
 
   id_ex_if.prod id_ex,
   output rf_idx_t rs1_D,
@@ -36,20 +36,20 @@ module stage_id
     .write_en(reg_we_W),
     .wdata(result_W),
     .r_dbg(r_dbg),
-    .rdata1(id_ex.data.rdata1_D),
-    .rdata2(id_ex.data.rdata2_D),
+    .rdata1(id_ex.data.rdata1_E),
+    .rdata2(id_ex.data.rdata2_E),
     .r_dbg_data(r_dbg_data)
   );
 
   imm_extend u_imm_extend (
     .instr(if_id.data.instr_D),
-    .extended_imm(id_ex.data.extended_imm_D)
+    .extended_imm(id_ex.data.extended_imm_E)
   );
 
   assign id_ex.data.ctrl_E = ctrl_D;
-  assign if_ex.data.rd_E = rd_D;
-  assign if_ex.data.rs1_E = rs1_D;
-  assign if_ex.data.rs2_E = rs2_D;
+  assign id_ex.data.rd_E = rd_D;
+  assign id_ex.data.rs1_E = rs1_D;
+  assign id_ex.data.rs2_E = rs2_D;
   assign id_ex.data.pc_E = if_id.data.pc_D;
   assign id_ex.data.pc_plus_1_E = if_id.data.pc_plus_1_D;
 endmodule

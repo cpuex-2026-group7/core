@@ -27,7 +27,7 @@ interface id_ex_if;
     types::rf_idx_t rs1_E;
     types::rf_idx_t rs2_E;
     types::rf_idx_t rd_E;
-    wtypes::word_t ext_imm_E;
+    types::word_t ext_imm_E;
     types::addr_t pc_E;
     types::addr_t pc_plus_1_E;
   } payload_t;

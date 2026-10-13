@@ -5,15 +5,13 @@ module stage_ex
   import isa::*;
   import types::*;
 (
-  input word_t fpu_result_M,
-  input word_t alu_result_M,
-  input word_t hard_code_M,
-  input word_t result_W,
+  input wire word_t fpu_result_M,
+  input wire word_t alu_result_M,
+  input wire word_t hard_code_M,
+  input wire word_t result_W,
   id_ex_if.cons id_ex,
-  input logic forwardFA,
-  input logic forwardFB,
-  input logic forwardAA,
-  input logic forwardAB,
+  input wire logic [2:0] forwardA,
+  input wire logic [2:0] forwardB,
 
   output addr_t pc_target_e,
   output logic pc_jump,
@@ -23,46 +21,34 @@ module stage_ex
   output rf_idx_t rs2_E
 );
 
-  word_t fpu_A, fpu_B;
+  word_t src_A, src_B;
   always_comb begin
-    unique case (forwardFA)
-      2'b00:   fpu_A = fpu_result_M;
-      2'b01:   fpu_A = hard_code_M;
-      2'b10:   fpu_A = id_ex.data.rdata1_E;
-      default: fpu_A = result_W;
+    unique case (forwardA)
+      3'b000:  src_A = id_ex.data.rdata1_E;
+      3'b001:  src_A = alu_result_M;
+      3'b010:  src_A = fpu_result_M;
+      3'b011:  src_A = hard_code_M;
+      default: src_A = result_W;
     endcase
-    unique case (forwardFB)
-      2'b00:   fpu_B = fpu_result_M;
-      2'b01:   fpu_B = hard_code_M;
-      2'b10:   fpu_B = id_ex.data.rdata2_E;
-      default: fpu_B = result_W;
+    unique case (forwardB)
+      3'b000:  src_B = id_ex.data.rdata2_E;
+      3'b001:  src_B = alu_result_M;
+      3'b010:  src_B = fpu_result_M;
+      3'b011:  src_B = hard_code_M;
+      default: src_B = result_W;
     endcase
   end
 
   fpu_top u_fpu (
-    .src1  (fpu_A),
-    .src2  (fpu_B),
-    .alu_op(id_ex.data.ctrl_E.fpu_op),
+    .src1  (src_A),
+    .src2  (src_B),
+    .fpu_op(id_ex.data.ctrl_E.fpu_op),
     .result(ex_mem.data.fpu_result_M)
   );
 
-  word_t alu_A, alu_B, alu_result_E;
-  always_comb begin
-    unique case (forwardFA)
-      2'b00:   alu_A = alu_result_M;
-      2'b01:   alu_A = id_ex.data.rdata1_E;
-      default: alu_A = result_W;
-    endcase
-    unique case (forwardFB)
-      2'b00:   alu_B = alu_result_M;
-      2'b01:   alu_B = id_ex.data.rdata2_E;
-      default: alu_B = result_W;
-    endcase
-  end
-
   alu u_alu (
-    .src1  (alu_A),
-    .src2  (id_ex.data.ctrl_E.alu_src_is_imm ? id_ex.data.ext_imm_E : alu_B),
+    .src1  (src_A),
+    .src2  (id_ex.data.ctrl_E.alu_src_is_imm ? id_ex.data.ext_imm_E : src_B),
     .alu_op(id_ex.data.ctrl_E.alu_op),
     .result(alu_result_E)
   );
@@ -75,8 +61,7 @@ module stage_ex
     endcase
   end
   assign ex_mem.data.alu_result_M = alu_result_E;
-  assign ex_mem.data.wdata_M = id_ex.data.ctrl_E.alu_or_fpu ? fpu_result_E : alu_result_E;
-
+  assign ex_mem.data.wdata_M = src_B;
 
   hard_code u_hard_code (
     .addr(id_ex.data.ext_imm_E),
@@ -88,7 +73,7 @@ module stage_ex
   assign ex_mem.data.ext_imm_M = id_ex.data.ext_imm_E;
   assign ex_mem.data.pc_plus_1_M = id_ex.data.pc_plus_1_E;
 
-  assign pc_target_e = id_ex.data.ext_imm_E + (id_ex.data.ctrl_E.jump_base_src ? id_ex.data.pc_E : id_ex.data.rdata1_E);
+  assign pc_target_E = id_ex.data.ext_imm_E + (id_ex.data.ctrl_E.jump_base_src ? srcA : id_ex.data.pc_E);
 
   assign rd_E = id_ex.data.rd_E;
   assign rs1_E = id_ex.data.rs1_E;
