@@ -6,12 +6,11 @@ module imm_extend
   import isa::*;
 (
   input wire instr_t instr,
-  input wire imm_t imm_type,
   output word_t extended_imm
 );
 
   always_comb begin
-    unique case (imm_type)
+    unique case (instr.op.imm)
       IMM_A: extended_imm = {instr[19:0], 12'b0};
       IMM_B: extended_imm = {{12{instr[19]}}, instr[19:0]};
       IMM_C: extended_imm = {{17{instr[14]}}, instr[14:0]};

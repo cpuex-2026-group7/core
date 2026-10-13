@@ -1,3 +1,6 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
 module stage_ex (
   output addr_t pc_target_e,
   id_ex_if.cons id_ex,
@@ -13,3 +16,5 @@ module stage_ex (
   );
 
 endmodule
+
+`default_nettype wire

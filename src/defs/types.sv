@@ -8,9 +8,9 @@ endpackage
 
 interface if_id_if;
   typedef struct packed {
-    isa::instr_t  instr_F;
-    types::addr_t pc_F;
-    types::addr_t pc_plus_1_F;
+    isa::instr_t  instr_D;
+    types::addr_t pc_D;
+    types::addr_t pc_plus_1_D;
   } payload_t;
 
   payload_t data;
@@ -21,15 +21,15 @@ endinterface  //if_id_if
 
 interface id_ex_if;
   typedef struct packed {
-    isa::ctrl_t ctrl_D;
-    types::word_t rdata1_D;
-    types::word_t rdata2_D;
-    types::rf_idx_t rs1_D;
-    types::rf_idx_t rs2_D;
-    types::rf_idx_t rd_D;
-    wtypes::word_t ext_imm_D;
-    types::addr_t pc_D;
-    types::addr_t pc_plus_1_D;
+    isa::ctrl_t ctrl_E;
+    types::word_t rdata1_E;
+    types::word_t rdata2_E;
+    types::rf_idx_t rs1_E;
+    types::rf_idx_t rs2_E;
+    types::rf_idx_t rd_E;
+    wtypes::word_t ext_imm_E;
+    types::addr_t pc_E;
+    types::addr_t pc_plus_1_E;
   } payload_t;
 
   payload_t data;
@@ -40,14 +40,14 @@ endinterface  //id_ex_if
 
 interface ex_mem_if;
   typedef struct packed {
-    isa::ctrl_t ctrl_E;
-    types::word_t alu_result_E;
-    types::word_t fpu_result_E;
-    types::word_t wdata_E;
-    types::rf_idx_t rd_E;
-    types::word_t ext_imm_E;
-    types::word_t hard_code_E;
-    types::addr_t pc_plus_1_E;
+    isa::ctrl_t ctrl_F;
+    types::word_t alu_result_F;
+    types::word_t fpu_result_F;
+    types::word_t wdata_F;
+    types::rf_idx_t rd_F;
+    types::word_t ext_imm_F;
+    types::word_t hard_code_F;
+    types::addr_t pc_plus_1_F;
   } payload_t;
 
   payload_t data;
