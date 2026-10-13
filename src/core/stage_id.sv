@@ -43,7 +43,7 @@ module stage_id
 
   imm_extend u_imm_extend (
     .instr(if_id.data.instr_D),
-    .extended_imm(id_ex.data.extended_imm_E)
+    .extended_imm(id_ex.data.ext_imm_E)
   );
 
   assign id_ex.data.ctrl_E = ctrl_D;

@@ -7,13 +7,14 @@ module stage_ex
 (
   input wire word_t fpu_result_M,
   input wire word_t alu_result_M,
+  input wire word_t ext_imm_M,
   input wire word_t hard_code_M,
   input wire word_t result_W,
   id_ex_if.cons id_ex,
   input wire logic [2:0] forwardA,
   input wire logic [2:0] forwardB,
 
-  output addr_t pc_target_e,
+  output addr_t pc_target_E,
   output logic pc_jump,
   ex_mem_if.prod ex_mem,
   output rf_idx_t rd_E,
@@ -24,18 +25,20 @@ module stage_ex
   word_t src_A, src_B;
   always_comb begin
     unique case (forwardA)
-      3'b000:  src_A = id_ex.data.rdata1_E;
-      3'b001:  src_A = alu_result_M;
-      3'b010:  src_A = fpu_result_M;
-      3'b011:  src_A = hard_code_M;
-      default: src_A = result_W;
+      3'b000: src_A = id_ex.data.rdata1_E;
+      3'b001: src_A = alu_result_M;
+      3'b010: src_A = fpu_result_M;
+      3'b011: src_A = ext_imm_M;
+      3'b100: src_A = hard_code_M;
+      3'b101: src_A = result_W;
     endcase
     unique case (forwardB)
-      3'b000:  src_B = id_ex.data.rdata2_E;
-      3'b001:  src_B = alu_result_M;
-      3'b010:  src_B = fpu_result_M;
-      3'b011:  src_B = hard_code_M;
-      default: src_B = result_W;
+      3'b000: src_B = id_ex.data.rdata2_E;
+      3'b001: src_B = alu_result_M;
+      3'b010: src_B = fpu_result_M;
+      3'b011: src_B = ext_imm_M;
+      3'b100: src_B = hard_code_M;
+      3'b101: src_B = result_W;
     endcase
   end
 
@@ -46,6 +49,7 @@ module stage_ex
     .result(ex_mem.data.fpu_result_M)
   );
 
+  word_t alu_result_E;
   alu u_alu (
     .src1  (src_A),
     .src2  (id_ex.data.ctrl_E.alu_src_is_imm ? id_ex.data.ext_imm_E : src_B),
@@ -73,7 +77,7 @@ module stage_ex
   assign ex_mem.data.ext_imm_M = id_ex.data.ext_imm_E;
   assign ex_mem.data.pc_plus_1_M = id_ex.data.pc_plus_1_E;
 
-  assign pc_target_E = id_ex.data.ext_imm_E + (id_ex.data.ctrl_E.jump_base_src ? srcA : id_ex.data.pc_E);
+  assign pc_target_E = id_ex.data.ext_imm_E + (id_ex.data.ctrl_E.jump_base_src ? src_A : id_ex.data.pc_E);
 
   assign rd_E = id_ex.data.rd_E;
   assign rs1_E = id_ex.data.rs1_E;
