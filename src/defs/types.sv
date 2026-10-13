@@ -21,7 +21,7 @@ endinterface //if_id_if
 
 interface id_ex_if;
   typedef struct packed {
-    
+
   } payload_t;
 
   payload_t data;
