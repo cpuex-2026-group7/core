@@ -40,14 +40,14 @@ endinterface  //id_ex_if
 
 interface ex_mem_if;
   typedef struct packed {
-    isa::ctrl_t ctrl_F;
-    types::word_t alu_result_F;
-    types::word_t fpu_result_F;
-    types::word_t wdata_F;
-    types::rf_idx_t rd_F;
-    types::word_t ext_imm_F;
-    types::word_t hard_code_F;
-    types::addr_t pc_plus_1_F;
+    isa::ctrl_t ctrl_M;
+    types::word_t alu_result_M;
+    types::word_t fpu_result_M;
+    types::word_t wdata_M;
+    types::rf_idx_t rd_M;
+    types::word_t ext_imm_M;
+    types::word_t hard_code_M;
+    types::addr_t pc_plus_1_M;
   } payload_t;
 
   payload_t data;
