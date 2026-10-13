@@ -1,0 +1,34 @@
+# ===== Vivado generated files =====
+*.cache/
+*.gen/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.srcs/
+.Xil/
+
+# logs / journals / misc
+*.jou
+*.log
+*.str
+*.backup.*
+vivado_pid*.zip
+*webtalk*
+
+# ip
+src/ip/*/*
+!src/ip/*/*.xci
+
+.vscode
+__pycache__/
+
+sim/sim_repository/
+sim/obj_dir/
+*.trace
+*.fst
+*.dump
+
+timing/
+
+# keep: *.xpr, *.srcs/, build.tcl, .gitignore

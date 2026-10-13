@@ -1,0 +1,2 @@
+ここにあるMakefile,cpp,hはほぼclaudeが作成
+sim_repositoryにはsim係のrepositoryが入る
