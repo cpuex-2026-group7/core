@@ -1,0 +1,3 @@
+module hazard ();
+  //TODO
+endmodule
