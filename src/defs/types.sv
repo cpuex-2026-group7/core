@@ -8,57 +8,77 @@ endpackage
 
 interface if_id_if;
   typedef struct packed {
-    isa::instr_t instr;
-    types::addr_t pc;
-    types::addr_t pc_plus_1;
+    isa::instr_t  instr_D;
+    types::addr_t pc_D;
+    types::addr_t pc_plus_1_D;
   } payload_t;
 
   payload_t data;
 
-  modport prod (output data);
-  modport cons (input data);
-endinterface //if_id_if
+  modport prod(output data);
+  modport cons(input data);
+endinterface  //if_id_if
 
 interface id_ex_if;
   typedef struct packed {
-
+    isa::ctrl_t ctrl_E;
+    types::word_t rdata1_E;
+    types::word_t rdata2_E;
+    types::rf_idx_t rs1_E;
+    types::rf_idx_t rs2_E;
+    types::rf_idx_t rd_E;
+    types::word_t ext_imm_E;
+    types::addr_t pc_E;
+    types::addr_t pc_plus_1_E;
   } payload_t;
 
   payload_t data;
 
-  modport prod (output data);
-  modport cons (input data);
-endinterface //id_ex_if
+  modport prod(output data);
+  modport cons(input data);
+endinterface  //id_ex_if
 
 interface ex_mem_if;
   typedef struct packed {
-    logic reserved; // TODO: Replace with stage signals.
+    isa::ctrl_t ctrl_M;
+    types::word_t alu_result_M;
+    types::word_t fpu_result_M;
+    types::word_t wdata_M;
+    types::rf_idx_t rd_M;
+    types::word_t ext_imm_M;
+    types::word_t hard_code_M;
+    types::addr_t pc_plus_1_M;
   } payload_t;
 
   payload_t data;
 
-  modport prod (output data);
-  modport cons (input data);
-endinterface //ex_mem_if
+  modport prod(output data);
+  modport cons(input data);
+endinterface  //ex_mem_if
 
 interface mem_wb_if;
   typedef struct packed {
-    logic reserved; // TODO: Replace with stage signals.
+    isa::ctrl_t     ctrl_W;
+    types::word_t   fpu_result_W;
+    types::word_t   alu_result_W;
+    types::word_t   rdata_W;
+    types::rf_idx_t rd_W;
+    types::word_t   ext_imm_W;
+    types::word_t   hard_code_W;
+    types::addr_t   pc_plus_1_W;
   } payload_t;
 
   payload_t data;
 
-  modport prod (output data);
-  modport cons (input data);
-endinterface //mem_wb_if
+  modport prod(output data);
+  modport cons(input data);
+endinterface  //mem_wb_if
 
 interface wb_if_if;
-  typedef struct packed {
-    types::addr_t pc;
-  } payload_t;
+  typedef struct packed {types::addr_t pc_F;} payload_t;
 
   payload_t data;
 
-  modport prod (output data);
-  modport cons (input data);
-endinterface //wb_if_if
+  modport prod(output data);
+  modport cons(input data);
+endinterface  //wb_if_if

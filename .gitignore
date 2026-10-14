@@ -19,6 +19,7 @@ vivado_pid*.zip
 # ip
 src/ip/*/*
 !src/ip/*/*.xci
+*.xpr
 
 .vscode
 __pycache__/

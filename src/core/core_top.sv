@@ -16,106 +16,126 @@ module core_top
   output logic cpu_halted
 );
 
-  addr_t pc = 32'b0;
-  addr_t pc_plus_1;
-  assign pc_plus_1 = pc + 32'd1;
+  if_id_if if_id_p (), if_id_c ();
+  id_ex_if id_ex_p (), id_ex_c ();
+  ex_mem_if ex_mem_p (), ex_mem_c ();
+  mem_wb_if mem_wb_p (), mem_wb_c ();
+  wb_if_if wb_if_p (), wb_if_c ();
 
-  instr_t instr;
-  i_mem imem (
-    .addr (pc),
-    .instr(instr)
+  logic pc_jump_E, stall_F, stall_D, flush_D, flush_E;
+  fwd_src_t forwardA_E, forwardB_E;
+
+  hazard u_hazard (
+    .pc_jump_E   (pc_jump_E),
+    .stall_F     (stall_F),
+    .stall_D     (stall_D),
+    .flush_D     (flush_D),
+    .rs1_D       (id_ex_p.data.rs1_E),
+    .rs2_D       (id_ex_p.data.rs2_E),
+    .flush_E     (flush_E),
+    .rs1_E       (id_ex_c.data.rs1_E),
+    .rs2_E       (id_ex_c.data.rs2_E),
+    .rd_E        (id_ex_c.data.rd_E),
+    .rd_M        (ex_mem_c.data.rd_M),
+    .reg_we_M    (ex_mem_c.data.ctrl_M.reg_we),
+    .reg_we_W    (mem_wb_c.data.ctrl_W.reg_we),
+    .result_src_E(id_ex_c.data.ctrl_E.result_src),
+    .result_src_M(ex_mem_c.data.ctrl_M.result_src),
+    .forwardA_E  (forwardA_E),
+    .forwardB_E  (forwardB_E)
   );
 
-  ctrl_t ctrl;
-  decoder u_decoder (
-    .op  (instr.op),
-    .ctrl(ctrl)
-  );
-  assign cpu_halted = ctrl.halt;
-
-  word_t extended_imm;
-  imm_extend u_imm_extend (
-    .instr(instr),
-    .imm_type(instr.op.imm),
-    .extended_imm(extended_imm)
+  addr_t pc_plus_1_F;
+  stage_if u_stage_if (
+    .pc_plus_1_F(pc_plus_1_F),
+    .wb_if(wb_if_c),
+    .if_id(if_id_p)
   );
 
-  word_t rdata1, rdata2, write_back_data;
-  reg_file u_reg_file (
+  if_id_reg u_if_id_reg (
     .clk(clk),
-    .rd({ctrl.rd_is_f, instr[24:20]}),
-    .rs1({ctrl.rs1_is_f, instr[19:15]}),
-    .rs2({ctrl.rs2_is_f, instr[14:10]}),
-    .write_en(!rst & en & ctrl.reg_we),
-    .wdata(write_back_data),
+    .rst_n(~rst),
+    .stall_D(stall_D),
+    .flush_D(flush_D),
+    .d(if_id_p),
+    .q(if_id_c)
+  );
+
+  word_t result_W;
+  stage_id u_stage_id (
+    .clk(clk),
+    .if_id(if_id_c),
+    .reg_we_W(mem_wb_c.data.ctrl_W.reg_we),
+    .rd_W(mem_wb_c.data.rd_W),
+    .result_W(result_W),
     .r_dbg(reg_dbg),
-    .rdata1(rdata1),
-    .rdata2(rdata2),
+
+    .id_ex(id_ex_p),
     .r_dbg_data(reg_dbg_data)
   );
 
-  addr_t jumped_pc, jalr_pc;
-  assign jumped_pc = pc + extended_imm;
-  assign jalr_pc   = rdata1 + extended_imm;
-
-  word_t alu_result, fpu_result;
-  alu u_alu (
-    .src1  (rdata1),
-    .src2  (ctrl.alu_src_is_imm ? extended_imm : rdata2),
-    .alu_op(ctrl.alu_op),
-    .result(alu_result)
-  );
-  fpu_top u_fpu (
-    .src1  (rdata1),
-    .src2  (rdata2),
-    .fpu_op(ctrl.fpu_op),
-    .result(fpu_result)
+  id_ex_reg u_id_ex_reg (
+    .clk(clk),
+    .rst_n(~rst),
+    .flush_E(flush_E),
+    .d(id_ex_p),
+    .q(id_ex_c)
   );
 
-  word_t hard_coded_data;
-  hard_code u_hard_code (
-    .addr(extended_imm),
-    .data(hard_coded_data)
+  addr_t pc_target_E;
+  stage_ex u_stage_ex (
+    .fpu_result_M(ex_mem_c.data.fpu_result_M),
+    .alu_result_M(ex_mem_c.data.alu_result_M),
+    .ext_imm_M(ex_mem_c.data.ext_imm_M),
+    .hard_code_M(ex_mem_c.data.hard_code_M),
+    .result_W(result_W),
+    .id_ex(id_ex_c),
+    .forwardA(forwardA_E),
+    .forwardB(forwardB_E),
+
+    .pc_target_E(pc_target_E),
+    .pc_jump(pc_jump_E),
+    .ex_mem(ex_mem_p)
   );
 
-  word_t mem_rdata;
-  d_mem u_d_mem (
+  ex_mem_reg u_ex_mem_reg (
+    .clk(clk),
+    .rst_n(~rst),
+    .d(ex_mem_p),
+    .q(ex_mem_c)
+  );
+
+  stage_mem u_stage_mem (
     .clk(clk),
     .rst(rst),
-    .write_en(!rst & en & ctrl.mem_we),
-    .addr(alu_result),
-    .wdata(rdata2),
-    .rdata(mem_rdata)
+    .ex_mem(ex_mem_c),
+    .mem_wb(mem_wb_p)
   );
 
-  always_comb begin
-    unique case (ctrl.result_src)
-      RES_ALU:         write_back_data = alu_result;
-      RES_FPU:         write_back_data = fpu_result;
-      RES_MEM:         write_back_data = mem_rdata;
-      RES_IMM:         write_back_data = extended_imm;
-      RES_HARD_CODE:   write_back_data = hard_coded_data;
-      RES_PC_PLUS_ONE: write_back_data = pc_plus_1;
-      default:         write_back_data = 32'b0;
-    endcase
-  end
+  mem_wb_reg u_mem_wb_reg (
+    .clk(clk),
+    .rst_n(~rst),
+    .d(mem_wb_p),
+    .q(mem_wb_c)
+  );
 
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      pc <= 32'b0;
-    end else if (en && !ctrl.halt) begin
-      unique case (ctrl.pc_src)
-        PC_PLUS_ONE: pc <= pc_plus_1;
-        PC_BRANCH:   pc <= alu_result[0] ? jumped_pc : pc_plus_1;
-        PC_JAL:      pc <= jumped_pc;
-        PC_JALR:     pc <= jalr_pc;
-        default:     pc <= 32'b0;
-      endcase
-    end
-  end
+  stage_wb u_stage_wb (
+    .pc_plus_1_F(pc_plus_1_F),
+    .pc_target_E(pc_target_E),
+    .pc_jump_E(pc_jump_E),
+    .result_W(result_W),
+    .mem_wb(mem_wb_c),
+    .wb_if(wb_if_p)
+  );
 
-  assign uart_tx = 1'b0;
-  assign pc_dbg  = pc;
+  wb_if_reg u_wb_if_reg (
+    .clk(clk),
+    .rst_n(~rst),
+    .stall_F(stall_F),
+    .d(wb_if_p),
+    .q(wb_if_c)
+  );
+
 
 `ifdef VERILATOR
   import "DPI-C" function void dpi_commit(
