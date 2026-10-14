@@ -57,6 +57,15 @@ package isa;
   } result_src_t;
 
   typedef enum logic [2:0] {
+    FWD_NONE = 3'b000,
+    FWD_ALU_M = 3'b001,
+    FWD_FPU_M = 3'b010,
+    FWD_IMM_M = 3'b011,
+    FWD_HARD_CODE_M = 3'b100,
+    FWD_RES_W = 3'b101
+  } fwd_src_t;
+
+  typedef enum logic [2:0] {
     ALU_ADD = 3'b000,
     ALU_SUB = 3'b001,
     ALU_EQ  = 3'b100,
