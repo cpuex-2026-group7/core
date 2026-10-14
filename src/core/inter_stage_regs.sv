@@ -1,6 +1,8 @@
 module if_id_reg (
   input logic clk,
   input logic rst_n,
+  input logic stall_D,
+  input logic flush_D,
   if_id_if.cons d,
   if_id_if.prod q
 );
@@ -8,7 +10,10 @@ module if_id_reg (
     if (~rst_n) begin
       q.data <= '0;
     end else begin
-      q.data <= d.data;
+      if (flush_D) begin
+        q.data <= '0;
+        q.data.instr_D.op <= 7'b0011100;  // ADD x0 x0 x0;
+      end else if (~stall_D) q.data <= d.data;
     end
   end
 
@@ -17,12 +22,16 @@ endmodule
 module id_ex_reg (
   input logic clk,
   input logic rst_n,
+  input logic flush_E,
   id_ex_if.cons d,
   id_ex_if.prod q
 );
   always_ff @(posedge clk) begin
     if (~rst_n) q.data <= '0;
-    else q.data <= d.data;
+    else begin
+      if (flush_E) q.data <= '0;
+      else q.data <= d.data;
+    end
   end
 endmodule
 
@@ -53,11 +62,14 @@ endmodule
 module wb_if_reg (
   input logic clk,
   input logic rst_n,
+  input logic stall_F,
   wb_if_if.cons d,
   wb_if_if.prod q
 );
   always_ff @(posedge clk) begin
     if (~rst_n) q.data <= '0;
-    else q.data <= d.data;
+    else begin
+      if (~stall_F) q.data <= d.data;
+    end
   end
 endmodule

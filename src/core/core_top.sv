@@ -27,26 +27,30 @@ module core_top
 
   hazard u_hazard (
     .pc_jump_E   (pc_jump_E),
-    .rs1_D       (id_ex_p.data.rs1_E),
-    .rs2_D       (id_ex_p.data.rs2_E),
-    .rs1_E       (id_ex_c.data.rs1_E),
-    .rs2_E       (id_ex_c.data.rs2_E),
-    .rd_E        (id_ex_c.data.rd_E),
-    .result_src_E(id_ex_c.data.ctrl_E.result_src),
-    .rd_M        (ex_mem_c.data.rd_M),
-    .mem_we_M    (ex_mem_c.data.ctrl_M.mem_we),
-    .result_src_M(ex_mem_c.data.ctrl_M.result_src),
-    .rd_W        (rd_W),
-    .reg_we_W    (reg_we_W),
     .stall_F     (stall_F),
     .stall_D     (stall_D),
     .flush_D     (flush_D),
+    .rs1_D       (id_ex_p.data.rs1_E),
+    .rs2_D       (id_ex_p.data.rs2_E),
     .flush_E     (flush_E),
+    .rs1_E       (id_ex_c.data.rs1_E),
+    .rs2_E       (id_ex_c.data.rs2_E),
+    .rd_E        (id_ex_c.data.rd_E),
+    .rd_M        (ex_mem_c.data.rd_M),
+    .reg_we_M    (ex_mem_c.data.ctrl_M.reg_we),
+    .reg_we_W    (mem_wb_c.data.ctrl_W.reg_we),
+    .result_src_E(id_ex_c.data.ctrl_E.result_src),
+    .result_src_M(ex_mem_c.data.ctrl_M.result_src),
     .forwardA_E  (forwardA_E),
     .forwardB_E  (forwardB_E)
   );
 
-  stage_if u_stage_if ();
+  addr_t pc_plus_1_F;
+  stage_if u_stage_if (
+    .pc_plus_1_F(pc_plus_1_F),
+    .wb_if_if(wb_if_c),
+    .if_id_if(if_id_p)
+  );
 
   if_id_reg u_if_id_reg (
     .clk(clk),
@@ -55,13 +59,12 @@ module core_top
     .q(if_id_c)
   );
 
-  rf_idx_t rd_W;
-  word_t   result_W;
+  word_t result_W;
   stage_id u_stage_id (
     .clk(clk),
     .if_id(if_id_c),
     .reg_we_W(mem_wb_c.data.ctrl_W.reg_we),
-    .rd_W(rd_W),
+    .rd_W(mem_wb_c.data.rd_W),
     .result_W(result_W),
     .r_dbg(reg_dbg),
 
@@ -78,10 +81,10 @@ module core_top
 
   addr_t pc_target_E;
   stage_ex u_stage_ex (
-    .fpu_result_M(fpu_result_M),
-    .alu_result_M(alu_result_M),
-    .ext_imm_M(ext_imm_M),
-    .hard_code_M(hard_code_M),
+    .fpu_result_M(ex_mem_c.data.fpu_result_M),
+    .alu_result_M(ex_mem_c.data.alu_result_M),
+    .ext_imm_M(ex_mem_c.data.ext_imm_M),
+    .hard_code_M(ex_mem_c.data.hard_code_M),
     .result_W(result_W),
     .id_ex(id_ex_c),
     .forwardA(forwardA_E),
@@ -99,8 +102,12 @@ module core_top
     .q(ex_mem_c)
   );
 
-  word_t fpu_result_M, alu_result_M, ext_imm_M, hard_code_M;
-  stage_mem u_stage_mem ();
+  stage_mem u_stage_mem (
+    .clk(clk),
+    .rst_n(rst),
+    .ex_mem(ex_mem_c),
+    .mem_wb(mem_wb_p),
+  );
 
   mem_wb_reg u_mem_wb_reg (
     .clk(clk),
@@ -109,7 +116,13 @@ module core_top
     .q(mem_wb_c)
   );
 
-  stage_wb u_stage_wb ();
+  stage_wb u_stage_wb (
+    .pc_plus_1_F(pc_plus_1_F),
+    .pc_target_E(pc_target_E),
+    .result_W(result_W),
+    .mem_wb(mem_wb_c),
+    .wb_if(wb_if_p)
+  );
 
   wb_if_reg u_wb_if_reg (
     .clk(clk),
