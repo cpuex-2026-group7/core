@@ -13,8 +13,6 @@ module stage_id
   input wire rf_idx_t r_dbg,  // dbg
 
   id_ex_if.prod id_ex,
-  output rf_idx_t rs1_D,
-  output rf_idx_t rs2_D,
   output word_t r_dbg_data  // dbg
 );
 

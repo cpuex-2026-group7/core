@@ -4,7 +4,6 @@ module if_id_reg (
   if_id_if.cons d,
   if_id_if.prod q
 );
-
   always_ff @(posedge clk) begin
     if (~rst_n) begin
       q.data <= '0;

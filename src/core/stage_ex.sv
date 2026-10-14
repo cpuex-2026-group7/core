@@ -16,10 +16,7 @@ module stage_ex
 
   output addr_t pc_target_E,
   output logic pc_jump,
-  ex_mem_if.prod ex_mem,
-  output rf_idx_t rd_E,
-  output rf_idx_t rs1_E,
-  output rf_idx_t rs2_E
+  ex_mem_if.prod ex_mem
 );
 
   word_t src_A, src_B;
