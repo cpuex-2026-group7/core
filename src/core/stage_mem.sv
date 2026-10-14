@@ -1,7 +1,7 @@
 module stage_mem (
   input logic clk,
   input logic rst,
-  output reg_addr_t rd_M,
+  output logic [5:0] rd_M,
   output logic mem_we_M,
   ex_mem_if.cons ex_mem,
   mem_wb_if.prod mem_wb

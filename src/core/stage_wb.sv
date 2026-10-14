@@ -3,7 +3,7 @@ module stage_wb (
   input addr_t pc_target_E,
   input logic pc_jump_E,
   output word_t result_W,
-  output red_addr_t rd_W,
+  output logic [5:0] rd_W,
   output logic reg_we_W,
   mem_wb_if.cons mem_wb,
   wb_if_if.prod wb_if
