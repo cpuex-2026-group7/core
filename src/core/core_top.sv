@@ -48,13 +48,15 @@ module core_top
   addr_t pc_plus_1_F;
   stage_if u_stage_if (
     .pc_plus_1_F(pc_plus_1_F),
-    .wb_if_if(wb_if_c),
-    .if_id_if(if_id_p)
+    .wb_if(wb_if_c),
+    .if_id(if_id_p)
   );
 
   if_id_reg u_if_id_reg (
     .clk(clk),
-    .rst_n(rst),
+    .rst_n(~rst),
+    .stall_D(stall_D),
+    .flush_D(flush_D),
     .d(if_id_p),
     .q(if_id_c)
   );
@@ -74,7 +76,8 @@ module core_top
 
   id_ex_reg u_id_ex_reg (
     .clk(clk),
-    .rst_n(rst),
+    .rst_n(~rst),
+    .flush_E(flush_E),
     .d(id_ex_p),
     .q(id_ex_c)
   );
@@ -97,21 +100,21 @@ module core_top
 
   ex_mem_reg u_ex_mem_reg (
     .clk(clk),
-    .rst_n(rst),
+    .rst_n(~rst),
     .d(ex_mem_p),
     .q(ex_mem_c)
   );
 
   stage_mem u_stage_mem (
     .clk(clk),
-    .rst_n(rst),
+    .rst(rst),
     .ex_mem(ex_mem_c),
-    .mem_wb(mem_wb_p),
+    .mem_wb(mem_wb_p)
   );
 
   mem_wb_reg u_mem_wb_reg (
     .clk(clk),
-    .rst_n(rst),
+    .rst_n(~rst),
     .d(mem_wb_p),
     .q(mem_wb_c)
   );
@@ -119,6 +122,7 @@ module core_top
   stage_wb u_stage_wb (
     .pc_plus_1_F(pc_plus_1_F),
     .pc_target_E(pc_target_E),
+    .pc_jump_E(pc_jump_E),
     .result_W(result_W),
     .mem_wb(mem_wb_c),
     .wb_if(wb_if_p)
@@ -126,7 +130,8 @@ module core_top
 
   wb_if_reg u_wb_if_reg (
     .clk(clk),
-    .rst_n(rst),
+    .rst_n(~rst),
+    .stall_F(stall_F),
     .d(wb_if_p),
     .q(wb_if_c)
   );

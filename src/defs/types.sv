@@ -58,7 +58,14 @@ endinterface  //ex_mem_if
 
 interface mem_wb_if;
   typedef struct packed {
-    logic reserved;  // TODO: Replace with stage signals.
+    isa::ctrl_t     ctrl_W;
+    types::word_t   fpu_result_W;
+    types::word_t   alu_result_W;
+    types::word_t   rdata_W;
+    types::rf_idx_t rd_W;
+    types::word_t   ext_imm_W;
+    types::word_t   hard_code_W;
+    types::addr_t   pc_plus_1_W;
   } payload_t;
 
   payload_t data;
@@ -68,7 +75,7 @@ interface mem_wb_if;
 endinterface  //mem_wb_if
 
 interface wb_if_if;
-  typedef struct packed {types::addr_t pc;} payload_t;
+  typedef struct packed {types::addr_t pc_F;} payload_t;
 
   payload_t data;
 
