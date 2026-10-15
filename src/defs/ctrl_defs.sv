@@ -44,6 +44,7 @@ package ctrl_defs;
     logic    rs2_is_f;
     alu_op_t alu_op;
     fpu_op_t fpu_op;
+    logic    jump_base_src;
     logic    alu_src_is_imm;
     logic    reg_we;
     logic    mem_we;

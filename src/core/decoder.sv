@@ -21,6 +21,7 @@ module decoder
     ctrl.rs1_is_f       = 1'b0;
     ctrl.rs2_is_f       = 1'b0;
     ctrl.alu_op         = ALU_ADD;
+    ctrl.jump_base_src  = 1'b0;
     ctrl.alu_src_is_imm = 1'b1;
     ctrl.pc_src         = PC_PLUS_ONE;
     ctrl.result_src     = RES_ALU;
@@ -49,8 +50,9 @@ module decoder
               end
               IMM_C: begin
                 if (op.id == 2'b00) begin  // jalr
-                  ctrl.pc_src     = PC_JALR;
-                  ctrl.result_src = RES_PC_PLUS_ONE;
+                  ctrl.jump_base_src = 1'b1;
+                  ctrl.pc_src        = PC_JALR;
+                  ctrl.result_src    = RES_PC_PLUS_ONE;
                 end else if (op.id == 2'b01) begin  // addi
                   ctrl.result_src = RES_ALU;
                 end else begin  // lw

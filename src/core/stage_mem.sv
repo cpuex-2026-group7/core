@@ -6,14 +6,9 @@ module stage_mem
 (
   input wire logic clk,
   input wire logic rst,
-  output rf_idx_t rd_M,
-  output logic mem_we_M,
   ex_mem_if.cons ex_mem,
   mem_wb_if.prod mem_wb
 );
-
-  assign rd_M = ex_mem.data.rd_M;
-  assign mem_we_M = ex_mem.data.ctrl_M.mem_we;
 
   assign mem_wb.data.ctrl_W = ex_mem.data.ctrl_M;
   assign mem_wb.data.fpu_result_W = ex_mem.data.fpu_result_M;

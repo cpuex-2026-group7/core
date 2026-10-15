@@ -3,7 +3,7 @@
 
 module alu
   import types::*;
-  import isa::*;
+  import ctrl_defs::*;
 (
   input wire word_t src1,
   input wire word_t src2,

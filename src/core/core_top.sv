@@ -137,6 +137,10 @@ module core_top
     .q(wb_if_c)
   );
 
+  assign pc_dbg = wb_if_c.data.pc_F;
+  assign cpu_halted = id_ex_p.data.ctrl_E.halt;
+
+  assign uart_tx = 1'b1;  // 仮
 
 `ifdef VERILATOR
   import "DPI-C" function void dpi_commit(
