@@ -139,7 +139,7 @@ module core_top
   );
 
   assign pc_dbg = wb_if_c.data.pc_F;
-  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;
+  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;  // WBまで流れたら立てることにする
 
   assign uart_tx = 1'b1;  // 仮
 
@@ -163,6 +163,10 @@ module core_top
     input int rf_idx,
     input int wdata
   );
+  import "DPI-C" function void dpi_halt(
+    input int cycle,
+    input int pc
+  );
 
   always_ff @(posedge clk) begin
     if (!rst && en) begin
@@ -172,6 +176,9 @@ module core_top
       end
       if (ex_mem_c.data.ctrl_M.mem_we) begin
         dpi_mem_commit(cycle, ex_mem_c.data.alu_result_M, ex_mem_c.data.wdata_M);
+      end
+      if (mem_wb_c.data.ctrl_W.halt) begin
+        dpi_halt(cycle, wb_if_c.data.pc_F);
       end
     end
   end

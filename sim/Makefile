@@ -1,7 +1,7 @@
 # Verilator シミュレーション（WSL2 の Ubuntu で実行）
 #
-#   make                         sim を取得/更新 → ビルド → PROG を RTL と sim で 1 命令ずつ比べながら実行
-#   make PROG=../test/foo.mem    別のプログラムで
+#   make                         sim を取得/更新 → ビルド → PROG を RTL と sim で動かし、書き込み（レジスタ・メモリ）を命令順に比べる
+#   make PROG=sim_repository/test/foo.bin  別のプログラムで（.bin でも $readmemh 形式の .mem でもよい）
 #   make ARGS="+bp=0x8"          テストベンチへの追加オプション（tb_cpu.cpp の冒頭を参照）
 #   make build                   取得/更新とビルドだけ
 #   make compare                 sim の実行ファイルを単独で動かし、--trace の出力と RTL のトレースを突き合わせる
@@ -11,7 +11,7 @@
 # Windows 側の VS Code 用に、Verilator のヘッダを obj_dir/ide/verilator にコピーする
 # （.vscode/c_cpp_properties.json の includePath からここを参照する）。
 
-PROG ?= ../test/fib.mem
+PROG ?= sim_repository/test/fib.bin
 ARGS ?=
 
 # 命令シミュレータ。make のたびに最新版に更新する
@@ -87,11 +87,12 @@ $(SIM_EXE): $(wildcard $(SIM_REPO)/src/*.cpp) $(SIM_HDRS)
 	$(MAKE) -C $(SIM_REPO)
 
 # sim と RTL の両方でトレースを出して突き合わせる。
-# sim は .mem ではなくビッグエンディアンの生バイナリを読むので、mem2bin.py で変換する
+# sim はビッグエンディアンの生バイナリしか読まないので、PROG が .mem なら mem2bin.py で変換する
+PROG_BIN = $(if $(filter %.bin,$(PROG)),$(PROG),obj_dir/prog.bin)
 compare: build
 	@$(MAKE) --no-print-directory $(SIM_EXE)
-	python3 mem2bin.py $(PROG) obj_dir/prog.bin
-	./$(SIM_EXE) obj_dir/prog.bin --trace sim.trace > sim.dump
+	$(if $(filter %.bin,$(PROG)),,python3 mem2bin.py $(PROG) obj_dir/prog.bin)
+	./$(SIM_EXE) $(PROG_BIN) --trace sim.trace > sim.dump
 	-./$(EXE) +imem=$(PROG) +trace=rtl.trace $(ARGS) > rtl.dump
 	python3 cmp_trace.py rtl.trace sim.trace
 
