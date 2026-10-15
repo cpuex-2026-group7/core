@@ -138,7 +138,7 @@ module core_top
   );
 
   assign pc_dbg = wb_if_c.data.pc_F;
-  assign cpu_halted = id_ex_p.data.ctrl_E.halt;
+  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;
 
   assign uart_tx = 1'b1;  // 仮
 

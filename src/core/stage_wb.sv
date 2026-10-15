@@ -23,6 +23,7 @@ module stage_wb
       RES_IMM: result_W = mem_wb.data.ext_imm_W;
       RES_HARD_CODE: result_W = mem_wb.data.hard_code_W;
       RES_PC_PLUS_ONE: result_W = mem_wb.data.pc_plus_1_W;
+      default: result_W = 32'b0;
     endcase
   end
 
