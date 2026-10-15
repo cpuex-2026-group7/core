@@ -46,9 +46,32 @@ ARGS に渡せるオプションの詳細は sim/tb_cpu.cpp の冒頭を参照�
 
 i_mem は合成時に `fib.mem`（$readmemh 形式）を読む。
 
+## build.bat
+
+Windows のコマンドプロンプトか PowerShell で、リポジトリ直下（.xpr と _build.tcl がある場所）から実行する。Vivado の GUI は開かない。
+
+```bat
+.\build.bat                 :: 必要なら合成・配置配線・ビットストリーム生成をして、ボードに書き込む
+.\build.bat build           :: ビットストリームを作るだけ（書き込まない）
+.\build.bat program         :: 今あるビットストリームを書き込むだけ
+.\build.bat clean           :: 合成と配置配線を強制的にやり直して書き込む（build clean なら作るだけ）
+.\build.bat errors          :: 前回の ERROR と CRITICAL WARNING、タイミングの概要を表示
+.\build.bat status          :: 各ランの状態とタイミングの概要を表示
+.\build.bat timing          :: クリティカルパスのワースト 10 本を表示
+.\build.bat timing 20       :: ワースト 20 本
+.\build.bat ip              :: IP（clk_wiz_0）の状態を表示し、ロックされていれば更新・再生成
+```
+
+- ソースが前回のビルドから変わっていなければ、合成・配置配線は飛ばす
+- clone 直後や別の PC で「locked IP」と言われたら、先に `.\build.bat ip` を実行する
+- ボードが見つからないと言われたら、USB ケーブル・電源スイッチ・ドライバを確認する
+- 終了コードは 0 = 成功、1 = 失敗
+- Vivado は PATH にある vivado.bat、無ければ C:\Xilinx などから一番新しいものを探す。別のものを使うときは先に `set VIVADO=C:\Xilinx\Vivado\2020.2\bin\vivado.bat`（PowerShell なら `$env:VIVADO="..."`）
+- timing の詳しいレポートは timing/summary.rpt と timing/paths.rpt に出る。配置配線が終わっていればその結果、無ければ合成の結果（配線遅延は見積もり）を使う
+
 # CPU説明
 
-シングルサイクル
+5 段パイプライン（IF / ID / EX / MEM / WB）
 
 # その他
 
