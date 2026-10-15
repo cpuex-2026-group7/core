@@ -2,7 +2,6 @@
 `default_nettype none
 
 package ctrl_defs;
-  import types::*;
   import fpu_defs::*;
 
   typedef enum logic [1:0] {

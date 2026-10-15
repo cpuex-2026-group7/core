@@ -3,7 +3,7 @@
 
 module core_top
   import types::*;
-  import isa::*;
+  import ctrl_defs::*;
 (
   input wire logic clk,
   input wire logic rst,

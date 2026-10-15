@@ -3,6 +3,8 @@
 
 module decoder
   import isa::*;
+  import fpu_defs::*;
+  import ctrl_defs::*;
 (
   input  wire opcode_t op,
   output ctrl_t        ctrl

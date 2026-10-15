@@ -1,7 +1,10 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module hazard (
+module hazard
+  import types::*;
+  import ctrl_defs::*;
+(
   input wire logic pc_jump_E,
   output logic stall_F,
   output logic stall_D,
@@ -18,8 +21,8 @@ module hazard (
   input wire logic reg_we_W,
   input wire result_src_t result_src_E,
   input wire result_src_t result_src_M,
-  output isa::fwd_src_t forwardA_E,
-  output isa::fwd_src_t forwardB_E
+  output fwd_src_t forwardA_E,
+  output fwd_src_t forwardB_E
 );
 
   logic lw_stall;

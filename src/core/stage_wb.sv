@@ -3,6 +3,7 @@
 
 module stage_wb
   import types::*;
+  import ctrl_defs::*;
 (
   input wire addr_t pc_plus_1_F,
   input wire addr_t pc_target_E,

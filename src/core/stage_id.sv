@@ -2,8 +2,8 @@
 `default_nettype none
 
 module stage_id
-  import isa::*;
   import types::*;
+  import ctrl_defs::*;
 (
   input wire clk,
   if_id_if.cons if_id,

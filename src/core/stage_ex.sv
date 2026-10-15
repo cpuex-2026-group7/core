@@ -2,8 +2,8 @@
 `default_nettype none
 
 module stage_ex
-  import isa::*;
   import types::*;
+  import ctrl_defs::*;
 (
   input wire word_t fpu_result_M,
   input wire word_t alu_result_M,

@@ -25,7 +25,7 @@ ifeq ($(wildcard $(RTL_DIR)/defs/types.sv),)
   $(error $(RTL_DIR)/defs/types.sv が無い。sim/ はリポジトリ ito_cpu_1 の直下（src/ と同じ階層）に置くこと)
 endif
 # package は使う側より先に読む必要がある
-PKGS := $(RTL_DIR)/defs/types.sv $(RTL_DIR)/defs/isa.sv
+PKGS := $(addprefix $(RTL_DIR)/defs/,types.sv isa.sv fpu_defs.sv ctrl_defs.sv)
 RTL  := $(filter-out $(PKGS),$(shell find $(RTL_DIR) -name '*.sv' -not -path '*/ip/*' -not -name top.sv | sort))
 ifeq ($(shell grep -lE '^\s*module\s+core_top\b' $(RTL) /dev/null),)
   $(error $(RTL_DIR) 以下に module core_top が見つからない（見つかった .sv: $(notdir $(RTL))）)

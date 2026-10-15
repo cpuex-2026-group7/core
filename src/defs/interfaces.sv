@@ -4,7 +4,6 @@
 interface if_id_if;
   import types::*;
   import isa::*;
-  import ctrl_defs::*;
   typedef struct packed {
     instr_t instr_D;
     addr_t  pc_D;
@@ -20,6 +19,7 @@ endinterface  //if_id_if
 interface id_ex_if;
   import types::*;
   import isa::*;
+  import ctrl_defs::*;
   typedef struct packed {
     ctrl_t   ctrl_E;
     word_t   rdata1_E;
@@ -41,6 +41,7 @@ endinterface  //id_ex_if
 interface ex_mem_if;
   import types::*;
   import isa::*;
+  import ctrl_defs::*;
   typedef struct packed {
     ctrl_t   ctrl_M;
     word_t   alu_result_M;
@@ -61,6 +62,7 @@ endinterface  //ex_mem_if
 interface mem_wb_if;
   import types::*;
   import isa::*;
+  import ctrl_defs::*;
   typedef struct packed {
     ctrl_t   ctrl_W;
     word_t   fpu_result_W;
@@ -80,7 +82,6 @@ endinterface  //mem_wb_if
 
 interface wb_if_if;
   import types::*;
-  import isa::*;
   typedef struct packed {addr_t pc_F;} payload_t;
 
   payload_t data;

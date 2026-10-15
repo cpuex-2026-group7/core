@@ -43,69 +43,6 @@ package isa;
     logic [9:0] rest;  // [9:0]
   } instr_t;
 
-  typedef enum logic [1:0] {
-    PC_PLUS_ONE,  // pc+1
-    PC_BRANCH,    // pc+1+imm (条件付き)
-    PC_JAL,       // pc+1+imm
-    PC_JALR       // rs1+imm
-  } pc_src_t;
-
-  typedef enum logic [2:0] {
-    RES_ALU,
-    RES_FPU,
-    RES_MEM,
-    RES_IMM,
-    RES_HARD_CODE,
-    RES_PC_PLUS_ONE
-  } result_src_t;
-
-  typedef enum logic [2:0] {
-    FWD_NONE = 3'b000,
-    FWD_ALU_M = 3'b001,
-    FWD_FPU_M = 3'b010,
-    FWD_IMM_M = 3'b011,
-    FWD_HARD_CODE_M = 3'b100,
-    FWD_RES_W = 3'b101
-  } fwd_src_t;
-
-  typedef enum logic [2:0] {
-    ALU_ADD = 3'b000,
-    ALU_SUB = 3'b001,
-    ALU_EQ  = 3'b100,
-    ALU_NE  = 3'b101,
-    ALU_LT  = 3'b110,
-    ALU_GE  = 3'b111
-  } alu_op_t;
-
-  // {eff[0], imm[0], id}
-  typedef enum logic [3:0] {
-    FPU_CVT_S_W = 4'b0000,
-    FPU_SQRT    = 4'b0001,
-    FPU_NEG     = 4'b0010,
-    FPU_ABS     = 4'b0011,
-    FPU_ADD     = 4'b0100,
-    FPU_SUB     = 4'b0101,
-    FPU_MUL     = 4'b0110,
-    FPU_DIV     = 4'b0111,
-    FPU_CVT_W_S = 4'b1000,
-    FPU_EQ      = 4'b1100,
-    FPU_LT      = 4'b1101
-  } fpu_op_t;
-
-  typedef struct packed {
-    logic    rd_is_f;
-    logic    rs1_is_f;
-    logic    rs2_is_f;
-    alu_op_t alu_op;
-    fpu_op_t fpu_op;
-    logic    alu_src_is_imm;
-    logic    reg_we;
-    logic    mem_we;
-    pc_src_t pc_src;
-    result_src_t result_src;
-    logic    halt;
-  } ctrl_t;
-
 endpackage
 
 `default_nettype wire
