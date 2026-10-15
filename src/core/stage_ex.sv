@@ -75,10 +75,6 @@ module stage_ex
   assign ex_mem.data.pc_plus_1_M = id_ex.data.pc_plus_1_E;
 
   assign pc_target_E = id_ex.data.ext_imm_E + (id_ex.data.ctrl_E.jump_base_src ? src_A : id_ex.data.pc_E);
-
-  assign rd_E = id_ex.data.rd_E;
-  assign rs1_E = id_ex.data.rs1_E;
-  assign rs2_E = id_ex.data.rs2_E;
 endmodule
 
 `default_nettype wire

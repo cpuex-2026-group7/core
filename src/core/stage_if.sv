@@ -1,3 +1,6 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
 module stage_if
   import types::*;
 (
@@ -19,3 +22,5 @@ module stage_if
   );
 
 endmodule
+
+`default_nettype wire

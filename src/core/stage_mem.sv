@@ -1,7 +1,12 @@
-module stage_mem (
-  input logic clk,
-  input logic rst,
-  output logic [5:0] rd_M,
+`timescale 1ns / 1ps
+`default_nettype none
+
+module stage_mem
+  import types::*;
+(
+  input wire logic clk,
+  input wire logic rst,
+  output rf_idx_t rd_M,
   output logic mem_we_M,
   ex_mem_if.cons ex_mem,
   mem_wb_if.prod mem_wb
@@ -28,3 +33,5 @@ module stage_mem (
   );
 
 endmodule
+
+`default_nettype wire

@@ -1,9 +1,14 @@
-module stage_wb (
-  input addr_t pc_plus_1_F,
-  input addr_t pc_target_E,
-  input logic pc_jump_E,
+`timescale 1ns / 1ps
+`default_nettype none
+
+module stage_wb
+  import types::*;
+(
+  input wire addr_t pc_plus_1_F,
+  input wire addr_t pc_target_E,
+  input wire logic pc_jump_E,
   output word_t result_W,
-  output logic [5:0] rd_W,
+  output rf_idx_t rd_W,
   output logic reg_we_W,
   mem_wb_if.cons mem_wb,
   wb_if_if.prod wb_if
@@ -25,3 +30,5 @@ module stage_wb (
   end
 
 endmodule
+
+`default_nettype wire

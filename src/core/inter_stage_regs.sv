@@ -1,3 +1,6 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
 module if_id_reg (
   input logic clk,
   input logic rst_n,
@@ -73,3 +76,5 @@ module wb_if_reg (
     end
   end
 endmodule
+
+`default_nettype wire

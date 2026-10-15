@@ -37,6 +37,7 @@ module core_top
     .rs2_E       (id_ex_c.data.rs2_E),
     .rd_E        (id_ex_c.data.rd_E),
     .rd_M        (ex_mem_c.data.rd_M),
+    .rd_W        (mem_wb_c.data.rd_W),
     .reg_we_M    (ex_mem_c.data.ctrl_M.reg_we),
     .reg_we_W    (mem_wb_c.data.ctrl_W.reg_we),
     .result_src_E(id_ex_c.data.ctrl_E.result_src),

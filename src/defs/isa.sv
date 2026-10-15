@@ -1,3 +1,6 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
 package isa;
   import types::*;
   // ちなみにx0=0, f0=0の規約。
@@ -104,3 +107,5 @@ package isa;
   } ctrl_t;
 
 endpackage
+
+`default_nettype wire

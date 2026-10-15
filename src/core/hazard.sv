@@ -1,19 +1,23 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
 module hazard (
-  input logic pc_jump_E,
+  input wire logic pc_jump_E,
   output logic stall_F,
   output logic stall_D,
   output logic flush_D,
-  input logic [5:0] rs1_D,
-  input logic [5:0] rs2_D,
+  input wire rf_idx_t rs1_D,
+  input wire rf_idx_t rs2_D,
   output logic flush_E,
-  input logic [5:0] rs1_E,
-  input logic [5:0] rs2_E,
-  input logic [5:0] rd_E,
-  input logic [5:0] rd_M,
-  input logic reg_we_M,
-  input logic reg_we_W,
-  input result_src_t result_src_E,
-  input result_src_t result_src_M,
+  input wire rf_idx_t rs1_E,
+  input wire rf_idx_t rs2_E,
+  input wire rf_idx_t rd_E,
+  input wire rf_idx_t rd_M,
+  input wire rf_idx_t rd_W,
+  input wire logic reg_we_M,
+  input wire logic reg_we_W,
+  input wire result_src_t result_src_E,
+  input wire result_src_t result_src_M,
   output isa::fwd_src_t forwardA_E,
   output isa::fwd_src_t forwardB_E
 );
@@ -49,3 +53,5 @@ module hazard (
   end
 
 endmodule
+
+`default_nettype wire
