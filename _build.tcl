@@ -417,7 +417,21 @@ if {[llength $xprs] != 1} {
     die "expected exactly one .xpr in $script_dir (found [llength $xprs])"
 }
 # バッチ起動時にも Nexys A7 のボード定義を登録する。
-set_param board.repoPaths [list C:/Users/n1rat/vivado-boards/new/board_files]
+# 候補を上から順に見て、最初に見つかったフォルダを使う（PC ごとに置き場所が違うため）
+set board_repo_candidates [list \
+    C:/Users/n1rat/vivado-boards/new/board_files \
+    C:/Users/dito0/FPGA/vivado-boards-master/new/board_files \
+]
+set board_repo ""
+foreach d $board_repo_candidates {
+    if {[file isdirectory $d]} { set board_repo $d; break }
+}
+if {$board_repo ne ""} {
+    puts "board files: $board_repo"
+    set_param board.repoPaths [list $board_repo]
+} else {
+    puts "WARNING: board files not found in: [join $board_repo_candidates {, }]"
+}
 open_project [lindex $xprs 0]
 
 set rc 0

@@ -71,14 +71,19 @@ module decoder
         endcase
       end
       UNIT_FPU: begin
-        ctrl.rs1_is_f = !(op.eff == EFF_WF && op.imm == IMM_C && op.id == 2'b00);  // fcvt.s.wだけIレジスタ
-        ctrl.halt = (op.eff == EFF_MEM && op.imm == IMM_D && op.id == 2'b11);  // halt
-        ctrl.rs2_is_f = 1'b1;
-        unique case (op.imm)
-          IMM_A:   ctrl.result_src = RES_IMM;  // fli.s
-          IMM_B:   ctrl.result_src = RES_HARD_CODE;  // flim.s 即値はsignedとして拡張
-          default: ctrl.result_src = RES_FPU;
-        endcase
+        if (op.eff == EFF_MEM && op.imm == IMM_D && op.id == 2'b11) begin  // halt
+          ctrl.halt   = 1'b1;
+          ctrl.mem_we = 1'b0;  // 例外的
+        end else begin
+          ctrl.rs1_is_f = !(op.eff == EFF_WF && op.imm == IMM_C && op.id == 2'b00);  // fcvt.s.wだけIレジスタ
+
+          ctrl.rs2_is_f = 1'b1;
+          unique case (op.imm)
+            IMM_A:   ctrl.result_src = RES_IMM;  // fli.s
+            IMM_B:   ctrl.result_src = RES_HARD_CODE;  // flim.s 即値はsignedとして拡張
+            default: ctrl.result_src = RES_FPU;
+          endcase
+        end
       end
     endcase
   end
