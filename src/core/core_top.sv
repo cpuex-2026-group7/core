@@ -56,6 +56,7 @@ module core_top
 
   if_id_reg u_if_id_reg (
     .clk(clk),
+    .en(en),
     .rst_n(~rst),
     .stall_D(stall_D),
     .flush_D(flush_D),
@@ -66,6 +67,7 @@ module core_top
   word_t result_W;
   stage_id u_stage_id (
     .clk(clk),
+    .en(en),
     .if_id(if_id_c),
     .reg_we_W(mem_wb_c.data.ctrl_W.reg_we),
     .rd_W(mem_wb_c.data.rd_W),
@@ -78,6 +80,7 @@ module core_top
 
   id_ex_reg u_id_ex_reg (
     .clk(clk),
+    .en(en),
     .rst_n(~rst),
     .flush_E(flush_E),
     .d(id_ex_p),
@@ -102,6 +105,7 @@ module core_top
 
   ex_mem_reg u_ex_mem_reg (
     .clk(clk),
+    .en(en),
     .rst_n(~rst),
     .d(ex_mem_p),
     .q(ex_mem_c)
@@ -109,6 +113,7 @@ module core_top
 
   stage_mem u_stage_mem (
     .clk(clk),
+    .en(en),
     .rst(rst),
     .ex_mem(ex_mem_c),
     .mem_wb(mem_wb_p)
@@ -116,6 +121,7 @@ module core_top
 
   mem_wb_reg u_mem_wb_reg (
     .clk(clk),
+    .en(en),
     .rst_n(~rst),
     .d(mem_wb_p),
     .q(mem_wb_c)
@@ -132,6 +138,7 @@ module core_top
 
   wb_if_reg u_wb_if_reg (
     .clk(clk),
+    .en(en),
     .rst_n(~rst),
     .stall_F(stall_F),
     .d(wb_if_p),
@@ -172,7 +179,7 @@ module core_top
     if (!rst && en) begin
       dpi_pc_report(cycle, wb_if_c.data.pc_F);
       if (mem_wb_c.data.ctrl_W.reg_we) begin
-        dpi_reg_commit(cycle, mem_wb_c.data.rd_W, result_W);
+        dpi_reg_commit(cycle, 32'(mem_wb_c.data.rd_W), result_W);
       end
       if (ex_mem_c.data.ctrl_M.mem_we) begin
         dpi_mem_commit(cycle, ex_mem_c.data.alu_result_M, ex_mem_c.data.wdata_M);

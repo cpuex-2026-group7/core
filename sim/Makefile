@@ -4,7 +4,7 @@
 #                                  sim/core.trace : RTL の書き込み（tb_cpu.cpp が書く。形式は tb_cpu.cpp の冒頭を参照）
 #                                  sim/sim.trace  : 命令シミュレータの --trace の出力そのまま
 #                                  sim/core.dump / sim/sim.dump : それぞれの終了時のレジスタ表示
-#   make PROG=sim_repository/test/foo.bin  別のプログラムで（.bin でも $readmemh 形式の .mem でもよい）
+#   make PROG=sim_repository/test/foo.bin  別のプログラムで（.bin のみ。命令シミュレータがビッグエンディアンの生バイナリしか読まないため）
 #   make ARGS="+trace_mode=cycle" テストベンチへの追加オプション（tb_cpu.cpp の冒頭を参照）
 #   make build                   取得/更新とビルドだけ
 #   make clean                   ビルド結果と出力を消す（sim_repository は残す）
@@ -48,11 +48,11 @@ VFLAGS := --cc --exe --build -j 0 --top-module core_top --trace-fst \
           -O3 --x-assign fast --x-initial fast -Wno-fatal -Wno-TIMESCALEMOD \
           -CFLAGS "$(CXXFLAGS_TB)"
 
-# 命令シミュレータはビッグエンディアンの生バイナリしか読まないので、PROG が .mem なら mem2bin.py で変換して渡す
-PROG_BIN = $(if $(filter %.bin,$(PROG)),$(PROG),obj_dir/prog.bin)
-
 .DEFAULT_GOAL := all
-.PHONY: all build fetch ide check-deps clean distclean
+.PHONY: all build fetch ide check-deps check-prog clean distclean
+
+check-prog:
+	@case "$(PROG)" in *.bin) ;; *) echo "PROG は .bin を指定して（今: $(PROG)）。.mem は命令シミュレータが読めない"; exit 1;; esac
 
 check-deps:
 	@command -v verilator >/dev/null || { echo "verilator が無い。WSL で sudo apt install verilator を実行して"; exit 1; }
@@ -60,10 +60,12 @@ check-deps:
 	@echo '#include <zlib.h>' | $(CXX) -x c++ -fsyntax-only - 2>/dev/null || \
 	  { echo "zlib.h が無い。WSL で sudo apt install zlib1g-dev を実行して"; exit 1; }
 
-all: build
-	$(if $(filter %.bin,$(PROG)),,python3 mem2bin.py $(PROG) obj_dir/prog.bin)
+# PROG は RTL と命令シミュレータの両方にそのまま渡す（命令シミュレータが .bin しか読まないので .bin に限る）
+# 既定の PROG は sim_repository の中にあるので、ファイルがあるかは fetch の後（ここ）で確かめる
+all: check-prog build
+	@[ -f "$(PROG)" ] || { echo "PROG が見つからない: $(PROG)"; exit 1; }
 	-./$(EXE) +imem=$(PROG) $(ARGS) > core.dump
-	./$(SIM_EXE) $(PROG_BIN) --trace sim.trace > sim.dump
+	./$(SIM_EXE) $(PROG) --trace sim.trace > sim.dump
 	@echo "出力: core.trace sim.trace core.dump sim.dump"
 
 # sim を取ってきてからビルドする（sim の実行ファイルは sim リポジトリの Makefile のままビルドする）

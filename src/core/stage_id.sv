@@ -5,7 +5,8 @@ module stage_id
   import types::*;
   import ctrl_defs::*;
 (
-  input wire clk,
+  input wire logic clk,
+  input wire logic en,
   if_id_if.cons if_id,
   input wire logic reg_we_W,
   input wire rf_idx_t rd_W,
@@ -31,7 +32,7 @@ module stage_id
     .rd(rd_W),
     .rs1(rs1_D),
     .rs2(rs2_D),
-    .write_en(reg_we_W),
+    .write_en(reg_we_W & en),
     .wdata(result_W),
     .r_dbg(r_dbg),
     .rdata1(id_ex.data.rdata1_E),

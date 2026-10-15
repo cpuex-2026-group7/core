@@ -5,6 +5,7 @@ module stage_mem
   import types::*;
 (
   input wire logic clk,
+  input wire logic en,
   input wire logic rst,
   ex_mem_if.cons ex_mem,
   mem_wb_if.prod mem_wb
@@ -21,7 +22,7 @@ module stage_mem
   d_mem u_d_mem (
     .clk(clk),
     .rst(rst),
-    .write_en(ex_mem.data.ctrl_M.mem_we),
+    .write_en(ex_mem.data.ctrl_M.mem_we & en),
     .addr(ex_mem.data.alu_result_M),
     .wdata(ex_mem.data.wdata_M),
     .rdata(mem_wb.data.rdata_W)
