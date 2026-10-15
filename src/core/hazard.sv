@@ -22,16 +22,17 @@ module hazard
   input wire result_src_t result_src_E,
   input wire result_src_t result_src_M,
   output fwd_src_t forwardA_E,
-  output fwd_src_t forwardB_E
+  output fwd_src_t forwardB_E,
+  input wire logic halt_E
 );
 
   logic lw_stall;
   assign lw_stall = (result_src_E == RES_MEM) & ((rs1_D == rd_E) | (rs2_D == rd_E));
 
-  assign stall_F  = lw_stall;
-  assign stall_D  = lw_stall;
-  assign flush_D  = pc_jump_E;
-  assign flush_E  = lw_stall | pc_jump_E;
+  assign stall_F  = lw_stall | halt_E;
+  assign stall_D  = lw_stall | halt_E;
+  assign flush_D  = pc_jump_E | halt_E;
+  assign flush_E  = lw_stall | pc_jump_E | halt_E;
 
   // FWD_RES_W is not covered here. Covered explicitly in the next always_comb block.
   fwd_src_t fwd_candicate;

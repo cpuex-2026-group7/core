@@ -43,7 +43,8 @@ module core_top
     .result_src_E(id_ex_c.data.ctrl_E.result_src),
     .result_src_M(ex_mem_c.data.ctrl_M.result_src),
     .forwardA_E  (forwardA_E),
-    .forwardB_E  (forwardB_E)
+    .forwardB_E  (forwardB_E),
+    .halt_E      (id_ex_p.data.ctrl_E.halt)
   );
 
   addr_t pc_plus_1_F;
@@ -143,26 +144,30 @@ module core_top
   assign uart_tx = 1'b1;  // 仮
 
   // `ifdef VERILATOR
-  import "DPI-C" function void dpi_commit(
-    input int pc,
-    input bit reg_we,
-    input int rf_idx,
-    input int wdata,
-    input bit mem_we,
+  logic [31:0] cycle;
+  always_ff @(posedge clk) begin
+    if (rst) cycle <= 32'b0;
+    else if (en) cycle <= cycle + 1;
+  end
+
+  import "DPI-C" function void dpi_mem_commit(
+    input int cycle,
     input int mem_addr,
     input int mem_wdata
   );
-
-  import "DPI-C" function void dpi_bubble(input int pc);
-  import "DPI-C" function void dpi_halt(input int pc);
+  import "DPI-C" function void dpi_reg_commit(
+    input int cycle,
+    input int rf_idx,
+    input int wdata
+  );
 
   always_ff @(posedge clk) begin
     if (!rst && en) begin
-      if (mem_wb_c.data.ctrl_W.is_bubble) dpi_bubble(wb_if_c.data.pc_F);
-      else if (mem_wb_c.data.ctrl_W.halt) dpi_halt(mem_wb_c.data.pc_W);
-      else begin
-        dpi_commit(wb_if_c.data.pc_F, mem_wb_c.data.ctrl_W.reg_we, 32'(mem_wb_c.data.rd_W), result_W,
-                   mem_wb_c.data.ctrl_W.mem_we, mem_wb_c.data.alu_result_W, mem_wb_c.data.wdata_W);
+      if (ex_mem.data.ctrl_M.mem_we) begin
+        dpi_mem_commit(cycle, ex_mem_c.data.alu_result_M, ex_mem_c.data.wdata_M);
+      end
+      if (mem_wb_c.data.ctrl_W.reg_we) begin
+        dpi_reg_commit(cycle, mem_wb_c.data.rd_W, result_W);
       end
     end
   end
