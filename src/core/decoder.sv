@@ -72,7 +72,7 @@ module decoder
       end
       UNIT_FPU: begin
         ctrl.rs1_is_f = !(op.eff == EFF_WF && op.imm == IMM_C && op.id == 2'b00);  // fcvt.s.wだけIレジスタ
-        ctrl.halt = (op.eff == EFF_NONE && op.imm == IMM_D && op.id == 2'b11);  // halt
+        ctrl.halt = (op.eff == EFF_MEM && op.imm == IMM_D && op.id == 2'b11);  // halt
         ctrl.rs2_is_f = 1'b1;
         unique case (op.imm)
           IMM_A:   ctrl.result_src = RES_IMM;  // fli.s
