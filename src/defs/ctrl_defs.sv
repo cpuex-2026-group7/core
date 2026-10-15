@@ -42,6 +42,7 @@ package ctrl_defs;
     logic    rd_is_f;
     logic    rs1_is_f;
     logic    rs2_is_f;
+    logic    is_bubble;
     alu_op_t alu_op;
     fpu_op_t fpu_op;
     logic    jump_base_src;

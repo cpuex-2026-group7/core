@@ -15,7 +15,7 @@ module if_id_reg (
     end else begin
       if (flush_D) begin
         q.data <= '0;
-        q.data.instr_D.op <= 7'b0011100;  // ADD x0 x0 x0;
+        q.data.instr_D.op <= 7'b0000000;  // nop
       end else if (~stall_D) q.data <= d.data;
     end
   end

@@ -138,28 +138,35 @@ module core_top
   );
 
   assign pc_dbg = wb_if_c.data.pc_F;
-  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;
+  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;  // wbに達したら立つ
 
   assign uart_tx = 1'b1;  // 仮
 
-`ifdef VERILATOR
+  // `ifdef VERILATOR
   import "DPI-C" function void dpi_commit(
     input int pc,
-    input int instr,
     input bit reg_we,
-    input bit rd_is_f,
-    input int rd,
+    input int rf_idx,
     input int wdata,
     input bit mem_we,
     input int mem_addr,
     input int mem_wdata
   );
 
+  import "DPI-C" function void dpi_bubble(input int pc);
+  import "DPI-C" function void dpi_halt(input int pc);
+
   always_ff @(posedge clk) begin
-    if (!rst && en && !ctrl.halt)
-      dpi_commit(pc, instr, ctrl.reg_we, ctrl.rd_is_f, 32'(instr.rd), write_back_data, ctrl.mem_we, alu_result, rdata2);
+    if (!rst && en) begin
+      if (mem_wb_c.data.ctrl_W.is_bubble) dpi_bubble(wb_if_c.data.pc_F);
+      else if (mem_wb_c.data.ctrl_W.halt) dpi_halt(mem_wb_c.data.pc_W);
+      else begin
+        dpi_commit(wb_if_c.data.pc_F, mem_wb_c.data.ctrl_W.reg_we, 32'(mem_wb_c.data.rd_W), result_W,
+                   mem_wb_c.data.ctrl_W.mem_we, mem_wb_c.data.alu_result_W, mem_wb_c.data.wdata_W);
+      end
+    end
   end
-`endif
+  // `endif
 endmodule
 
 `default_nettype wire
