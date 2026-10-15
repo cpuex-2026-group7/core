@@ -1,30 +1,40 @@
-module hazard (
-  input logic pc_jump_E,
+`timescale 1ns / 1ps
+`default_nettype none
+
+module hazard
+  import types::*;
+  import ctrl_defs::*;
+(
+  input wire logic pc_jump_E,
   output logic stall_F,
   output logic stall_D,
   output logic flush_D,
-  input logic [5:0] rs1_D,
-  input logic [5:0] rs2_D,
+  input wire rf_idx_t rs1_D,
+  input wire rf_idx_t rs2_D,
   output logic flush_E,
-  input logic [5:0] rs1_E,
-  input logic [5:0] rs2_E,
-  input logic [5:0] rd_E,
-  input logic [5:0] rd_M,
-  input logic reg_we_M,
-  input logic reg_we_W,
-  input result_src_t result_src_E,
-  input result_src_t result_src_M,
-  output isa::fwd_src_t forwardA_E,
-  output isa::fwd_src_t forwardB_E
+  input wire rf_idx_t rs1_E,
+  input wire rf_idx_t rs2_E,
+  input wire rf_idx_t rd_E,
+  input wire rf_idx_t rd_M,
+  input wire rf_idx_t rd_W,
+  input wire logic reg_we_M,
+  input wire logic reg_we_W,
+  input wire result_src_t result_src_E,
+  input wire result_src_t result_src_M,
+  output fwd_src_t forwardA_E,
+  output fwd_src_t forwardB_E,
+  input wire logic halt_E
 );
 
   logic lw_stall;
   assign lw_stall = (result_src_E == RES_MEM) & ((rs1_D == rd_E) | (rs2_D == rd_E));
+  logic really_halt_E;
+  assign really_halt_E = halt_E & ~pc_jump_E;
 
-  assign stall_F  = lw_stall;
-  assign stall_D  = lw_stall;
-  assign flush_D  = pc_jump_E;
-  assign flush_E  = lw_stall | pc_jump_E;
+  assign stall_F = lw_stall | really_halt_E;
+  assign stall_D = lw_stall | really_halt_E;
+  assign flush_D = pc_jump_E;
+  assign flush_E = lw_stall | pc_jump_E;
 
   // FWD_RES_W is not covered here. Covered explicitly in the next always_comb block.
   fwd_src_t fwd_candicate;
@@ -49,3 +59,5 @@ module hazard (
   end
 
 endmodule
+
+`default_nettype wire

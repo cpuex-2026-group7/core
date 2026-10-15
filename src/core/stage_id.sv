@@ -2,8 +2,8 @@
 `default_nettype none
 
 module stage_id
-  import isa::*;
   import types::*;
+  import ctrl_defs::*;
 (
   input wire clk,
   if_id_if.cons if_id,
@@ -21,7 +21,7 @@ module stage_id
     .op  (if_id.data.instr_D.op),
     .ctrl(ctrl_D)
   );
-  rf_idx_t rd_D;
+  rf_idx_t rd_D, rs1_D, rs2_D;
   assign rd_D  = {ctrl_D.rd_is_f, if_id.data.instr_D.rd};
   assign rs1_D = {ctrl_D.rs1_is_f, if_id.data.instr_D.rs1};
   assign rs2_D = {ctrl_D.rs2_is_f, if_id.data.instr_D.rs2};

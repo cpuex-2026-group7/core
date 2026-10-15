@@ -1,14 +1,14 @@
-module stage_mem (
-  input logic clk,
-  input logic rst,
-  output logic [5:0] rd_M,
-  output logic mem_we_M,
+`timescale 1ns / 1ps
+`default_nettype none
+
+module stage_mem
+  import types::*;
+(
+  input wire logic clk,
+  input wire logic rst,
   ex_mem_if.cons ex_mem,
   mem_wb_if.prod mem_wb
 );
-
-  assign rd_M = ex_mem.data.rd_M;
-  assign mem_we_M = ex_mem.data.ctrl_M.mem_we;
 
   assign mem_wb.data.ctrl_W = ex_mem.data.ctrl_M;
   assign mem_wb.data.fpu_result_W = ex_mem.data.fpu_result_M;
@@ -28,3 +28,5 @@ module stage_mem (
   );
 
 endmodule
+
+`default_nettype wire

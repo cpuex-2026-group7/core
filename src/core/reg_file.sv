@@ -4,7 +4,6 @@
 // 非同期read,同期write
 module reg_file
   import types::*;
-  import isa::*;
 (
   input wire logic clk,
   input wire rf_idx_t rd,

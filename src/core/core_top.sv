@@ -3,7 +3,7 @@
 
 module core_top
   import types::*;
-  import isa::*;
+  import ctrl_defs::*;
 (
   input wire logic clk,
   input wire logic rst,
@@ -37,12 +37,14 @@ module core_top
     .rs2_E       (id_ex_c.data.rs2_E),
     .rd_E        (id_ex_c.data.rd_E),
     .rd_M        (ex_mem_c.data.rd_M),
+    .rd_W        (mem_wb_c.data.rd_W),
     .reg_we_M    (ex_mem_c.data.ctrl_M.reg_we),
     .reg_we_W    (mem_wb_c.data.ctrl_W.reg_we),
     .result_src_E(id_ex_c.data.ctrl_E.result_src),
     .result_src_M(ex_mem_c.data.ctrl_M.result_src),
     .forwardA_E  (forwardA_E),
-    .forwardB_E  (forwardB_E)
+    .forwardB_E  (forwardB_E),
+    .halt_E      (id_ex_p.data.ctrl_E.halt)
   );
 
   addr_t pc_plus_1_F;
@@ -136,23 +138,49 @@ module core_top
     .q(wb_if_c)
   );
 
+  assign pc_dbg = wb_if_c.data.pc_F;
+  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;  // WBまで流れたら立てることにする
+
+  assign uart_tx = 1'b1;  // 仮
 
 `ifdef VERILATOR
-  import "DPI-C" function void dpi_commit(
-    input int pc,
-    input int instr,
-    input bit reg_we,
-    input bit rd_is_f,
-    input int rd,
-    input int wdata,
-    input bit mem_we,
+  logic [31:0] cycle;
+  always_ff @(posedge clk) begin
+    if (rst) cycle <= 32'b0;
+    else if (en) cycle <= cycle + 1;
+  end
+  import "DPI-C" function void dpi_pc_report(
+    input int cycle,
+    input int pc
+  );
+  import "DPI-C" function void dpi_mem_commit(
+    input int cycle,
     input int mem_addr,
     input int mem_wdata
   );
+  import "DPI-C" function void dpi_reg_commit(
+    input int cycle,
+    input int rf_idx,
+    input int wdata
+  );
+  import "DPI-C" function void dpi_halt(
+    input int cycle,
+    input int pc
+  );
 
   always_ff @(posedge clk) begin
-    if (!rst && en && !ctrl.halt)
-      dpi_commit(pc, instr, ctrl.reg_we, ctrl.rd_is_f, 32'(instr.rd), write_back_data, ctrl.mem_we, alu_result, rdata2);
+    if (!rst && en) begin
+      dpi_pc_report(cycle, wb_if_c.data.pc_F);
+      if (mem_wb_c.data.ctrl_W.reg_we) begin
+        dpi_reg_commit(cycle, mem_wb_c.data.rd_W, result_W);
+      end
+      if (ex_mem_c.data.ctrl_M.mem_we) begin
+        dpi_mem_commit(cycle, ex_mem_c.data.alu_result_M, ex_mem_c.data.wdata_M);
+      end
+      if (mem_wb_c.data.ctrl_W.halt) begin
+        dpi_halt(cycle, wb_if_c.data.pc_F);
+      end
+    end
   end
 `endif
 endmodule

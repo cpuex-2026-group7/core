@@ -2,8 +2,8 @@
 `default_nettype none
 
 module stage_ex
-  import isa::*;
   import types::*;
+  import ctrl_defs::*;
 (
   input wire word_t fpu_result_M,
   input wire word_t alu_result_M,
@@ -22,20 +22,20 @@ module stage_ex
   word_t src_A, src_B;
   always_comb begin
     unique case (forwardA)
-      3'b000: src_A = id_ex.data.rdata1_E;
-      3'b001: src_A = alu_result_M;
-      3'b010: src_A = fpu_result_M;
-      3'b011: src_A = ext_imm_M;
-      3'b100: src_A = hard_code_M;
-      3'b101: src_A = result_W;
+      3'b000:  src_A = id_ex.data.rdata1_E;
+      3'b001:  src_A = alu_result_M;
+      3'b010:  src_A = fpu_result_M;
+      3'b011:  src_A = ext_imm_M;
+      3'b100:  src_A = hard_code_M;
+      default: src_A = result_W;
     endcase
     unique case (forwardB)
-      3'b000: src_B = id_ex.data.rdata2_E;
-      3'b001: src_B = alu_result_M;
-      3'b010: src_B = fpu_result_M;
-      3'b011: src_B = ext_imm_M;
-      3'b100: src_B = hard_code_M;
-      3'b101: src_B = result_W;
+      3'b000:  src_B = id_ex.data.rdata2_E;
+      3'b001:  src_B = alu_result_M;
+      3'b010:  src_B = fpu_result_M;
+      3'b011:  src_B = ext_imm_M;
+      3'b100:  src_B = hard_code_M;
+      default: src_B = result_W;
     endcase
   end
 
@@ -75,10 +75,6 @@ module stage_ex
   assign ex_mem.data.pc_plus_1_M = id_ex.data.pc_plus_1_E;
 
   assign pc_target_E = id_ex.data.ext_imm_E + (id_ex.data.ctrl_E.jump_base_src ? src_A : id_ex.data.pc_E);
-
-  assign rd_E = id_ex.data.rd_E;
-  assign rs1_E = id_ex.data.rs1_E;
-  assign rs2_E = id_ex.data.rs2_E;
 endmodule
 
 `default_nettype wire

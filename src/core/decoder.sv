@@ -3,6 +3,8 @@
 
 module decoder
   import isa::*;
+  import fpu_defs::*;
+  import ctrl_defs::*;
 (
   input  wire opcode_t op,
   output ctrl_t        ctrl
@@ -18,7 +20,9 @@ module decoder
     // 初期値
     ctrl.rs1_is_f       = 1'b0;
     ctrl.rs2_is_f       = 1'b0;
+    ctrl.is_bubble      = 1'b0;
     ctrl.alu_op         = ALU_ADD;
+    ctrl.jump_base_src  = 1'b0;
     ctrl.alu_src_is_imm = 1'b1;
     ctrl.pc_src         = PC_PLUS_ONE;
     ctrl.result_src     = RES_ALU;
@@ -34,8 +38,8 @@ module decoder
                 ctrl.alu_src_is_imm = 1'b0;
                 ctrl.pc_src         = PC_BRANCH;
               end
-              default: begin  // halt
-                ctrl.halt = 1'b1;
+              default: begin  // nop
+                ctrl.is_bubble = 1'b1;
               end
             endcase
           end
@@ -47,8 +51,9 @@ module decoder
               end
               IMM_C: begin
                 if (op.id == 2'b00) begin  // jalr
-                  ctrl.pc_src     = PC_JALR;
-                  ctrl.result_src = RES_PC_PLUS_ONE;
+                  ctrl.jump_base_src = 1'b1;
+                  ctrl.pc_src        = PC_JALR;
+                  ctrl.result_src    = RES_PC_PLUS_ONE;
                 end else if (op.id == 2'b01) begin  // addi
                   ctrl.result_src = RES_ALU;
                 end else begin  // lw
@@ -67,6 +72,7 @@ module decoder
       end
       UNIT_FPU: begin
         ctrl.rs1_is_f = !(op.eff == EFF_WF && op.imm == IMM_C && op.id == 2'b00);  // fcvt.s.wだけIレジスタ
+        ctrl.halt = (op.eff == EFF_NONE && op.imm == IMM_D && op.id == 2'b11);  // halt
         ctrl.rs2_is_f = 1'b1;
         unique case (op.imm)
           IMM_A:   ctrl.result_src = RES_IMM;  // fli.s

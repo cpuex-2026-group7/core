@@ -3,7 +3,7 @@
 
 module fpu_top
   import types::*;
-  import isa::*;
+  import fpu_defs::*;
 (
   input wire word_t src1,
   input wire word_t src2,
