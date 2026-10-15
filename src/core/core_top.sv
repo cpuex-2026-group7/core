@@ -139,17 +139,20 @@ module core_top
   );
 
   assign pc_dbg = wb_if_c.data.pc_F;
-  assign cpu_halted = mem_wb_c.data.ctrl_W.halt;  // wbに達したら立つ
+  assign cpu_halted = id_ex_p.data.ctrl_E.halt & pc_jump_E;
 
   assign uart_tx = 1'b1;  // 仮
 
-  // `ifdef VERILATOR
+`ifdef VERILATOR
   logic [31:0] cycle;
   always_ff @(posedge clk) begin
     if (rst) cycle <= 32'b0;
     else if (en) cycle <= cycle + 1;
   end
-
+  import "DPI-C" function void dpi_pc_report(
+    input int cycle,
+    input int pc
+  );
   import "DPI-C" function void dpi_mem_commit(
     input int cycle,
     input int mem_addr,
@@ -163,7 +166,8 @@ module core_top
 
   always_ff @(posedge clk) begin
     if (!rst && en) begin
-      if (ex_mem.data.ctrl_M.mem_we) begin
+      dpi_pc_report(cycle, wb_if_c.data.pc_F);
+      if (ex_mem_c.data.ctrl_M.mem_we) begin
         dpi_mem_commit(cycle, ex_mem_c.data.alu_result_M, ex_mem_c.data.wdata_M);
       end
       if (mem_wb_c.data.ctrl_W.reg_we) begin
@@ -171,7 +175,7 @@ module core_top
       end
     end
   end
-  // `endif
+`endif
 endmodule
 
 `default_nettype wire

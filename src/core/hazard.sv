@@ -28,11 +28,13 @@ module hazard
 
   logic lw_stall;
   assign lw_stall = (result_src_E == RES_MEM) & ((rs1_D == rd_E) | (rs2_D == rd_E));
+  logic really_halt_E;
+  assign really_halt_E = halt_E & ~pc_jump_E;
 
-  assign stall_F  = lw_stall | halt_E;
-  assign stall_D  = lw_stall | halt_E;
-  assign flush_D  = pc_jump_E | halt_E;
-  assign flush_E  = lw_stall | pc_jump_E | halt_E;
+  assign stall_F = lw_stall | really_halt_E;
+  assign stall_D = lw_stall | really_halt_E;
+  assign flush_D = pc_jump_E;
+  assign flush_E = lw_stall | pc_jump_E;
 
   // FWD_RES_W is not covered here. Covered explicitly in the next always_comb block.
   fwd_src_t fwd_candicate;
