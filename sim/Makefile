@@ -83,7 +83,7 @@ fetch:
 	fi
 
 $(EXE): | check-deps
-$(EXE): $(PKGS) $(RTL) $(TB_SRCS)
+$(EXE): $(PKGS) $(RTL) $(TB_SRCS) konata_trace.h
 	verilator $(VFLAGS) $(PKGS) $(RTL) $(TB_SRCS) -o Vcore_top
 
 # Windows の VS Code からは WSL の /usr/share/verilator が見えにくいので、リポジトリ内にコピーしておく
@@ -91,7 +91,7 @@ ide:
 	@[ -f obj_dir/ide/verilator/verilated.h ] || { mkdir -p obj_dir/ide && cp -r $(VL_ROOT)/include obj_dir/ide/verilator; }
 
 clean:
-	rm -rf obj_dir *.trace *.dump wave.fst
+	rm -rf obj_dir *.trace *.dump wave.fst core.kanata.log
 
 distclean: clean
 	rm -rf $(SIM_REPO)

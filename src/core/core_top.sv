@@ -151,6 +151,10 @@ module core_top
   assign uart_tx = 1'b1;  // 仮
 
 `ifdef VERILATOR
+  import "DPI-C" function void dpi_pipeline(
+    input int pc, input int instr,
+    input int stall_f, input int stall_d, input int flush_d, input int flush_e
+  );
   logic [31:0] cycle;
   always_ff @(posedge clk) begin
     if (rst) cycle <= 32'b0;
@@ -177,6 +181,8 @@ module core_top
 
   always_ff @(posedge clk) begin
     if (!rst && en) begin
+      dpi_pipeline(wb_if_c.data.pc_F, 32'(if_id_p.data.instr_D),
+                   32'(stall_F), 32'(stall_D), 32'(flush_D), 32'(flush_E));
       dpi_pc_report(cycle, wb_if_c.data.pc_F);
       if (mem_wb_c.data.ctrl_W.reg_we) begin
         dpi_reg_commit(cycle, 32'(mem_wb_c.data.rd_W), result_W);

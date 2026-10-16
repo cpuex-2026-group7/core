@@ -19,6 +19,7 @@
 //   ./obj_dir/Vcore_top ... +bp=0x8                        pc=0x8 をフェッチしたサイクルで毎回レジスタ表示
 //   ./obj_dir/Vcore_top ... +wave_from=100 +wave_len=50    cycle 100〜149 だけ wave.fst に波形を出す
 //   ./obj_dir/Vcore_top ... +max_cycle=1000000             打ち切りサイクル数（既定 1e8）
+//   ./obj_dir/Vcore_top ... +konata=core.kanata.log        Konata 用パイプライントレース（省略時は無効）
 //
 // dpi_halt が呼ばれたら止める。
 // 終了コード: 0 = halt した, 2 = max_cycle で打ち切り
@@ -36,6 +37,9 @@
 #include "Vcore_top__Dpi.h"
 #include "verilated.h"
 #include "verilated_fst_c.h"
+#include "konata_trace.h"
+
+static KonataTrace g_konata;
 
 static FILE *g_trace = nullptr;    // core.trace
 static bool g_cycle_mode = false;  // +trace_mode=cycle
@@ -63,6 +67,10 @@ static void flush_cycle() {
 }
 
 // ---- core_top.sv から呼ばれる DPI 関数 ----
+void dpi_pipeline(int pc, int instr, int stall_f, int stall_d, int flush_d, int flush_e) {
+  g_konata.sample((uint32_t)pc, (uint32_t)instr, stall_f, stall_d, flush_d, flush_e);
+}
+
 // core_top.sv は毎サイクル posedge で dpi_pc_report → dpi_reg_commit → dpi_mem_commit → dpi_halt の順に呼ぶ
 
 // 毎サイクル最初に呼ばれる。前のサイクルに書き込みが無ければ、ここでその行を書く
@@ -77,6 +85,7 @@ void dpi_pc_report(int cycle, int pc) {
 // WB でレジスタに書き込んだ（rf_idx は 0-31: x, 32-63: f）
 void dpi_reg_commit(int cycle, int rf_idx, int wdata) {
   (void)cycle;
+  g_konata.reg_write(rf_idx, (uint32_t)wdata);
   std::fprintf(g_trace, "%c%02u=%08x", rf_idx < 32 ? 'x' : 'f', (unsigned)rf_idx % 32, (uint32_t)wdata);
   trace_suffix();
   g_nwrite++;
@@ -85,6 +94,7 @@ void dpi_reg_commit(int cycle, int rf_idx, int wdata) {
 // MEM でメモリに書き込んだ
 void dpi_mem_commit(int cycle, int mem_addr, int mem_wdata) {
   (void)cycle;
+  g_konata.mem_write((uint32_t)mem_addr, (uint32_t)mem_wdata);
   std::fprintf(g_trace, "M[%08x]=%08x", (uint32_t)mem_addr, (uint32_t)mem_wdata);
   trace_suffix();
   g_nwrite++;
@@ -203,7 +213,7 @@ int main(int argc, char **argv) {
   if(imem.empty()) {
     std::fprintf(stderr,
                  "usage: %s +imem=<prog.bin|prog.mem> [+core_trace=<file>] [+trace_mode=commit|cycle] "
-                 "[+bp=<pc>] [+wave_from=<cycle>] ...\n",
+                 "[+bp=<pc>] [+wave_from=<cycle>] [+konata=<file>] ...\n",
                  argv[0]);
     return 1;
   }
@@ -219,10 +229,27 @@ int main(int argc, char **argv) {
   const uint64_t wave_from = plusarg_u64(ctx.get(), "wave_from=", UINT64_MAX);
   const uint64_t wave_len = plusarg_u64(ctx.get(), "wave_len=", 200);
   const uint64_t bp = plusarg_u64(ctx.get(), "bp=", UINT64_MAX);
+  const std::string konata_path = plusarg_str(ctx.get(), "konata=", "");
+  if(!konata_path.empty() && std::filesystem::absolute(konata_path).lexically_normal() ==
+                                 std::filesystem::absolute(trace_path).lexically_normal()) {
+    std::fprintf(stderr, "+konata と +core_trace は別のファイルを指定してください\n");
+    return 1;
+  }
 
   if(!(g_trace = std::fopen(trace_path.c_str(), "w"))) {
     std::perror(trace_path.c_str());
     return 1;
+  }
+
+  FILE *konata = nullptr;
+  if(!konata_path.empty()) {
+    konata = std::fopen(konata_path.c_str(), "w");
+    if(!konata) {
+      std::perror(konata_path.c_str());
+      std::fclose(g_trace);
+      return 1;
+    }
+    g_konata.open(konata);
   }
 
   // RTL を作る（ここで i_mem の initial が走り、+imem= のファイルを読む）
@@ -282,6 +309,17 @@ int main(int argc, char **argv) {
     rc = 2;
   }
   std::fclose(g_trace);
+  if(konata) {
+    g_konata.finish(g_halted);
+    const bool write_failed = std::ferror(konata);
+    const int close_result = std::fclose(konata);
+    if(write_failed || close_result != 0) {
+      std::fprintf(stderr, "Konata トレースの書き込みに失敗: %s\n", konata_path.c_str());
+      rc = 1;
+    } else {
+      std::fprintf(stderr, "Konata: %s\n", konata_path.c_str());
+    }
+  }
   std::fprintf(stderr, "出力: %s\n", trace_path.c_str());
   dump_regs(top.get(), stdout);
 
