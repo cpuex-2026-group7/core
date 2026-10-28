@@ -13,6 +13,14 @@ module frontend (
       .instr(TODO)
   );
 
+  btb u_btb (TODO);
+
+  bpd u_bpd (TODO);
+
+  br_decoder u_br_decoder (TODO);
+
+  br_checker u_br_checker (TODO);
+
 
 endmodule
 

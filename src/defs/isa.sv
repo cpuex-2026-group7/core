@@ -43,6 +43,10 @@ package isa;
     logic [9:0] rest;  // [9:0]
   } instr_t;
 
+  localparam logic [4:0] BRANCH_OP5 = 5'b0_00_11;
+  localparam logic [4:0] JAL_OP5 = 5'b0_01_01;
+  localparam logic [4:0] JALR_OP5 = 5'b0_01_10;
+
 endpackage
 
 `default_nettype wire
