@@ -136,7 +136,10 @@ module multi_port_ram #(
   generate
     // 1Wの場合
     if (W == 1) begin : g_single
-      logic [ENTRY_WIDTH-1:0] mem[SIZE];
+      (* ram_style = "distributed" *) logic [ENTRY_WIDTH-1:0] mem[SIZE];
+
+      initial for (int i = 0; i < SIZE; i++) mem[i] = '0;
+
       always_ff @(posedge clk) begin
         if (w_en[0]) mem[w_addr[0]] <= w_data[0];
       end
