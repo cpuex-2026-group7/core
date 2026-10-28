@@ -10,9 +10,9 @@ module lutram_1r1w #(
 ) (
   input wire logic clk,
   input wire logic w_en,
-  input wire [$clog2(SIZE)-1:0] w_addr,
+  input wire [((SIZE>1)?$clog2(SIZE) : 1)-1:0] w_addr,
   input wire [ENTRY_WIDTH-1:0] w_data,
-  input wire [$clog2(SIZE)-1:0] r_addr,
+  input wire [((SIZE>1)?$clog2(SIZE) : 1)-1:0] r_addr,
   output logic [ENTRY_WIDTH-1:0] r_data
 );
   (* ram_style = "distributed" *) logic [ENTRY_WIDTH-1:0] mem[SIZE];
@@ -34,24 +34,22 @@ module lvt_table #(
 ) (
   input wire logic clk,
   input wire logic w_en[W],
-  input wire [$clog2(SIZE)-1:0] w_addr[W],
+  input wire [((SIZE>1)?$clog2(SIZE) : 1)-1:0] w_addr[W],
   input wire [$clog2(W)-1:0] w_data[W],
-  input wire [$clog2(SIZE)-1:0] r_addr[R],
+  input wire [((SIZE>1)?$clog2(SIZE) : 1)-1:0] r_addr[R],
   output logic [$clog2(W)-1:0] r_data[R]
 );
 
-  localparam int WL = (W > 1) ? $clog2(W) : 1;
-
-  logic [WL-1:0] write_data[W];
-  logic [WL-1:0] for_read  [W] [R];  // for_read[i][j]  = バンクiをr_addr[j]で読んだ
-  logic [WL-1:0] for_write [W] [W];  // for_write[i][j] = バンクiをw_addr[j]で読んだ
+  logic [$clog2(W)-1:0] write_data[W];
+  logic [$clog2(W)-1:0] for_read  [W] [R];  // for_read[i][j]  = バンクiをr_addr[j]で読んだ
+  logic [$clog2(W)-1:0] for_write [W] [W];  // for_write[i][j] = バンクiをw_addr[j]で読んだ
 
   generate
     for (genvar i = 0; i < W; i++) begin : g_rbank_w
       for (genvar j = 0; j < R; j++) begin : g_rbank_r
         lutram_1r1w #(
           .SIZE(SIZE),
-          .ENTRY_WIDTH(WL)
+          .ENTRY_WIDTH($clog2(W))
         ) u_lutram_1r1w (
           .clk(clk),
           .w_en(w_en[i]),
@@ -68,7 +66,7 @@ module lvt_table #(
         if (i != j) begin : g_used
           lutram_1r1w #(
             .SIZE(SIZE),
-            .ENTRY_WIDTH(WL)
+            .ENTRY_WIDTH($clog2(W))
           ) u_lutram_1r1w (
             .clk(clk),
             .w_en(w_en[i]),
@@ -118,7 +116,7 @@ module lvt_table #(
 
 endmodule
 
-// 本体
+// 本体(1Wにも対応)
 module multi_port_ram #(
   parameter int SIZE = 64,
   parameter int ENTRY_WIDTH = 32,
@@ -127,78 +125,91 @@ module multi_port_ram #(
 ) (
   input wire logic clk,
   input wire logic w_en[W],
-  input wire [$clog2(SIZE)-1:0] w_addr[W],
+  input wire [((SIZE>1)?$clog2(SIZE) : 1)-1:0] w_addr[W],
   input wire [ENTRY_WIDTH-1:0] w_data[W],
-  input wire [$clog2(SIZE)-1:0] r_addr[R],
+  input wire [((SIZE>1)?$clog2(SIZE) : 1)-1:0] r_addr[R],
   output logic [ENTRY_WIDTH-1:0] r_data[R]
 );
 
   localparam int WL = (W > 1) ? $clog2(W) : 1;
-  logic [ENTRY_WIDTH-1:0] bank_data[W][R];  // bank_data[i][j] = バンクiをr_addr[j]で読んだ
 
   generate
-    for (genvar i = 0; i < W; i++) begin : g_w
-      for (genvar j = 0; j < R; j++) begin : g_r
-        lutram_1r1w #(
-          .SIZE(SIZE),
-          .ENTRY_WIDTH(ENTRY_WIDTH)
-        ) u_lutram_1r1w (
-          .clk(clk),
-          .w_en(w_en[i]),
-          .w_addr(w_addr[i]),
-          .w_data(w_data[i]),
-          .r_addr(r_addr[j]),
-          .r_data(bank_data[i][j])
-        );
+    // 1Wの場合
+    if (W == 1) begin : g_single
+      logic [ENTRY_WIDTH-1:0] mem[SIZE];
+      always_ff @(posedge clk) begin
+        if (w_en[0]) mem[w_addr[0]] <= w_data[0];
       end
-    end
-  endgenerate
+      for (genvar r = 0; r < R; r++) begin : g_rd
+        assign r_data[r] = mem[r_addr[r]];
+      end
+    end else begin : g_lvt
+      // W > 1 の場合
 
-  logic [WL-1:0] port_id[W];  // Wポートiのidはi
-  generate
-    for (genvar i = 0; i < W; i++) begin : g_port_id
-      assign port_id[i] = WL'(i);
-    end
-  endgenerate
+      logic [ENTRY_WIDTH-1:0] bank_data[W][R];  // bank_data[i][j] = バンクiをr_addr[j]で読んだ
 
-  logic [WL-1:0] lvt[R];
+      for (genvar i = 0; i < W; i++) begin : g_w
+        for (genvar j = 0; j < R; j++) begin : g_r
+          lutram_1r1w #(
+            .SIZE(SIZE),
+            .ENTRY_WIDTH(ENTRY_WIDTH)
+          ) u_lutram_1r1w (
+            .clk(clk),
+            .w_en(w_en[i]),
+            .w_addr(w_addr[i]),
+            .w_data(w_data[i]),
+            .r_addr(r_addr[j]),
+            .r_data(bank_data[i][j])
+          );
+        end
+      end
 
-  lvt_table #(
-    .SIZE(SIZE),
-    .R(R),
-    .W(W)
-  ) u_lvt_table (
-    .clk(clk),
-    .w_en(w_en),
-    .w_addr(w_addr),
-    .w_data(port_id),
-    .r_addr(r_addr),
-    .r_data(lvt)
-  );
+      logic [WL-1:0] port_id[W];  // Wポートiのidはi
+      for (genvar i = 0; i < W; i++) begin : g_port_id
+        assign port_id[i] = WL'(i);
+      end
 
-  always_comb begin
-    for (int i = 0; i < R; i++) begin
-      r_data[i] = bank_data[lvt[i]][i];
-    end
-  end
+      logic [WL-1:0] lvt[R];
+
+      lvt_table #(
+        .SIZE(SIZE),
+        .R(R),
+        .W(W)
+      ) u_lvt_table (
+        .clk(clk),
+        .w_en(w_en),
+        .w_addr(w_addr),
+        .w_data(port_id),
+        .r_addr(r_addr),
+        .r_data(lvt)
+      );
+
+      always_comb begin
+        for (int i = 0; i < R; i++) begin
+          r_data[i] = bank_data[lvt[i]][i];
+        end
+      end
 
 `ifndef SYNTHESIS
-  // 全書き込みを素直に反映し、全読み出しポートの値と照合する
-  logic [ENTRY_WIDTH-1:0] shadow[SIZE];
-  initial for (int i = 0; i < SIZE; i++) shadow[i] = '0;
+      // 全書き込みを素直に反映し、全読み出しポートの値と照合する
+      logic [ENTRY_WIDTH-1:0] shadow[SIZE];
+      initial for (int i = 0; i < SIZE; i++) shadow[i] = '0;
 
-  always_ff @(posedge clk) begin
-    for (int i = 0; i < W; i++) begin
-      if (w_en[i]) shadow[w_addr[i]] <= w_data[i];
-    end
-    for (int i = 0; i < R; i++) begin
-      if (r_data[i] != shadow[r_addr[i]]) begin
-        $error("multi_port_ram: 読み出しポート %0d（アドレス %0d）の値が不一致: %h != %h", i,
-               r_addr[i], r_data[i], shadow[r_addr[i]]);
+      always_ff @(posedge clk) begin
+        for (int i = 0; i < W; i++) begin
+          if (w_en[i]) shadow[w_addr[i]] <= w_data[i];
+        end
+        for (int i = 0; i < R; i++) begin
+          if (r_data[i] != shadow[r_addr[i]]) begin
+            $error("multi_port_ram: 読み出しポート %0d（アドレス %0d）の値が不一致: %h != %h", i,
+                   r_addr[i], r_data[i], shadow[r_addr[i]]);
+          end
+        end
       end
-    end
-  end
 `endif
+
+    end
+  endgenerate
 
 endmodule
 
