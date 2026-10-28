@@ -119,7 +119,7 @@ module lvt_table #(
 endmodule
 
 // 本体
-module lvt_rf #(
+module multi_port_ram #(
   parameter int SIZE = 64,
   parameter int ENTRY_WIDTH = 32,
   parameter int R = 4,
@@ -193,8 +193,8 @@ module lvt_rf #(
     end
     for (int i = 0; i < R; i++) begin
       if (r_data[i] != shadow[r_addr[i]]) begin
-        $error("lvt_rf: 読み出しポート %0d（アドレス %0d）の値が不一致: %h != %h", i, r_addr[i],
-               r_data[i], shadow[r_addr[i]]);
+        $error("multi_port_ram: 読み出しポート %0d（アドレス %0d）の値が不一致: %h != %h", i,
+               r_addr[i], r_data[i], shadow[r_addr[i]]);
       end
     end
   end

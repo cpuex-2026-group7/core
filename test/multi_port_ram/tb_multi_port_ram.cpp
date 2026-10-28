@@ -1,7 +1,7 @@
-// lvt_rf（LVT 方式のマルチポートレジスタファイル）のテストベンチ
+// multi_port_ram（LVT 方式のマルチポート RAM）のテストベンチ
 //
-// ポートの数とエントリ数はビルド時に決める（Makefile が -G と -D の両方で渡す）
-//   SIZE : エントリ数, RP : 読み出しポート数, WP : 書き込みポート数
+// ポートの数・エントリ数・エントリ幅はビルド時に決める（Makefile が -G と -D の両方で渡す）
+//   SIZE : エントリ数, RP : 読み出しポート数, WP : 書き込みポート数, ENTRY_WIDTH : エントリのビット幅（1〜32）
 //
 // 実行時オプション
 //   +cycles=N   ランダムテストのサイクル数（既定 200000）
@@ -27,9 +27,9 @@
 #include <string>
 #include <vector>
 
-#include "Vlvt_rf.h"
+#include "Vmulti_port_ram.h"
 #include "verilated.h"
-#ifdef LVT_TRACE
+#ifdef MPR_TRACE
 #include "verilated_fst_c.h"
 #endif
 
@@ -42,17 +42,25 @@
 #ifndef WP
 #error "WP を -D で指定すること"
 #endif
+#ifndef ENTRY_WIDTH
+#error "ENTRY_WIDTH を -D で指定すること"
+#endif
+
+static_assert(ENTRY_WIDTH >= 1 && ENTRY_WIDTH <= 32, "このテストベンチは ENTRY_WIDTH が 1〜32 のときだけ対応");
 
 // -G と -D の食い違いをビルド時に検出する
-static_assert(sizeof(Vlvt_rf::r_addr) / sizeof(Vlvt_rf::r_addr[0]) == RP, "RP と -GR が一致しない");
-static_assert(sizeof(Vlvt_rf::w_addr) / sizeof(Vlvt_rf::w_addr[0]) == WP, "WP と -GW が一致しない");
+static_assert(sizeof(Vmulti_port_ram::r_addr) / sizeof(Vmulti_port_ram::r_addr[0]) == RP, "RP と -GR が一致しない");
+static_assert(sizeof(Vmulti_port_ram::w_addr) / sizeof(Vmulti_port_ram::w_addr[0]) == WP, "WP と -GW が一致しない");
 
 namespace {
 
+// エントリ幅に収まるように切り詰めるマスク
+constexpr uint32_t DATA_MASK = (ENTRY_WIDTH == 32) ? 0xffffffffu : ((1u << ENTRY_WIDTH) - 1u);
+
 struct Bench {
   std::unique_ptr<VerilatedContext> ctx;
-  std::unique_ptr<Vlvt_rf> dut;
-#ifdef LVT_TRACE
+  std::unique_ptr<Vmulti_port_ram> dut;
+#ifdef MPR_TRACE
   std::unique_ptr<VerilatedFstC> tfp;
 #endif
   uint32_t model[SIZE] = {};  // 参照モデル
@@ -63,8 +71,8 @@ struct Bench {
 
   explicit Bench(int argc, char** argv) : ctx(new VerilatedContext) {
     ctx->commandArgs(argc, argv);
-    dut.reset(new Vlvt_rf{ctx.get()});
-#ifdef LVT_TRACE
+    dut.reset(new Vmulti_port_ram{ctx.get()});
+#ifdef MPR_TRACE
     if (ctx->commandArgsPlusMatch("trace")[0]) {
       ctx->traceEverOn(true);
       tfp.reset(new VerilatedFstC);
@@ -80,15 +88,22 @@ struct Bench {
 
   ~Bench() {
     dut->final();
-#ifdef LVT_TRACE
+#ifdef MPR_TRACE
     if (tfp) tfp->close();
 #endif
   }
 
   void dump() {
-#ifdef LVT_TRACE
+#ifdef MPR_TRACE
     if (tfp) tfp->dump(ctx->time());
 #endif
+  }
+
+  // 書き込みポート p に書き込みを設定する（値はエントリ幅に切り詰める）
+  void write(int p, uint32_t addr, uint32_t data) {
+    dut->w_en[p] = 1;
+    dut->w_addr[p] = addr;
+    dut->w_data[p] = data & DATA_MASK;
   }
 
   // 書き込みを全部止める
@@ -105,7 +120,7 @@ struct Bench {
     dut->eval();
     for (int i = 0; i < RP; i++) {
       const uint32_t addr = dut->r_addr[i];
-      const uint32_t got = dut->r_data[i];
+      const uint32_t got = static_cast<uint32_t>(dut->r_data[i]) & DATA_MASK;
       const uint32_t exp = model[addr];
       checks++;
       if (got != exp) {
@@ -166,9 +181,7 @@ void test_each_port(Bench& b) {
   for (int p = 0; p < WP; p++) {
     for (uint32_t a = 0; a < SIZE; a++) {
       b.idle();
-      b.dut->w_en[p] = 1;
-      b.dut->w_addr[p] = a;
-      b.dut->w_data[p] = make_value(p, a, 0x1234);
+      b.write(p, a, make_value(p, a, 0x1234));
       b.set_reads_from(a);  // 3. 同じサイクルの読み出しは古い値
       b.step();
     }
@@ -183,18 +196,14 @@ void test_ownership_transfer(Bench& b) {
     for (int round = 0; round < 2; round++) {
       for (int p = 0; p < WP; p++) {
         b.idle();
-        b.dut->w_en[p] = 1;
-        b.dut->w_addr[p] = a;
-        b.dut->w_data[p] = make_value(p, a, 0x5000 + round);
+        b.write(p, a, make_value(p, a, 0x5000 + round));
         for (int i = 0; i < RP; i++) b.dut->r_addr[i] = a;
         b.step();
       }
       // 逆順でも切り替える
       for (int p = WP - 1; p >= 0; p--) {
         b.idle();
-        b.dut->w_en[p] = 1;
-        b.dut->w_addr[p] = a;
-        b.dut->w_data[p] = make_value(p, a, 0x6000 + round);
+        b.write(p, a, make_value(p, a, 0x6000 + round));
         for (int i = 0; i < RP; i++) b.dut->r_addr[i] = a;
         b.step();
       }
@@ -210,9 +219,7 @@ void test_all_ports_at_once(Bench& b) {
   for (uint32_t base = 0; base < SIZE; base++) {
     for (int p = 0; p < WP; p++) {
       const uint32_t a = (base + static_cast<uint32_t>(p) * (SIZE / WP)) % SIZE;
-      b.dut->w_en[p] = 1;
-      b.dut->w_addr[p] = a;
-      b.dut->w_data[p] = make_value(p, a, 0x7000 + base);
+      b.write(p, a, make_value(p, a, 0x7000 + base));
     }
     // 直前に書いたアドレスと、今書いているアドレスを読む
     for (int i = 0; i < RP; i++) b.dut->r_addr[i] = b.dut->w_addr[i % WP];
@@ -243,7 +250,7 @@ void test_random(Bench& b, uint64_t cycles, uint32_t seed) {
       } while (en && dup);
       b.dut->w_en[p] = en;
       b.dut->w_addr[p] = a;
-      b.dut->w_data[p] = static_cast<uint32_t>(rng());
+      b.dut->w_data[p] = static_cast<uint32_t>(rng()) & DATA_MASK;
     }
     for (int i = 0; i < RP; i++) {
       b.dut->r_addr[i] = (rng() & 1) ? recent[rng() % recent.size()] : (rng() % SIZE);
@@ -274,8 +281,8 @@ int main(int argc, char** argv) {
   const uint64_t cycles = plusarg_u64(b.ctx.get(), "cycles", 200000);
   const uint32_t seed = static_cast<uint32_t>(plusarg_u64(b.ctx.get(), "seed", 1));
 
-  std::printf("lvt_rf テスト: %dW%dR, %d エントリ, ランダム %" PRIu64 " サイクル, seed=%u\n", WP, RP, SIZE,
-              cycles, seed);
+  std::printf("multi_port_ram テスト: %dW%dR, %d エントリ x %d bit, ランダム %" PRIu64 " サイクル, seed=%u\n", WP,
+              RP, SIZE, ENTRY_WIDTH, cycles, seed);
 
   test_initial_zero(b);
   test_each_port(b);
