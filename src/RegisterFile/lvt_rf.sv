@@ -157,7 +157,7 @@ module lvt_rf #(
   logic [WL-1:0] port_id[W];  // Wポートiのidはi
   generate
     for (genvar i = 0; i < W; i++) begin : g_port_id
-      assign port_id[i] = LW'(i);
+      assign port_id[i] = WL'(i);
     end
   endgenerate
 
@@ -181,6 +181,24 @@ module lvt_rf #(
       r_data[i] = bank_data[lvt[i]][i];
     end
   end
+
+`ifndef SYNTHESIS
+  // 全書き込みを素直に反映し、全読み出しポートの値と照合する
+  logic [ENTRY_WIDTH-1:0] shadow[SIZE];
+  initial for (int i = 0; i < SIZE; i++) shadow[i] = '0;
+
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < W; i++) begin
+      if (w_en[i]) shadow[w_addr[i]] <= w_data[i];
+    end
+    for (int i = 0; i < R; i++) begin
+      if (r_data[i] != shadow[r_addr[i]]) begin
+        $error("lvt_rf: 読み出しポート %0d（アドレス %0d）の値が不一致: %h != %h", i, r_addr[i],
+               r_data[i], shadow[r_addr[i]]);
+      end
+    end
+  end
+`endif
 
 endmodule
 
