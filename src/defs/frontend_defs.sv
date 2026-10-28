@@ -4,5 +4,5 @@ package frontend;
     types::addr_t target;
   } btb_resp_t;
 
-  typedef struct packed {logic taken;} bpredictor_resp_t;
+  typedef struct packed {logic taken;} bpd_resp_t;
 endpackage
