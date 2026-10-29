@@ -66,8 +66,29 @@ module iq_core
   // rr_payloadはFFにしてRRで使わせる
   always_ff @(posedge clk) rr_payload <= is_payload;
 
-  logic empty_slot[SIZE];
+  logic [SIZE-1:0] bitmap;
+  always_ff @(posedge clk) begin
+    if (rst || flush) bitmap <= '0;
+    else begin
+      for (int i = 0; i < SIZE; i++) begin
+        if (alloc_valid[i]) bitmap[alloc_slot[i]] <= 1'b1;
+        if (fired[i]) bitmap[is_slot[i]] <= 1'b0;
+      end
+    end
+  end
 
+  logic [DISPATCH_W-1:0] empty_found;
+
+  find_empty_slot #(
+    .SIZE(SIZE),
+    .FIND_NUM(DISPATCH_W)
+  ) find_empty_slot (
+    .bitmap(bitmap),
+    .found (empty_found),
+    .slot  (alloc_slot)
+  );
+
+  assign disp_full = ~empty_found[DISPATCH_W-1];
 
 endmodule
 
