@@ -42,6 +42,33 @@ module iq_core
   output logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W]
 );
 
+  localparam int IDX_W = (SIZE > 1) ? $clog2(SIZE) : 1;
+
+  logic alloc_valid[DISPATCH_W];
+  logic [IDX_W-1:0] alloc_slot[DISPATCH_W];
+  logic [IDX_W-1:0] is_slot[ISSUE_W];
+  logic [PAYLOAD_W-1:0] is_payload[ISSUE_W];
+
+  multi_port_ram #(
+    .SIZE(SIZE),
+    .ENTRY_WIDTH(PAYLOAD_W),
+    .R(ISSUE_W),
+    .W(DISPATCH_W)
+  ) iq_payload (
+    .clk   (clk),
+    .w_en  (alloc_valid),
+    .w_addr(alloc_slot),
+    .w_data(disp_payload),
+    .r_addr(is_slot),
+    .r_data(is_payload)
+  );
+
+  // rr_payloadはFFにしてRRで使わせる
+  always_ff @(posedge clk) rr_payload <= is_payload;
+
+  logic empty_slot[SIZE];
+
+
 endmodule
 
 `default_nettype wire

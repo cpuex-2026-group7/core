@@ -1,3 +1,6 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
 module selector #(
   parameter int SIZE = 16
 ) (
@@ -14,3 +17,5 @@ module selector #(
   end
 
 endmodule
+
+`default_nettype wire
