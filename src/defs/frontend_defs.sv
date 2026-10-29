@@ -19,11 +19,16 @@ package frontend;
     types::addr_t pc_value;
   } btb_update_req_t;
 
-
   typedef enum logic [1:0] {
     PCSRCF0_SEQ,
     PCSRCF0_FRD,
     PCSRCF0_BRD
   } pc_src_F0_t;
+
+  typedef struct packed {branch_type_t btype;} ftq_bp_data_t;
+  typedef struct packed {
+    types::addr_t pc;
+    ftq_bp_data_t bp_data;
+  } ftq_data_t;
 
 endpackage
