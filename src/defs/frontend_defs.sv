@@ -18,4 +18,12 @@ package frontend;
     types::addr_t pc_key;
     types::addr_t pc_value;
   } btb_update_req_t;
+
+
+  typedef enum logic [1:0] {
+    PCSRCF0_SEQ,
+    PCSRCF0_FRD,
+    PCSRCF0_BRD
+  } pc_src_F0_t;
+
 endpackage
