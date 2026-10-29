@@ -13,12 +13,6 @@ package frontend;
     BR_JALR
   } branch_type_t;
 
-  typedef struct packed {
-    logic valid;
-    types::addr_t pc_key;
-    types::addr_t pc_value;
-  } btb_update_req_t;
-
   typedef enum logic [1:0] {
     PCSRCF0_SEQ,
     PCSRCF0_FRD,

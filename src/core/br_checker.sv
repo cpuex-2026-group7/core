@@ -7,10 +7,19 @@ module br_checker (
     input wire frontend::branch_type_t brdec_btype,
     input wire types::addr_t brdec_target_pc,
     input wire types::addr_t pc,
-    output btb_update_req_t btb_update_req
+    output logic redirect_F
 );
 
-
+always_comb begin
+    unique case (brdec_btype)
+    BR_NONE:
+        redirect_F = btb_resp.valid
+    BR_JALR:
+        redirect_F = 1'b0
+    default:
+        redirect_F = (btb_resp.valid ^ bpd_resp.taken) | (btb_resp.valid & brdec_target_pc != btb_resp.target)
+    endcase
+end
 
 endmodule
 
