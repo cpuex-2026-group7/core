@@ -17,7 +17,7 @@ module iq_core
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush,
+  input wire logic flush, // loadの順序違反でflush
 
   // wrapper
   input wire logic disp_valid[DISPATCH_W],
@@ -35,7 +35,7 @@ module iq_core
   // FU (fdiv,fsqrtのブロック用)
   input wire logic dest_fu_blocked[DEST_FU_NUM],
   output logic fired[ISSUE_W],
-  output dest_fu_t dest_fu[ISSUE_W],
+  output dest_fu_t fired_dest_fu[ISSUE_W],
 
   // to RR
   output iq_rr_t to_rr[ISSUE_W],
