@@ -6,7 +6,7 @@ package back_types;
   import isa::*;
   import uop_types::*;
 
-  typedef logic [2:0] latency_t;
+  typedef logic [1:0] latency_t;
 
   typedef struct packed {
     logic     valid;
@@ -30,11 +30,10 @@ package back_types;
     brmask_t  brmask;
   } iq_rr_t;
 
-  localparam latency_t LAT_SLOW   = 3'd0;
-  localparam latency_t LAT_FAST   = 3'd1;
-  localparam latency_t LAT_ITOF   = 3'd2;
-  localparam latency_t LAT_FADD   = 3'd2;
-  localparam latency_t LAT_FMUL   = 3'd4;
+  localparam latency_t LAT_FAST   = 2'd0;
+  localparam latency_t LAT_ITOF   = 2'd1;
+  localparam latency_t LAT_FADD   = 2'd1;
+  localparam latency_t LAT_FMUL   = 2'd3;
 
   localparam dest_fu_t FU_F_SHORT = 2'b00;
   localparam dest_fu_t FU_F_LONG  = 2'b01;

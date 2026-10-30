@@ -10,7 +10,7 @@ package iq_types;
   typedef latency_t cnt_down_t;
 
   typedef struct packed {
-    logic      waiting;
+    logic      counting;
     cnt_down_t cnt;
   } src_state_t;
 
