@@ -19,6 +19,7 @@ package types;
   localparam int LDQ_SIZE = 8;
   localparam int STQ_SIZE = 8;
 
+
   typedef enum logic [1:0] {
     PREG_TYPE_INT  = 2'b00,
     PREG_TYPE_F    = 2'b01,

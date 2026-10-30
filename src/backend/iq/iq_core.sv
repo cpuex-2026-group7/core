@@ -49,6 +49,7 @@ module iq_core
 );
 
   localparam int IDX_W = (SIZE > 1) ? $clog2(SIZE) : 1;
+  localparam int FU_IDX_W = (DEST_FU_NUM > 1) ? $clog2(DEST_FU_NUM) : 1;
 
   // one hotをidxに
   function automatic logic [IDX_W-1:0] onehot_to_idx(input logic [SIZE-1:0] onehot);
@@ -195,7 +196,7 @@ module iq_core
   always_comb begin
     for (int i = 0; i < DEST_FU_NUM; i++) issued_fu[i] = 1'b0;
     for (int i = 0; i < ISSUE_W; i++) begin
-      if (issued[i]) issued_fu[issued_dest_fu[i]] = 1'b1;
+      if (issued[i]) issued_fu[FU_IDX_W'(issued_dest_fu[i])] = 1'b1;
     end
   end
 
@@ -216,10 +217,10 @@ module iq_core
     end
 
     for (int i = 0; i < DISPATCH_W; i++) begin
-      if (alloc_valid[i]) n_bitmaps[disp_entry[i].dest_fu][alloc_slot[i]] = 1'b1;
+      if (alloc_valid[i]) n_bitmaps[FU_IDX_W'(disp_entry[i].dest_fu)][alloc_slot[i]] = 1'b1;
     end
     for (int i = 0; i < ISSUE_W; i++) begin
-      if (issued[i]) n_bitmaps[issued_dest_fu[i]][issued_slot[i]] = 1'b0;
+      if (issued[i]) n_bitmaps[FU_IDX_W'(issued_dest_fu[i])][issued_slot[i]] = 1'b0;
     end
   end
 
@@ -272,7 +273,7 @@ module iq_core
   // slowなFUとrdなしは出さない
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
-      sending_wakeup[i].valid = issued[i] && !SLOW_WAKEUP_FU[issued_dest_fu[i]] && iq_ff[issued_slot[i]].rd.typ != PREG_TYPE_NONE;
+      sending_wakeup[i].valid = issued[i] && !SLOW_WAKEUP_FU[FU_IDX_W'(issued_dest_fu[i])] && iq_ff[issued_slot[i]].rd.typ != PREG_TYPE_NONE;
       sending_wakeup[i].preg = iq_ff[issued_slot[i]].rd;
       sending_wakeup[i].latency = iq_ff[issued_slot[i]].lat;
     end

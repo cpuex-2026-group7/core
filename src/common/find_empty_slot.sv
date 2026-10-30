@@ -44,15 +44,17 @@ module find_empty_slot #(
       assign slot[1] = onehot_to_idx(high_oh);
     end else begin : g_find_many
       // 一番下の1を消すのを繰り返す
-      logic [SIZE-1:0] rest[FIND_NUM+1];
-      assign rest[0] = empty;
-
       for (genvar d = 0; d < FIND_NUM; d++) begin : g_each
+        logic [SIZE-1:0] cur;
         logic [SIZE-1:0] onehot;
-        assign onehot = rest[d] & (-rest[d]);
-        assign rest[d+1] = rest[d] & (rest[d] - 1'b1);
-        assign found[d] = |rest[d];
-        assign slot[d] = onehot_to_idx(onehot);
+        if (d == 0) begin : g_first
+          assign cur = empty;
+        end else begin : g_next
+          assign cur = g_each[d-1].cur & (g_each[d-1].cur - 1'b1);
+        end
+        assign onehot   = cur & (-cur);
+        assign found[d] = |cur;
+        assign slot[d]  = onehot_to_idx(onehot);
       end
     end
   endgenerate
