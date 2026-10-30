@@ -1,4 +1,4 @@
-package frontend;
+package frontend_pkg;
   typedef struct packed {
     logic valid;
     types::addr_t target;

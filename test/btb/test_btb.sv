@@ -16,7 +16,7 @@ module test_btb;
   logic clk = 0;
   logic rst = 0;
   addr_t pc = '0;
-  frontend::btb_resp_t resp;
+  frontend_pkg::btb_resp_t resp;
   logic update_en = 0;
   addr_t update_pc = '0;
   addr_t update_target = '0;

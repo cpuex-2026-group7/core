@@ -7,11 +7,11 @@ module ftq #(
     input wire logic clk,
     input wire logic rst,
 
-    input wire frontend::ftq_data_t din,
+    input wire frontend_pkg::ftq_data_t din,
     input wire logic push,
 
     input wire logic [IDX_WIDTH-1:0] get_idx,
-    output frontend::ftq_data_t dout,
+    output frontend_pkg::ftq_data_t dout,
 
     input wire logic pop,
 
@@ -21,7 +21,7 @@ module ftq #(
 
   localparam int NENTRY = 2 ** IDX_WIDTH;
 
-  frontend::ftq_data_t data[NENTRY];
+  frontend_pkg::ftq_data_t data[NENTRY];
 
   assign dout = data[get_idx];
 

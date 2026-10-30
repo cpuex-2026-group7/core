@@ -10,7 +10,7 @@ module btb
     input wire logic clk,
     input wire logic rst,
     input wire addr_t pc,
-    output frontend::btb_resp_t resp,
+    output frontend_pkg::btb_resp_t resp,
     input wire logic update_en,
     input wire addr_t update_pc,
     input wire addr_t update_target

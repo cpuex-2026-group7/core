@@ -2,7 +2,7 @@
 `default_nettype none
 
 module bpd (
-    output frontend::bpd_resp_t resp
+    output frontend_pkg::bpd_resp_t resp
 );
 
   assign resp.taken = 1'b1;

@@ -7,10 +7,10 @@ module fetchq #(
     input wire logic clk,
     input wire logic rst,
 
-    input wire types::instr_t din,
+    input wire isa::instr_t din,
     input wire logic push,
 
-    output types::instr_t dout,
+    output isa::instr_t dout,
     input wire logic pop,
 
     output logic full,
@@ -19,7 +19,7 @@ module fetchq #(
 
   localparam int NENTRY = 2 ** IDX_WIDTH;
 
-  types::instr_t data[NENTRY];
+  isa::instr_t data[NENTRY];
 
   assign dout = data[ptr_head];
 
