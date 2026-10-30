@@ -180,7 +180,7 @@ module iq_core
         .older(older),
         .grant(grant[i])  // one hot
       );
-      assign issued[i] = |grant[i] && !flush;
+      assign issued[i] = |grant[i] && !rst && !flush;
       assign issued_slot[i] = onehot_to_idx(grant[i]);
     end
   endgenerate
