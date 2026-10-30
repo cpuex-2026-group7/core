@@ -44,41 +44,12 @@ module iq_core
 
   localparam int IDX_W = (SIZE > 1) ? $clog2(SIZE) : 1;
 
-  logic alloc_valid[DISPATCH_W];
-  logic [IDX_W-1:0] alloc_slot[DISPATCH_W];
-  logic [IDX_W-1:0] is_slot[ISSUE_W];
-  logic [PAYLOAD_W-1:0] is_payload[ISSUE_W];
-
-  multi_port_ram #(
-    .SIZE(SIZE),
-    .ENTRY_WIDTH(PAYLOAD_W),
-    .R(ISSUE_W),
-    .W(DISPATCH_W)
-  ) iq_payload (
-    .clk   (clk),
-    .w_en  (alloc_valid),
-    .w_addr(alloc_slot),
-    .w_data(disp_payload),
-    .r_addr(is_slot),
-    .r_data(is_payload)
-  );
-
-  // rr_payloadはFFにしてRRで使わせる
-  always_ff @(posedge clk) rr_payload <= is_payload;
-
   logic [SIZE-1:0] bitmap;
-  always_ff @(posedge clk) begin
-    if (rst || flush) bitmap <= '0;
-    else begin
-      for (int i = 0; i < SIZE; i++) begin
-        if (alloc_valid[i]) bitmap[alloc_slot[i]] <= 1'b1;
-        if (fired[i]) bitmap[is_slot[i]] <= 1'b0;
-      end
-    end
-  end
-
+  logic [SIZE-1:0] n_bitmap;
   logic [DISPATCH_W-1:0] empty_found;
+  logic [IDX_W-1:0] alloc_slot[DISPATCH_W];
 
+  // empty slot
   find_empty_slot #(
     .SIZE(SIZE),
     .FIND_NUM(DISPATCH_W)
@@ -89,6 +60,62 @@ module iq_core
   );
 
   assign disp_full = ~empty_found[DISPATCH_W-1];
+
+  logic alloc_valid[DISPATCH_W];
+  logic [IDX_W-1:0] issue_slot[ISSUE_W];
+
+  // bitmap更新
+  always_comb begin
+    for (int i = 0; i < DISPATCH_W; i++) begin
+      alloc_valid[i] = disp_valid[i] && empty_found[i];
+    end
+
+    n_bitmap = bitmap;
+    if (rst || flush) n_bitmap = '0;
+    else begin
+      for (int i = 0; i < DISPATCH_W; i++) begin
+        if (alloc_valid[i] && empty_found[i]) n_bitmap[alloc_slot[i]] = 1'b1;
+      end
+      for (int i = 0; i < ISSUE_W; i++) begin
+        if (fired[i]) n_bitmap[issue_slot[i]] = 1'b0;
+      end
+    end
+  end
+
+  always_ff @(posedge clk) bitmap <= n_bitmap;
+
+  logic [PAYLOAD_W-1:0] iq_payload[ISSUE_W];
+
+  // payload
+  multi_port_ram #(
+    .SIZE(SIZE),
+    .ENTRY_WIDTH(PAYLOAD_W),
+    .R(ISSUE_W),
+    .W(DISPATCH_W)
+  ) payload_ram (
+    .clk   (clk),
+    .w_en  (alloc_valid),
+    .w_addr(alloc_slot),
+    .w_data(disp_payload),
+    .r_addr(issue_slot),
+    .r_data(iq_payload)
+  );
+
+  // rr_payloadはFFにしてRRで使わせる
+  always_ff @(posedge clk) rr_payload <= iq_payload;
+
+  // FF
+  wrapper_ff_t iq_ff  [SIZE];
+  wrapper_ff_t n_iq_ff[SIZE];
+
+  always_comb begin
+    n_iq_ff = iq_ff;
+    // ff更新
+  end
+
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < SIZE; i++) iq_ff[i] <= n_iq_ff[i];
+  end
 
 endmodule
 
