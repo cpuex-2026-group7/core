@@ -21,7 +21,7 @@ package types;
 
 
   typedef enum logic [1:0] {
-    PREG_TYPE_INT  = 2'b00,
+    PREG_TYPE_I  = 2'b00,
     PREG_TYPE_F    = 2'b01,
     PREG_TYPE_NONE = 2'b10
   } preg_type_t;

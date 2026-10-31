@@ -10,6 +10,7 @@ package iq_types;
   typedef latency_t cnt_down_t;
 
   typedef struct packed {
+    // counting && cnt == 0がready
     logic      counting;
     cnt_down_t cnt;
   } src_state_t;
@@ -48,7 +49,7 @@ package iq_types;
     opcode_t  op;
     imm_raw_t imm;
     rob_idx_t rob_idx;
-  } fp_payload_t;
+  } float_payload_t;
 
 endpackage
 

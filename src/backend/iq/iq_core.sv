@@ -3,6 +3,7 @@
 
 module iq_core
   import types::*;
+  import uop_types::*;
   import back_types::*;
   import iq_types::*;
 #(
@@ -39,7 +40,7 @@ module iq_core
   input wire br_update_t br_update[BR_UPDATE_W],
 
   // FU (fdiv,fsqrtのブロック用)
-  input wire logic dest_fu_blocked[DEST_FU_NUM],
+  input wire logic [DEST_FU_NUM-1:0] dest_fu_blocked,
   output logic issued[ISSUE_W],
   output dest_fu_t issued_dest_fu[ISSUE_W],
 
@@ -258,9 +259,14 @@ module iq_core
     // dispatch 同じサイクルのwakeupと分岐も当てる
     for (int i = 0; i < DISPATCH_W; i++) begin
       if (alloc_valid[i]) begin
+        // disp_entryにもcnt-1をあてる
         n_iq_ff[alloc_slot[i]] = disp_entry[i];
-        n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(disp_entry[i].rs1, coming_wakeup);
-        n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(disp_entry[i].rs2, coming_wakeup);
+        if (disp_entry[i].rs1.st.counting && disp_entry[i].rs1.st.cnt > 0)
+          n_iq_ff[alloc_slot[i]].rs1.st.cnt = disp_entry[i].rs1.st.cnt - 1;
+        if (disp_entry[i].rs2.st.counting && disp_entry[i].rs2.st.cnt > 0)
+          n_iq_ff[alloc_slot[i]].rs2.st.cnt = disp_entry[i].rs2.st.cnt - 1;
+        n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, coming_wakeup);
+        n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, coming_wakeup);
         n_iq_ff[alloc_slot[i]].brmask = apply_br_update(disp_entry[i].brmask, br_update);
       end
     end

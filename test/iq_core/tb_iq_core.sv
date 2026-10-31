@@ -146,7 +146,7 @@ module tb_iq_core
   endfunction
 
   function automatic preg_t pi(int i);
-    return mk_preg(PREG_TYPE_INT, i);
+    return mk_preg(PREG_TYPE_I, i);
   endfunction
 
   function automatic preg_t pf(int i);
@@ -307,8 +307,8 @@ module tb_iq_core
   endtask
 
   task automatic check_comb();
-    logic exp_full;
-    logic exp_wv;
+    logic  exp_full;
+    logic  exp_wv;
     ment_t e;
     if (rst) return;
     exp_full = (SIZE - occupancy()) < DISPATCH_W;
@@ -320,7 +320,8 @@ module tb_iq_core
       checks++;
       if (exp_idx[p] < 0) begin
         if (issued[p] !== 1'b0) fail($sformatf("port%0d が issue した（期待は issue なし）", p));
-        else if (sending_wakeup[p].valid !== 1'b0) fail($sformatf("port%0d が issue していないのに wakeup を出した", p));
+        else if (sending_wakeup[p].valid !== 1'b0)
+          fail($sformatf("port%0d が issue していないのに wakeup を出した", p));
         continue;
       end
       e = m[exp_idx[p]];
@@ -328,13 +329,21 @@ module tb_iq_core
         fail($sformatf("port%0d が issue しない（期待は id %0d）", p, e.id));
         continue;
       end
-      if (issued_dest_fu[p] !== e.fu) fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d", p, issued_dest_fu[p], e.fu));
+      if (issued_dest_fu[p] !== e.fu)
+        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d", p, issued_dest_fu[p], e.fu));
       exp_wv = !SLOW_WAKEUP_FU[e.fu] && e.rd.typ != PREG_TYPE_NONE;
       if (sending_wakeup[p].valid !== exp_wv)
-        fail($sformatf("port%0d sending_wakeup.valid=%0b 期待=%0b（id %0d）", p, sending_wakeup[p].valid, exp_wv, e.id));
+        fail($sformatf(
+             "port%0d sending_wakeup.valid=%0b 期待=%0b（id %0d）", p, sending_wakeup[p].valid, exp_wv, e.id));
       else if (exp_wv && (sending_wakeup[p].preg !== e.rd || sending_wakeup[p].latency !== e.lat))
-        fail($sformatf("port%0d sending_wakeup preg=%h lat=%0d 期待 preg=%h lat=%0d", p, sending_wakeup[p].preg,
-                       sending_wakeup[p].latency, e.rd, e.lat));
+        fail($sformatf(
+             "port%0d sending_wakeup preg=%h lat=%0d 期待 preg=%h lat=%0d",
+             p,
+             sending_wakeup[p].preg,
+             sending_wakeup[p].latency,
+             e.rd,
+             e.lat
+             ));
     end
   endtask
 
@@ -347,8 +356,8 @@ module tb_iq_core
       if (w) begin
         st_rewake++;
       end else begin
-        w = 1'b1;
-        r = cyc + 1 + cyc_t'(wl[k]);
+        w   = 1'b1;
+        r   = cyc + 1 + cyc_t'(wl[k]);
         hit = 1'b1;
       end
     end
@@ -405,7 +414,7 @@ module tb_iq_core
       issued_at[int'(m[idx].id)] = cyc;
       st_issue[p]++;
       if (BLOCKING_FU[m[idx].fu]) begin
-        memo_v[m[idx].fu] = 1'b1;
+        memo_v[m[idx].fu]  = 1'b1;
         memo_at[m[idx].fu] = cyc;
       end
       m[idx].valid = 1'b0;
@@ -479,14 +488,26 @@ module tb_iq_core
       end
       if (!exp_rr_valid[p]) continue;
       if (rr_ff[p].rd !== exp_rr[p].rd || rr_ff[p].rs1 !== exp_rr[p].rs1 || rr_ff[p].rs2 !== exp_rr[p].rs2)
-        fail($sformatf("port%0d rr_ff のレジスタ rd=%h rs1=%h rs2=%h 期待 rd=%h rs1=%h rs2=%h（id %0d）", p, rr_ff[p].rd,
-                       rr_ff[p].rs1, rr_ff[p].rs2, exp_rr[p].rd, exp_rr[p].rs1, exp_rr[p].rs2, exp_rr[p].id));
+        fail($sformatf(
+             "port%0d rr_ff のレジスタ rd=%h rs1=%h rs2=%h 期待 rd=%h rs1=%h rs2=%h（id %0d）",
+             p,
+             rr_ff[p].rd,
+             rr_ff[p].rs1,
+             rr_ff[p].rs2,
+             exp_rr[p].rd,
+             exp_rr[p].rs1,
+             exp_rr[p].rs2,
+             exp_rr[p].id
+             ));
       if (rr_ff[p].dest_fu !== exp_rr[p].fu)
-        fail($sformatf("port%0d rr_ff.dest_fu=%0d 期待=%0d（id %0d）", p, rr_ff[p].dest_fu, exp_rr[p].fu, exp_rr[p].id));
+        fail($sformatf(
+             "port%0d rr_ff.dest_fu=%0d 期待=%0d（id %0d）", p, rr_ff[p].dest_fu, exp_rr[p].fu, exp_rr[p].id));
       if (rr_ff[p].brmask !== exp_rr[p].brmask)
-        fail($sformatf("port%0d rr_ff.brmask=%b 期待=%b（id %0d）", p, rr_ff[p].brmask, exp_rr[p].brmask, exp_rr[p].id));
+        fail($sformatf(
+             "port%0d rr_ff.brmask=%b 期待=%b（id %0d）", p, rr_ff[p].brmask, exp_rr[p].brmask, exp_rr[p].id));
       if (rr_payload[p] !== exp_rr[p].payload)
-        fail($sformatf("port%0d rr_payload=%h 期待=%h（id %0d）", p, rr_payload[p], exp_rr[p].payload, exp_rr[p].id));
+        fail($sformatf("port%0d rr_payload=%h 期待=%h（id %0d）", p, rr_payload[p], exp_rr[p].payload, exp_rr[p].id
+             ));
     end
   endtask
 
@@ -512,11 +533,11 @@ module tb_iq_core
   endfunction
 
   task automatic clear_inputs();
-    rst = 1'b0;
+    rst   = 1'b0;
     flush = 1'b0;
     for (int i = 0; i < DISPATCH_W; i++) begin
-      disp_valid[i] = 1'b0;
-      disp_entry[i] = '0;
+      disp_valid[i]   = 1'b0;
+      disp_entry[i]   = '0;
       disp_payload[i] = '0;
     end
     for (int x = 0; x < EXT_W; x++) ext_wakeup[x] = '0;
@@ -525,8 +546,8 @@ module tb_iq_core
   endtask
 
   task automatic put(int lane, wrapper_ff_t e, int id);
-    disp_valid[lane] = 1'b1;
-    disp_entry[lane] = e;
+    disp_valid[lane]   = 1'b1;
+    disp_entry[lane]   = e;
     disp_payload[lane] = {rng_state[63:32], 32'(id)};
   endtask
 
@@ -558,12 +579,14 @@ module tb_iq_core
   task automatic expect_at(int id, cyc_t c);
     checks++;
     if (!issued_at.exists(id)) fail($sformatf("id %0d が issue されていない（期待 cycle %0d）", id, c));
-    else if (issued_at[id] != c) fail($sformatf("id %0d の issue が cycle %0d（期待 %0d）", id, issued_at[id], c));
+    else if (issued_at[id] != c)
+      fail($sformatf("id %0d の issue が cycle %0d（期待 %0d）", id, issued_at[id], c));
   endtask
 
   task automatic expect_never(int id);
     checks++;
-    if (issued_at.exists(id)) fail($sformatf("id %0d は issue されないはずが cycle %0d に issue された", id, issued_at[id]));
+    if (issued_at.exists(id))
+      fail($sformatf("id %0d は issue されないはずが cycle %0d に issue された", id, issued_at[id]));
   endtask
 
   task automatic expect_true(logic c, string msg);
@@ -587,7 +610,7 @@ module tb_iq_core
     cycle();
     run_idle(3);
     test_name = name;
-    err_base = errors;
+    err_base  = errors;
   endtask
 
   task automatic end_test();
@@ -601,10 +624,10 @@ module tb_iq_core
   endtask
 
   task automatic t_basic();
-    int a;
+    int   a;
     cyc_t t0;
     begin_test("ready なものは dispatch の次のサイクルに issue");
-    a = nid();
+    a  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(40), s_none(), s_none(), 0, fu_any, '0), a);
@@ -618,10 +641,11 @@ module tb_iq_core
     int a, b, c, d, e;
     cyc_t t0, t1;
     if (fu_fast < 0) return;
-    begin_test("LAT_FAST の依存命令が毎サイクル連続で issue（dispatch と同じサイクルの wakeup を含む）");
-    a = nid();
-    b = nid();
-    c = nid();
+    begin_test(
+      "LAT_FAST の依存命令が毎サイクル連続で issue（dispatch と同じサイクルの wakeup を含む）");
+    a  = nid();
+    b  = nid();
+    c  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(40), s_none(), s_none(), LAT_FAST, fu_fast, '0), a);
@@ -639,8 +663,8 @@ module tb_iq_core
     expect_at(c, t0 + 3);
 
     // 先に IQ で待っている側
-    d = nid();
-    e = nid();
+    d  = nid();
+    e  = nid();
     t1 = cyc;
     clear_inputs();
     put(0, ent(pi(43), s_wait(pi(44)), s_none(), LAT_FAST, fu_fast, '0), d);
@@ -659,8 +683,8 @@ module tb_iq_core
     cyc_t t0, t1;
     if (fu_fast < 0) return;
     begin_test("lat の分だけ依存命令が待つ（lat=3, lat=1）");
-    a = nid();
-    b = nid();
+    a  = nid();
+    b  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(45), s_none(), s_none(), 3, fu_fast, '0), a);
@@ -672,8 +696,8 @@ module tb_iq_core
     expect_at(a, t0 + 1);
     expect_at(b, t0 + 5);
 
-    c = nid();
-    d = nid();
+    c  = nid();
+    d  = nid();
     t1 = cyc;
     clear_inputs();
     put(0, ent(pi(47), s_none(), s_none(), 1, fu_fast, '0), c);
@@ -691,7 +715,7 @@ module tb_iq_core
     int a, b, c;
     cyc_t t0, t1, t2;
     begin_test("dispatch 時の cnt の分だけ待つ（遅い方のソースに合わせる）");
-    a = nid();
+    a  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(50), s_rdy(pi(51), 2), s_none(), 0, fu_any, '0), a);
@@ -699,7 +723,7 @@ module tb_iq_core
     run_idle(4);
     expect_at(a, t0 + 3);
 
-    b = nid();
+    b  = nid();
     t1 = cyc;
     clear_inputs();
     put(0, ent(pi(52), s_rdy(pi(53), 1), s_rdy(pf(53), 3), 0, fu_any, '0), b);
@@ -707,7 +731,7 @@ module tb_iq_core
     run_idle(5);
     expect_at(b, t1 + 4);
 
-    c = nid();
+    c  = nid();
     t2 = cyc;
     clear_inputs();
     put(0, ent(pi(54), s_rdy(pi(55), 0), s_rdy(pf(55), 0), 0, fu_any, '0), c);
@@ -834,9 +858,9 @@ module tb_iq_core
     cyc_t t0, t1;
     if (fu_blk < 0) return;
     begin_test("BLOCKING_FU は issue 後 ISSUE_TO_FU サイクルと dest_fu_blocked の間は出さない");
-    a = nid();
-    b = nid();
-    c = nid();
+    a  = nid();
+    b  = nid();
+    c  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pn(), s_none(), s_none(), 0, fu_blk, '0), a);
@@ -857,8 +881,8 @@ module tb_iq_core
     if (fu_blk2 >= 0) expect_at(c, t0 + 3);
 
     // dest_fu_blocked が無ければ ISSUE_TO_FU サイクルだけ止まる
-    d = nid();
-    e = nid();
+    d  = nid();
+    e  = nid();
     t1 = cyc;
     clear_inputs();
     put(0, ent(pn(), s_none(), s_none(), 0, fu_blk, '0), d);
@@ -873,10 +897,10 @@ module tb_iq_core
   endtask
 
   task automatic t_fu_blocked_input();
-    int a;
+    int   a;
     cyc_t t0;
     begin_test("dest_fu_blocked が立っている FU には出さない（blocking でない FU も）");
-    a = nid();
+    a  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(40), s_none(), s_none(), 0, fu_any, '0), a);
@@ -932,7 +956,7 @@ module tb_iq_core
     expect_never(c);
 
     // 関係ないタグでは消えない
-    d = nid();
+    d  = nid();
     t2 = cyc;
     clear_inputs();
     put(0, ent(pi(43), s_none(), s_none(), 0, fu_any, bit_of(5)), d);
@@ -973,7 +997,7 @@ module tb_iq_core
     int a, b, c, port;
     cyc_t t0, t2;
     begin_test("当たった分岐のビットが落ちる（IQ の中、rr_ff、dispatch 中）");
-    a = nid();
+    a  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(40), s_wait(pi(1)), s_none(), 0, fu_any, bit_of(5)), a);
@@ -1000,12 +1024,12 @@ module tb_iq_core
     clear_inputs();
     resolve(6);
     cycle();
-    expect_true(rr_ff[port].valid === 1'b1 && rr_ff[port].brmask === bit_of(7),
-                $sformatf("issue と同時の resolve が rr_ff に入っていない（brmask=%b）", rr_ff[port].brmask));
+    expect_true(rr_ff[port].valid === 1'b1 && rr_ff[port].brmask === bit_of(7), $sformatf(
+                "issue と同時の resolve が rr_ff に入っていない（brmask=%b）", rr_ff[port].brmask));
     run_idle(1);
 
     // dispatch と同じサイクルの resolve
-    c = nid();
+    c  = nid();
     t2 = cyc;
     clear_inputs();
     put(0, ent(pi(42), s_wait(pi(2)), s_none(), 0, fu_any, bit_of(3)), c);
@@ -1094,7 +1118,8 @@ module tb_iq_core
     put(0, ent(pi(42), s_none(), s_none(), 0, fu_any, '0), c);
     cycle();
     expect_true(disp_full === 1'b0, "flush の後に disp_full が立っている");
-    for (int p = 0; p < ISSUE_W; p++) expect_true(rr_ff[p].valid === 1'b0, "flush の次のサイクルに rr_ff.valid が立っている");
+    for (int p = 0; p < ISSUE_W; p++)
+      expect_true(rr_ff[p].valid === 1'b0, "flush の次のサイクルに rr_ff.valid が立っている");
     clear_inputs();
     ext(0, pi(1), 0);
     cycle();
@@ -1104,7 +1129,7 @@ module tb_iq_core
     expect_never(c);
 
     // flush の後は普通に使える
-    d = nid();
+    d  = nid();
     t3 = cyc;
     clear_inputs();
     put(0, ent(pi(43), s_none(), s_none(), 0, fu_any, '0), d);
@@ -1164,8 +1189,8 @@ module tb_iq_core
     expect_at(c, t2 + 3);
 
     // dispatch と同じサイクルの外からの wakeup
-    d = nid();
-    e = nid();
+    d  = nid();
+    e  = nid();
     t3 = cyc;
     clear_inputs();
     put(0, ent(pn(), s_wait(pi(8)), s_none(), 0, fu_any, '0), d);
@@ -1233,7 +1258,8 @@ module tb_iq_core
     int a, b, c, d, e;
     cyc_t tw, t2, t3;
     if (DISPATCH_W < 2) return;
-    begin_test("2 レーン dispatch（レーン 0 が古い、同じサイクルの producer と consumer、レーン 1 だけ）");
+    begin_test(
+      "2 レーン dispatch（レーン 0 が古い、同じサイクルの producer と consumer、レーン 1 だけ）");
     a = nid();
     b = nid();
     clear_inputs();
@@ -1249,8 +1275,8 @@ module tb_iq_core
     expect_at(b, tw + 2);
 
     if (fu_fast >= 0) begin
-      c = nid();
-      d = nid();
+      c  = nid();
+      d  = nid();
       t2 = cyc;
       clear_inputs();
       put(0, ent(pi(12), s_none(), s_none(), LAT_FAST, fu_fast, '0), c);
@@ -1261,7 +1287,7 @@ module tb_iq_core
       expect_at(d, t2 + 2);
     end
 
-    e = nid();
+    e  = nid();
     t3 = cyc;
     clear_inputs();
     put(1, ent(pn(), s_none(), s_none(), 0, fu_any, '0), e);
@@ -1274,7 +1300,7 @@ module tb_iq_core
   // ---------------- ランダムテスト ----------------
 
   typedef struct packed {
-    cyc_t at;
+    cyc_t  at;
     preg_t preg;
   } pend_t;
 
@@ -1397,12 +1423,12 @@ module tb_iq_core
         blk_from[f] = t + 3;
         blk_to[f] = t + 2 + cyc_t'(d);
         if (SLOW_WAKEUP_FU[f] && exp_rr[p].rd.typ != PREG_TYPE_NONE) begin
-          pe.at = t + 3 + cyc_t'(d);
+          pe.at   = t + 3 + cyc_t'(d);
           pe.preg = exp_rr[p].rd;
           pend.push_back(pe);
         end
       end else if (SLOW_WAKEUP_FU[f] && exp_rr[p].rd.typ != PREG_TYPE_NONE) begin
-        pe.at = t + 2 + cyc_t'(rnd(10));
+        pe.at   = t + 2 + cyc_t'(rnd(10));
         pe.preg = exp_rr[p].rd;
         pend.push_back(pe);
       end
@@ -1433,15 +1459,18 @@ module tb_iq_core
       after_random_cycle(t);
     end
 
-    $display("  ランダム %0d サイクル: kill %0d, dispatch で kill %0d, 満杯で捨てた %0d, 満杯サイクル %0d", n, st_kill,
-             st_drop_kill, st_drop_full, st_full_cycles);
-    $display("  dispatch と同時の wakeup %0d, 二重 wakeup %0d, ISSUE_TO_FU で止めた %0d, dest_fu_blocked で止めた %0d",
-             st_alloc_wake, st_rewake, st_memo_block, st_input_block);
+    $display(
+      "  ランダム %0d サイクル: kill %0d, dispatch で kill %0d, 満杯で捨てた %0d, 満杯サイクル %0d",
+      n, st_kill, st_drop_kill, st_drop_full, st_full_cycles);
+    $display(
+      "  dispatch と同時の wakeup %0d, 二重 wakeup %0d, ISSUE_TO_FU で止めた %0d, dest_fu_blocked で止めた %0d",
+      st_alloc_wake, st_rewake, st_memo_block, st_input_block);
     $display("  flush %0d, resolve %0d", st_flush, st_resolve);
     for (int p = 0; p < ISSUE_W; p++) $display("  port%0d issue %0d", p, st_issue[p]);
 
     // 狙った状況が起きていなければテストとして意味が無いので落とす
-    for (int p = 0; p < ISSUE_W; p++) expect_true(st_issue[p] > 0, $sformatf("port%0d が一度も issue していない", p));
+    for (int p = 0; p < ISSUE_W; p++)
+      expect_true(st_issue[p] > 0, $sformatf("port%0d が一度も issue していない", p));
     expect_true(st_kill > 0, "IQ 内の kill が起きていない");
     expect_true(st_drop_kill > 0, "dispatch 中の kill が起きていない");
     expect_true(st_drop_full > 0, "満杯で捨てる状況が起きていない");
@@ -1474,13 +1503,13 @@ module tb_iq_core
     test_name = "リセット";
     for (int e = 0; e < SIZE; e++) m[e] = '0;
     for (int f = 0; f < DEST_FU_NUM; f++) begin
-      memo_v[f] = 1'b0;
+      memo_v[f]  = 1'b0;
       memo_at[f] = '0;
     end
 
     fu_fast = -1;
     fu_slow = -1;
-    fu_blk = -1;
+    fu_blk  = -1;
     fu_blk2 = -1;
     for (int f = DEST_FU_NUM - 1; f >= 0; f--) begin
       if (!SLOW_WAKEUP_FU[f] && !BLOCKING_FU[f]) fu_fast = f;
@@ -1489,11 +1518,12 @@ module tb_iq_core
     end
     if (fu_blk >= 0)
       for (int f = 0; f < DEST_FU_NUM; f++)
-        if (f != fu_blk && BLOCKING_FU[f] && port_of(f) == port_of(fu_blk)) fu_blk2 = f;
+      if (f != fu_blk && BLOCKING_FU[f] && port_of(f) == port_of(fu_blk)) fu_blk2 = f;
     fu_any = (fu_fast >= 0) ? fu_fast : 0;
 
-    $display("iq_core: SIZE=%0d DISPATCH_W=%0d ISSUE_W=%0d DEST_FU_NUM=%0d FU_LISTEN_PORT=%b SLOW=%b BLOCKING=%b seed=%0d",
-             SIZE, DISPATCH_W, ISSUE_W, DEST_FU_NUM, FU_LISTEN_PORT, SLOW_WAKEUP_FU, BLOCKING_FU, seed);
+    $display(
+      "iq_core: SIZE=%0d DISPATCH_W=%0d ISSUE_W=%0d DEST_FU_NUM=%0d FU_LISTEN_PORT=%b SLOW=%b BLOCKING=%b seed=%0d",
+      SIZE, DISPATCH_W, ISSUE_W, DEST_FU_NUM, FU_LISTEN_PORT, SLOW_WAKEUP_FU, BLOCKING_FU, seed);
 
     clear_inputs();
     rst = 1'b1;
@@ -1519,7 +1549,8 @@ module tb_iq_core
     t_dual_dispatch();
     random_test(ncycles);
 
-    $display("テスト %0d 個中 %0d 個 NG、チェック %0d 回、エラー %0d 個", n_tests, n_fail, checks, errors);
+    $display("テスト %0d 個中 %0d 個 NG、チェック %0d 回、エラー %0d 個", n_tests, n_fail, checks,
+             errors);
     if (errors != 0) $fatal(1, "FAIL");
     $display("PASS");
     $finish;
