@@ -4,7 +4,7 @@
 #                                  sim/core.trace : RTL の書き込み（tb_cpu.cpp が書く。形式は tb_cpu.cpp の冒頭を参照）
 #                                  sim/sim.trace  : 命令シミュレータの --trace の出力そのまま
 #                                  sim/core.dump / sim/sim.dump : それぞれの終了時のレジスタ表示
-#   make PROG=sim_repository/test/foo.bin  別のプログラムで（.bin のみ。命令シミュレータがビッグエンディアンの生バイナリしか読まないため）
+#   make PROG=sim_repository/test/bin/foo.bin  別のプログラムで（.bin のみ。命令シミュレータがビッグエンディアンの生バイナリしか読まないため）
 #   make ARGS="+trace_mode=cycle" テストベンチへの追加オプション（tb_cpu.cpp の冒頭を参照）
 #   make build                   取得/更新とビルドだけ
 #   make clean                   ビルド結果と出力を消す（sim_repository は残す）
@@ -15,7 +15,7 @@
 # Windows 側の VS Code 用に、Verilator のヘッダを obj_dir/ide/verilator にコピーする
 # （.vscode/c_cpp_properties.json の includePath からここを参照する）。
 
-PROG ?= sim_repository/test/fib.bin
+PROG ?= sim_repository/test/bin/fib.bin
 ARGS ?=
 
 # 命令シミュレータ。make のたびに最新版に更新する
