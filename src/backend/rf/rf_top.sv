@@ -19,15 +19,12 @@ module rf_top
   input wire br_update_t br_update[BR_UPDATE_W],
 
   // from IQ
-  input wire logic issued_int[1],
   input iq_rr_t rr_ff_int[1],
   input int_payload_t rr_payload_int[1],
 
-  input wire logic issued_mem[1],
   input iq_rr_t rr_ff_mem[1],
   input mem_payload_t rr_payload_mem[1],
 
-  input wire logic issued_fpu[3],
   input iq_rr_t rr_ff_fpu[3],
   input float_payload_t rr_payload_fpu[3]
 

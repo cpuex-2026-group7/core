@@ -31,7 +31,6 @@ module iq_int
   input wire br_update_t br_update[BR_UPDATE_W],
 
   // to RR
-  output logic issued[1],
   output iq_rr_t rr_ff[1],
   output int_payload_t rr_payload[1]
 );
@@ -90,7 +89,6 @@ module iq_int
     .dest_fu_blocked({1'b0}),
 
     // to RR
-    .issued(issued),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );

@@ -35,7 +35,6 @@ module iq_float
   input wire fdiv_blocked,
 
   // to RR
-  output logic issued[3],
   output iq_rr_t rr_ff[3],
   output float_payload_t rr_payload[3]
 );
@@ -96,7 +95,6 @@ module iq_float
     .dest_fu_blocked({fsqrt_blocked, fdiv_blocked, 1'b0, 1'b0}),
 
     // to RR
-    .issued(issued),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );
