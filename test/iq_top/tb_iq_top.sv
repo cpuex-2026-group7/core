@@ -12,7 +12,7 @@
 //
 // 参照モデルは RTL のカウンタを写さず、busy table も IQ のソースも「何サイクル目から使えるか」を絶対時刻で持つ。
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
-//   - issued_* / issued_dest_fu_* / disp_full_*（組み合わせ出力）
+//   - issued_* / disp_full_*（組み合わせ出力）、各 IQ 内部の issued_dest_fu
 //   - 内部の wakeup バス dut.all_wakeup（外からの分と、各 IQ の issue 時の分）
 //   - 次のサイクルの rr_ff_* / rr_payload_*
 //
@@ -159,9 +159,6 @@ module tb_iq_top
   logic is_int[1];
   logic is_mem[1];
   logic is_fpu[3];
-  dest_fu_t df_int[1];
-  dest_fu_t df_mem[1];
-  dest_fu_t df_fpu[3];
   iq_rr_t rr_int[1];
   iq_rr_t rr_mem[1];
   iq_rr_t rr_fpu[3];
@@ -198,15 +195,12 @@ module tb_iq_top
     .fdiv_blocked(d_fdiv_b),
     .fsqrt_blocked(d_fsqrt_b),
     .issued_int(is_int),
-    .issued_dest_fu_int(df_int),
     .rr_ff_int(rr_int),
     .rr_payload_int(pl_int),
     .issued_mem(is_mem),
-    .issued_dest_fu_mem(df_mem),
     .rr_ff_mem(rr_mem),
     .rr_payload_mem(pl_mem),
     .issued_fpu(is_fpu),
-    .issued_dest_fu_fpu(df_fpu),
     .rr_ff_fpu(rr_fpu),
     .rr_payload_fpu(pl_fpu)
   );
@@ -220,7 +214,7 @@ module tb_iq_top
   endfunction
 
   function automatic dest_fu_t o_fu(int q, int p);
-    return (q == QI) ? df_int[0] : (q == QM) ? df_mem[0] : df_fpu[p];
+    return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued_dest_fu[0] : (q == QM) ? dut.u_iq_mem.u_iq_core_int.issued_dest_fu[0] : dut.u_iq_float.u_iq_core_int.issued_dest_fu[p];
   endfunction
 
   function automatic iq_rr_t o_rr(int q, int p);

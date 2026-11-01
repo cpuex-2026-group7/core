@@ -47,17 +47,14 @@ module iq_top
 
   // to RR
   output logic issued_int[1],
-  output dest_fu_t issued_dest_fu_int[1],
   output iq_rr_t rr_ff_int[1],
   output int_payload_t rr_payload_int[1],
 
   output logic issued_mem[1],
-  output dest_fu_t issued_dest_fu_mem[1],
   output iq_rr_t rr_ff_mem[1],
   output mem_payload_t rr_payload_mem[1],
 
   output logic issued_fpu[3],
-  output dest_fu_t issued_dest_fu_fpu[3],
   output iq_rr_t rr_ff_fpu[3],
   output float_payload_t rr_payload_fpu[3]
 );
@@ -232,7 +229,6 @@ module iq_top
 
     // to RR
     .issued(issued_int),
-    .issued_dest_fu(issued_dest_fu_int),
     .rr_ff(rr_ff_int),
     .rr_payload(rr_payload_int)
   );
@@ -263,7 +259,6 @@ module iq_top
 
     // to RR
     .issued(issued_mem),
-    .issued_dest_fu(issued_dest_fu_mem),
     .rr_ff(rr_ff_mem),
     .rr_payload(rr_payload_mem)
   );
@@ -298,7 +293,6 @@ module iq_top
 
     // to RR
     .issued(issued_fpu),
-    .issued_dest_fu(issued_dest_fu_fpu),
     .rr_ff(rr_ff_fpu),
     .rr_payload(rr_payload_fpu)
   );

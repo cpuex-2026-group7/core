@@ -11,7 +11,7 @@
 //
 // 参照モデルは RTL のカウンタを写さず、各ソースが「何サイクル目から使えるか」を絶対時刻で持つ。
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
-//   - issued / issued_dest_fu / sending_wakeup / disp_full（組み合わせ出力）
+//   - issued / sending_wakeup / disp_full（組み合わせ出力）、内部の dut.issued_dest_fu
 //   - 次のサイクルの rr_ff / rr_payload
 //
 // テストの前提にしている仕様
@@ -66,7 +66,6 @@ module tb_iq_core
   br_update_t br_update[1];
   logic [DEST_FU_NUM-1:0] dest_fu_blocked;
   logic issued[ISSUE_W];
-  dest_fu_t issued_dest_fu[ISSUE_W];
   iq_rr_t rr_ff[ISSUE_W];
   logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W];
 
@@ -122,7 +121,6 @@ module tb_iq_core
     .br_update(d_br_update),
     .dest_fu_blocked(d_dest_fu_blocked),
     .issued(issued),
-    .issued_dest_fu(issued_dest_fu),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload)
   );
@@ -331,8 +329,8 @@ module tb_iq_core
         fail($sformatf("port%0d が issue しない（期待は id %0d）", p, e.id));
         continue;
       end
-      if (issued_dest_fu[p] !== e.fu)
-        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d", p, issued_dest_fu[p], e.fu));
+      if (dut.issued_dest_fu[p] !== e.fu)
+        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d", p, dut.issued_dest_fu[p], e.fu));
       exp_wv = !SLOW_WAKEUP_FU[e.fu] && e.rd.typ != PREG_TYPE_NONE;
       if (sending_wakeup[p].valid !== exp_wv)
         fail($sformatf(

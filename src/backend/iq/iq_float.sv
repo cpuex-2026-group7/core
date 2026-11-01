@@ -36,7 +36,6 @@ module iq_float
 
   // to RR
   output logic issued[3],
-  output dest_fu_t issued_dest_fu[3],
   output iq_rr_t rr_ff[3],
   output float_payload_t rr_payload[3]
 );
@@ -98,7 +97,6 @@ module iq_float
 
     // to RR
     .issued(issued),
-    .issued_dest_fu(issued_dest_fu),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );

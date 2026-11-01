@@ -42,7 +42,6 @@ module iq_core
   // FU (fdiv,fsqrtのブロック用)
   input wire logic [DEST_FU_NUM-1:0] dest_fu_blocked,
   output logic issued[ISSUE_W],
-  output dest_fu_t issued_dest_fu[ISSUE_W],
 
   // to RR
   output iq_rr_t rr_ff[ISSUE_W],
@@ -171,6 +170,7 @@ module iq_core
 
   logic [SIZE-1:0] grant[ISSUE_W];
   logic [IDX_W-1:0] issued_slot[ISSUE_W];
+  dest_fu_t issued_dest_fu[ISSUE_W];
   generate
     for (genvar i = 0; i < ISSUE_W; i++) begin : g_issue
       // 一番古いのを選ぶ

@@ -32,7 +32,6 @@ module iq_int
 
   // to RR
   output logic issued[1],
-  output dest_fu_t issued_dest_fu[1],
   output iq_rr_t rr_ff[1],
   output int_payload_t rr_payload[1]
 );
@@ -92,7 +91,6 @@ module iq_int
 
     // to RR
     .issued(issued),
-    .issued_dest_fu(issued_dest_fu),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );
