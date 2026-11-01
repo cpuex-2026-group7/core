@@ -16,7 +16,8 @@
 //
 // テストの前提にしている仕様
 //   - サイクル t に latency=L の wakeup が来たら、t+1+L から issue できる（L は「レイテンシ-1」）
-//   - dispatch で counting=1, cnt=C として入れたソースは t+1+C から使える
+//   - dispatch で counting=1, cnt=C として入れたソースは t+1+max(C-1,0) から使える
+//     （C は dispatch のサイクルの busy table の値。IQ に入るときに 1 減らす）
 //   - 既に wakeup 済みのソースに来た wakeup は無視する
 //   - ポートごとに、受け付ける FU の ready なものから一番古いものを出す（同じサイクルの dispatch はレーン番号の小さい方が古い）
 //   - BLOCKING_FU には issue してから ISSUE_TO_FU(=2) サイクル出さない。dest_fu_blocked が立っている FU にも出さない
@@ -29,6 +30,7 @@
 
 module tb_iq_core
   import types::*;
+  import uop_types::*;
   import back_types::*;
   import iq_types::*;
 #(
@@ -62,7 +64,7 @@ module tb_iq_core
   wakeup_t sending_wakeup[ISSUE_W];
   wakeup_t ext_wakeup[EXT_W];
   br_update_t br_update[1];
-  logic dest_fu_blocked[DEST_FU_NUM];
+  logic [DEST_FU_NUM-1:0] dest_fu_blocked;
   logic issued[ISSUE_W];
   dest_fu_t issued_dest_fu[ISSUE_W];
   iq_rr_t rr_ff[ISSUE_W];
@@ -77,7 +79,7 @@ module tb_iq_core
   logic [PAYLOAD_W-1:0] d_disp_payload[DISPATCH_W];
   wakeup_t d_ext_wakeup[EXT_W];
   br_update_t d_br_update[1];
-  logic d_dest_fu_blocked[DEST_FU_NUM];
+  logic [DEST_FU_NUM-1:0] d_dest_fu_blocked;
 
   always @(negedge clk) begin
     d_rst <= rst;
@@ -364,6 +366,11 @@ module tb_iq_core
     return hit;
   endfunction
 
+  // dispatch で cnt=c として入れたソースが使えるようになるサイクル
+  function automatic cyc_t disp_ready_at(cnt_down_t c);
+    return (c == 0) ? cyc + 1 : cyc + cyc_t'(c);
+  endfunction
+
   // クロックの後でモデルを 1 サイクル進める
   task automatic model_advance();
     logic wv[WAKEUP_W];
@@ -466,8 +473,8 @@ module tb_iq_core
       m[j].rs2 = disp_entry[i].rs2.preg;
       m[j].w1 = disp_entry[i].rs1.st.counting;
       m[j].w2 = disp_entry[i].rs2.st.counting;
-      m[j].r1 = cyc + 1 + cyc_t'(disp_entry[i].rs1.st.cnt);
-      m[j].r2 = cyc + 1 + cyc_t'(disp_entry[i].rs2.st.cnt);
+      m[j].r1 = disp_ready_at(disp_entry[i].rs1.st.cnt);
+      m[j].r2 = disp_ready_at(disp_entry[i].rs2.st.cnt);
       m[j].lat = disp_entry[i].lat;
       m[j].fu = disp_entry[i].dest_fu;
       m[j].brmask = resolve_mask(disp_entry[i].brmask);
@@ -712,16 +719,16 @@ module tb_iq_core
   endtask
 
   task automatic t_init_cnt();
-    int a, b, c;
-    cyc_t t0, t1, t2;
-    begin_test("dispatch 時の cnt の分だけ待つ（遅い方のソースに合わせる）");
+    int a, b, c, d, e;
+    cyc_t t0, t1, t2, t3, t4;
+    begin_test("dispatch 時の cnt から 1 減らした分だけ待つ（遅い方のソースに合わせる）");
     a  = nid();
     t0 = cyc;
     clear_inputs();
     put(0, ent(pi(50), s_rdy(pi(51), 2), s_none(), 0, fu_any, '0), a);
     cycle();
     run_idle(4);
-    expect_at(a, t0 + 3);
+    expect_at(a, t0 + 2);
 
     b  = nid();
     t1 = cyc;
@@ -729,7 +736,7 @@ module tb_iq_core
     put(0, ent(pi(52), s_rdy(pi(53), 1), s_rdy(pf(53), 3), 0, fu_any, '0), b);
     cycle();
     run_idle(5);
-    expect_at(b, t1 + 4);
+    expect_at(b, t1 + 3);
 
     c  = nid();
     t2 = cyc;
@@ -738,6 +745,25 @@ module tb_iq_core
     cycle();
     run_idle(2);
     expect_at(c, t2 + 1);
+
+    // cnt=1 は 0 と同じく次のサイクルに出る
+    d  = nid();
+    t3 = cyc;
+    clear_inputs();
+    put(0, ent(pi(56), s_none(), s_rdy(pf(56), 1), 0, fu_any, '0), d);
+    cycle();
+    run_idle(2);
+    expect_at(d, t3 + 1);
+
+    // cnt の減算の後に同じサイクルの wakeup は当たらない（もう counting なので無視）
+    e  = nid();
+    t4 = cyc;
+    clear_inputs();
+    put(0, ent(pi(57), s_rdy(pi(58), 3), s_none(), 0, fu_any, '0), e);
+    ext(0, pi(58), 0);
+    cycle();
+    run_idle(4);
+    expect_at(e, t4 + 3);
     end_test();
   endtask
 
