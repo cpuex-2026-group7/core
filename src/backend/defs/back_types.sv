@@ -3,7 +3,6 @@
 
 package back_types;
   import types::*;
-  import isa::*;
   import uop_types::*;
 
   typedef struct packed {
@@ -13,18 +12,23 @@ package back_types;
   } wakeup_t;
 
   typedef struct packed {
-    logic      valid;
-    disp_uop_t uop;
-  } disp_iq_t;
+    logic  valid;
+    preg_t preg;
+    word_t value;
+  } bypass_t;
 
-  typedef struct packed {
-    logic     valid;
-    preg_t    rd;
-    preg_t    rs1;
-    preg_t    rs2;
-    dest_fu_t dest_fu;
-    brmask_t  brmask;
-  } iq_rr_t;
+  // 1本ずつ見る
+  // mispredictした分岐に依存していたら消す
+  function automatic logic br_killed(input brmask_t brmask, input br_update_t upd);
+    return upd.valid && upd.mispredict && brmask[upd.tag];
+  endfunction
+
+  // 当たった分岐のビットを落とす
+  function automatic brmask_t br_resolved(input brmask_t brmask, input br_update_t upd);
+    brmask_t ret = brmask;
+    if (upd.valid && !upd.mispredict) ret[upd.tag] = 1'b0;
+    return ret;
+  endfunction
 
 endpackage
 

@@ -5,7 +5,11 @@ package iq_types;
   import types::*;
   import isa::*;
   import uop_types::*;
-  import back_types::*;
+
+  typedef struct packed {
+    logic      valid;
+    disp_uop_t uop;
+  } disp_iq_t;
 
   typedef latency_t cnt_down_t;
 
@@ -50,6 +54,16 @@ package iq_types;
     imm_raw_t imm;
     rob_idx_t rob_idx;
   } float_payload_t;
+
+  // IQとRRの間のFF
+  typedef struct packed {
+    logic     valid;
+    preg_t    rd;
+    preg_t    rs1;
+    preg_t    rs2;
+    dest_fu_t dest_fu;
+    brmask_t  brmask;
+  } iq_rr_t;
 
 endpackage
 
