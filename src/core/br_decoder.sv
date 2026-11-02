@@ -9,7 +9,9 @@ module br_decoder (
 );
 
   always_comb begin
-    case ({instr.op.unit, instr.op.eff, instr.op.imm})
+    case ({
+      instr.op.unit, instr.op.eff, instr.op.imm
+    })
       isa::BRANCH_OP5: begin
         branch_type = frontend_pkg::BR_BRANCH;
         target_pc   = pc + {{17{instr.rd[4]}}, instr.rd, instr.rest};
@@ -20,11 +22,11 @@ module br_decoder (
       end
       isa::JALR_OP5: begin
         branch_type = (instr.op.id == 2'b00) ? frontend_pkg::BR_JALR : frontend_pkg::BR_NONE;
-        target_pc   = '0;  // unknown
+        target_pc   = pc + types::addr_t'(1);  // unknown or sequential
       end
       default: begin
         branch_type = frontend_pkg::BR_NONE;
-        target_pc   = '0;  // sequential
+        target_pc   = pc + types::addr_t'(1);  // sequential
       end
     endcase
   end

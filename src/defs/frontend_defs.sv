@@ -15,6 +15,7 @@ package frontend_pkg;
 
   typedef enum logic [1:0] {
     PCSRCF0_SEQ,
+    PCSRCF0_BTB,
     PCSRCF0_FRD,
     PCSRCF0_BRD
   } pc_src_F0_t;

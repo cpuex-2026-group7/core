@@ -16,7 +16,10 @@ module ftq #(
     input wire logic pop,
 
     output logic full,
-    output logic empty
+    output logic empty,
+
+    input wire logic restore_en,
+    input wire logic [IDX_WIDTH-1:0] restore_idx
 );
 
   localparam int NENTRY = 2 ** IDX_WIDTH;
@@ -33,7 +36,7 @@ module ftq #(
   assign empty = ptr_head == ptr_tail;
 
   logic do_push;
-  assign do_push = push & !full;
+  assign do_push = push & !full & !restore_en; // reject push from F3 on backend redirect because F3 should be flushed.
   logic do_pop;
   assign do_pop = pop & !empty;
 
@@ -48,6 +51,9 @@ module ftq #(
       end
       if (do_pop) begin
         ptr_head <= ptr_head_next;
+      end
+      if (restore_en) begin
+        ptr_tail <= restore_idx + IDX_WIDTH'(1);
       end
     end
   end

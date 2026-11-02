@@ -21,8 +21,13 @@ module i_mem
 `else
   initial $readmemh("fib.mem", mem);
 `endif
+
+  addr_t addr_inner;
   always_ff @(posedge clk) begin
-    if (en) instr <= instr_t'(mem[addr[9:0]]);
+    if (en) begin
+      addr_inner <= addr;
+      instr <= instr_t'(mem[addr_inner[9:0]]);
+    end
   end
 
 endmodule

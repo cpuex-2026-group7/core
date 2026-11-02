@@ -11,10 +11,10 @@ module fetchq #(
     input wire logic push,
 
     output isa::instr_t dout,
-    input wire logic pop,
+    input  wire logic   pop,
 
-    output logic full,
-    output logic empty
+    output logic ready,
+    output logic valid
 );
 
   localparam int NENTRY = 2 ** IDX_WIDTH;
@@ -27,13 +27,13 @@ module fetchq #(
   assign ptr_head_next = ptr_head + IDX_WIDTH'(1);
   assign ptr_tail_next = ptr_tail + IDX_WIDTH'(1);
 
-  assign full = ptr_head == ptr_tail_next;
-  assign empty = ptr_head == ptr_tail;
+  assign ready = ptr_head != ptr_tail_next;  // !full
+  assign valid = ptr_head != ptr_tail;  // !empty
 
   logic do_push;
-  assign do_push = push & !full;
+  assign do_push = push & ready;
   logic do_pop;
-  assign do_pop = pop & !empty;
+  assign do_pop = pop & valid;
 
   always_ff @(posedge clk) begin
     if (rst) begin

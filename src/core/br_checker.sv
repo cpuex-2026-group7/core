@@ -6,17 +6,18 @@ module br_checker (
     input wire frontend_pkg::bpd_resp_t bpd_resp,
     input wire frontend_pkg::branch_type_t brdec_btype,
     input wire types::addr_t brdec_target_pc,
+    input wire instr_valid_F3,
     output logic redirect_F
 );
 
   always_comb begin
     unique case (brdec_btype)
-      frontend_pkg::BR_NONE: redirect_F = btb_resp.valid;
+      frontend_pkg::BR_NONE: redirect_F = instr_valid_F3 & btb_resp.valid;
       frontend_pkg::BR_JALR: redirect_F = 1'b0;
       default:
-      redirect_F =
-      (btb_resp.valid ^ bpd_resp.taken)
-      | (btb_resp.valid & brdec_target_pc != btb_resp.target);
+      redirect_F = instr_valid_F3 &
+      ((btb_resp.valid ^ bpd_resp.taken)
+      | (btb_resp.valid & brdec_target_pc != btb_resp.target));
     endcase
   end
 
