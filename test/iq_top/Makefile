@@ -5,10 +5,11 @@
 #   make CYCLES=1000000 SEED=7   ランダムテストのサイクル数と乱数の種
 #   make IQ_TOP=/path/to/x.sv    iq_top.sv の代わりに別のファイルを使う（わざと壊したもので、テストが落ちるかを見る用）
 #                                IQ_CORE / IQ_INT / IQ_MEM / IQ_FLOAT も同じように差し替えられる
+#   make CXXOPT=-O0              g++ の最適化を変える（変えたら作り直す）
 #   make lint                    テストベンチと RTL を Verilator の -Wall で lint だけする
 #   make status                  各構成の進捗ログ（log/<名前>.log）の最後の数行を出す
-#   make stop                    動いているテストのバイナリを止める（残っていないかの確認も兼ねる）
-#   make clean                   ビルド結果とログを消す
+#   make stop                    動いているビルドとテストを止める（残っていないかの確認も兼ねる）
+#   make clean                   ビルド結果とログを消す（clean_obj はビルド結果だけ）
 #
 # 進捗は log/<名前>.log に時刻付きで追記される（ビルド開始・完了、各テストの結果、ランダムの進み具合、終了コード）。
 # ビルドの出力は log/<名前>.build.log に行く。
@@ -17,6 +18,7 @@
 
 CYCLES ?= 200000
 SEED   ?= 1
+CXXOPT ?= -Os
 
 # 構成: SIZE_INT SIZE_MEM SIZE_FPU DW_INT DW_MEM DW_FPU WAKEUP_W BR_UPDATE_W
 CFG_base  := 16 16 16 1 1 1 2 1
@@ -53,27 +55,40 @@ TB := $(TEST_DIR)/tb_iq_top.sv
 LOG_DIR := $(TEST_DIR)/log
 
 # -j 0 だと Verilator 5.020 が終了時に "attempted to destroy locked Thread Pool" で落ちることがある
+# g++ の最適化は -O0 / -O1 / -Os でビルド時間がほぼ変わらず、-O0 は実行が 15 倍遅いので -Os（Verilator の既定）にしている
 VFLAGS := --binary --timing --build-jobs 0 --verilate-jobs 1 --top-module tb_iq_top -O3 -Wno-fatal -Wno-TIMESCALEMOD \
-          -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND
+          -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND \
+          -MAKEFLAGS OPT_FAST=$(CXXOPT) -MAKEFLAGS OPT_SLOW=$(CXXOPT) -MAKEFLAGS OPT_GLOBAL=$(CXXOPT)
 
 gparams = -GSIZE_INT=$(word 1,$(1)) -GSIZE_MEM=$(word 2,$(1)) -GSIZE_FPU=$(word 3,$(1)) -GDW_INT=$(word 4,$(1)) \
           -GDW_MEM=$(word 5,$(1)) -GDW_FPU=$(word 6,$(1)) -GWAKEUP_W=$(word 7,$(1)) -GBR_UPDATE_W=$(word 8,$(1))
 
 .DEFAULT_GOAL := all
-.PHONY: all lint status stop clean $(addprefix run_,$(CONFIGS))
+# 1 構成のビルドで CPU を使い切る（--build-jobs 0）ので、構成は 1 つずつ回す。
+# 並列にすると g++ が倍に増えて取り合い、iq_top では 2 並列で 3 倍遅くなった（2026-11-03 計測）
+.NOTPARALLEL:
+.PHONY: all lint status stop clean clean_obj $(addprefix run_,$(CONFIGS))
 
 all: $(addprefix run_,$(CONFIGS))
 
 # $(1) を時刻付きで $(2) に追記して画面にも出す
 logline = echo "[$$$$(date '+%F %T')] $(1)" | tee -a $(2)
 
+# 前回とビルドオプションが違えば obj_dir を消す（.o が古いオプションのまま使い回されるのを防ぐ）
+BUILD_SIG = CXXOPT=$(CXXOPT)
+define fresh_objdir
+	@if [ -d obj_dir_$(1) ] && [ "$$$$(cat obj_dir_$(1)/.build_sig 2>/dev/null)" != "$(BUILD_SIG)" ]; then rm -rf obj_dir_$(1); fi
+endef
+
 define config_rule
 run_$(1):
 	@command -v verilator >/dev/null || { echo "verilator が無い。WSL で sudo apt install verilator を実行して"; exit 1; }
 	@mkdir -p $(LOG_DIR)
-	@$(call logline,$(1): ビルド開始（$(CFG_$(1))）,$(LOG_DIR)/$(1).log)
+	$(call fresh_objdir,$(1))
+	@$(call logline,$(1): ビルド開始（$(CFG_$(1))、$(BUILD_SIG)）,$(LOG_DIR)/$(1).log)
 	@verilator $(VFLAGS) $(call gparams,$(CFG_$(1))) --Mdir obj_dir_$(1) $(PKGS) $(RTL) $(TB) -o Vtb_iq_top \
 	  > $(LOG_DIR)/$(1).build.log 2>&1 || { $(call logline,$(1): ビルド失敗（log/$(1).build.log を見る）,$(LOG_DIR)/$(1).log); exit 1; }
+	@echo "$(BUILD_SIG)" > obj_dir_$(1)/.build_sig
 	@$(call logline,$(1): ビルド完了、実行開始 cycles=$(CYCLES) seed=$(SEED),$(LOG_DIR)/$(1).log)
 	@./obj_dir_$(1)/Vtb_iq_top +cycles=$(CYCLES) +seed=$(SEED) +log=$(LOG_DIR)/$(1).log; rc=$$$$?; \
 	  $(call logline,$(1): 終了 exit=$$$$rc,$(LOG_DIR)/$(1).log); exit $$$$rc
@@ -84,12 +99,17 @@ lint:
 	verilator --lint-only --timing -Wall -Wno-DECLFILENAME -Wno-TIMESCALEMOD -Wno-UNUSEDPARAM --top-module tb_iq_top \
 	  $(call gparams,$(CFG_d2)) $(PKGS) $(RTL) $(TB)
 
+# ビルド中の verilator / g++（引数に Vtb_iq_top を含む）と、テストのバイナリを止める
+# [V] にしておくと、このコマンドを走らせているシェル自身には当たらない
 stop:
-	-pkill -f 'obj_dir_[a-z0-9]*/Vtb_iq_top'
-	@pgrep -af 'obj_dir_[a-z0-9]*/Vtb_iq_top' || echo "動いているテストは無い"
+	-pkill -f '[V]tb_iq_top'
+	@pgrep -af '[V]tb_iq_top' || echo "動いているビルド・テストは無い"
 
 status:
 	@for c in $(CONFIGS); do echo "== $$c"; tail -n 3 $(LOG_DIR)/$$c.log 2>/dev/null || echo "  （ログ無し）"; done
 
 clean:
 	rm -rf obj_dir_* $(LOG_DIR)
+
+clean_obj:
+	rm -rf obj_dir_*
