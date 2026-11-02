@@ -3,6 +3,7 @@
 
 package iq_types;
   import types::*;
+  import ooo_types::*;
   import isa::*;
   import uop_types::*;
 
@@ -37,6 +38,8 @@ package iq_types;
     opcode_t  op;
     imm_raw_t imm;
     pc_t      pc;
+    pc_t      predict_pc;
+    ftq_idx_t ftq_idx;
     rob_idx_t rob_idx;
     br_tag_t  br_tag;
   } int_payload_t;

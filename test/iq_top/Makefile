@@ -34,7 +34,7 @@ ifeq ($(wildcard $(RTL_DIR)/defs/types.sv),)
 endif
 
 # package は使う側より先に読む
-PKGS := $(RTL_DIR)/defs/types.sv $(RTL_DIR)/defs/isa.sv $(RTL_DIR)/defs/uop_types.sv \
+PKGS := $(RTL_DIR)/defs/types.sv $(RTL_DIR)/defs/ooo_types.sv $(RTL_DIR)/defs/isa.sv $(RTL_DIR)/defs/uop_types.sv \
         $(RTL_DIR)/backend/defs/back_types.sv $(RTL_DIR)/backend/defs/iq_types.sv
 MODS := find_empty_slot multi_port_ram age_matrix selector iq_core iq_int iq_mem iq_float iq_top
 find_mod = $(shell grep -rlE '^\s*module\s+$(1)\b' --include='*.sv' $(RTL_DIR) /dev/null)

@@ -3,6 +3,7 @@
 
 package back_types;
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
 
   typedef struct packed {

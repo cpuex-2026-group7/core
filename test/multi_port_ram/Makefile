@@ -33,7 +33,8 @@ ifeq ($(wildcard $(RTL_DIR)/defs/types.sv),)
   $(error $(RTL_DIR)/defs/types.sv が無い。test/multi_port_ram/ はリポジトリ直下の test/ の中に置くこと)
 endif
 # package は使う側より先に読む必要がある
-PKGS := $(addprefix $(RTL_DIR)/defs/,types.sv isa.sv fpu_defs.sv ctrl_defs.sv)
+PKGS := $(addprefix $(RTL_DIR)/defs/,types.sv ooo_types.sv isa.sv fpu_defs.sv ctrl_defs.sv uop_types.sv) \
+        $(addprefix $(RTL_DIR)/backend/defs/,back_types.sv iq_types.sv rr_types.sv ex_types.sv rob_types.sv)
 RTL  := $(filter-out $(PKGS),$(shell find $(RTL_DIR) -name '*.sv' -not -path '*/ip/*' -not -name top.sv | sort))
 TOP_SRC := $(shell grep -lE '^\s*module\s+$(TOP)\b' $(RTL) /dev/null)
 ifeq ($(TOP_SRC),)

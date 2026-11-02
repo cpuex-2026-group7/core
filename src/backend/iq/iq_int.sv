@@ -3,6 +3,7 @@
 
 module iq_int
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
   import back_types::*;
   import iq_types::*;
@@ -54,6 +55,8 @@ module iq_int
         op: disp_uop[i].op,
         imm: disp_uop[i].imm,
         pc: disp_uop[i].pc,
+        predict_pc: disp_uop[i].predict_pc,
+        ftq_idx: disp_uop[i].ftq_idx,
         rob_idx: disp_uop[i].rob_idx,
         br_tag: disp_uop[i].br_tag
       };

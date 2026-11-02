@@ -34,6 +34,7 @@
 
 module tb_iq_top
   import types::*;
+  import ooo_types::*;
   import isa::*;
   import uop_types::*;
   import back_types::*;
@@ -708,9 +709,10 @@ module tb_iq_top
     disp_uop_t u = e.u;
     case (q)
       QI:
-      if (pl_int[0] !== int_payload_t'{op: u.op, imm: u.imm, pc: u.pc, rob_idx: u.rob_idx, br_tag: u.br_tag})
-        fail($sformatf("INT rr_payload=%h 期待 op=%h imm=%h pc=%h rob=%h br_tag=%h（id %0d）", pl_int[0], u.op, u.imm,
-                       u.pc, u.rob_idx, u.br_tag, e.id));
+      if (pl_int[0] !== int_payload_t'{op: u.op, imm: u.imm, pc: u.pc, predict_pc: u.predict_pc, ftq_idx: u.ftq_idx,
+                                       rob_idx: u.rob_idx, br_tag: u.br_tag})
+        fail($sformatf("INT rr_payload=%h 期待 op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
+                       pl_int[0], u.op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag, e.id));
       QM:
       if (pl_mem[0] !== mem_payload_t'{op: u.op, imm: u.imm, rob_idx: u.rob_idx, ldq_idx: u.ldq_idx, stq_idx: u.stq_idx})
         fail($sformatf("MEM rr_payload=%h 期待 op=%h imm=%h rob=%h ldq=%h stq=%h（id %0d）", pl_mem[0], u.op, u.imm,

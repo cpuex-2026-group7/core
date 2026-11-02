@@ -3,6 +3,7 @@
 
 package rob_types;
   import types::*;
+  import ooo_types::*;
 
   // WBからROBへの完了通知
   typedef struct packed {

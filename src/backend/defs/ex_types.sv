@@ -3,6 +3,7 @@
 
 package ex_types;
   import types::*;
+  import ooo_types::*;
 
   // EXとWBの間のFF
   typedef struct packed {

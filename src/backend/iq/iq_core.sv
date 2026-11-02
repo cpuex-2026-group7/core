@@ -3,6 +3,7 @@
 
 module iq_core
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
   import back_types::*;
   import iq_types::*;

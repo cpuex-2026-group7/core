@@ -3,6 +3,7 @@
 
 package uop_types;
   import types::*;
+  import ooo_types::*;
   import isa::*;
 
   // 形式はop.immから見る
@@ -29,6 +30,8 @@ package uop_types;
     preg_t    rs2;
     imm_raw_t imm;
     pc_t      pc;
+    pc_t      predict_pc;
+    ftq_idx_t ftq_idx;
     rob_idx_t rob_idx;
     brmask_t  brmask;
     br_tag_t  br_tag;
