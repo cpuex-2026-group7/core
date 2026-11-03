@@ -15,13 +15,13 @@
 //   - 次のサイクルの ex_ff_int / ex_ff_mem / ex_ff_fpu の全フィールド
 //
 // テストの前提にしている仕様
-//   - PRF の書き込みは立ち上がりで反映。同じサイクルの読み出しは書く前の値（バイパスが無ければ）。初期値は 0
+//   - PRF の書き込みは立ち上がりで反映。初期値は 0
 //   - 書き込みポート：wb_alu→I、wb_mem→I/F、wb_fpu[0]→I/F（feq/flt は I）、wb_fpu[1]→I/F、wb_fpu[2]→F。
 //     valid=0、rd.typ が NONE、ポートに無い方の typ は書かない
 //   - 読み出し：INT の rs1/rs2 と MEM の rs1 は I。MEM の rs2 と FPU長 の rs1 は typ が F なら F、そうでなければ I。
 //     それ以外（FPU短 / FPU長 の rs2 / FPU超長）は F
-//   - ソースの値：typ が NONE なら 0。valid な bypass に preg（typ と idx）が一致するものがあればその value。無ければ PRF
-//     （valid で同じ preg の bypass が 2 つ以上ある入力は作らない）
+//   - ソースの値：typ が NONE なら 0。同じサイクルの WB に valid で rd（typ と idx）が一致するものがあればその value
+//     （バイパス）。複数当たったら wb_alu, wb_mem, wb_fpu[0], wb_fpu[1], wb_fpu[2] の順で先のもの。無ければ PRF
 //   - valid = !rst && !flush && rr.valid && mispredict した分岐に依存していない
 //   - brmask は当たった分岐（valid && !mispredict）のビットを落とす
 //   - rd / rs1 / rs2 / dest_fu / payload はそのまま 1 サイクル遅れで出る
@@ -39,7 +39,6 @@ module tb_rf_top
 #(
   parameter int I_PREG_NUM = 64,
   parameter int F_PREG_NUM = 64,
-  parameter int BYPASS_W = 6,
   parameter int BR_UPDATE_W = 1
 );
 
@@ -87,7 +86,6 @@ module tb_rf_top
   mem_payload_t pl_mem;
   float_payload_t pl_fpu[3];
   ex_wb_t wb[NW];
-  bypass_t byp[BYPASS_W];
   br_update_t br[BR_UPDATE_W];
 
   // DUT につなぐ側。initial から直接書くと組み合わせ回路が評価し直されないことがあるので、立ち下がりで写す
@@ -102,7 +100,6 @@ module tb_rf_top
   ex_wb_t d_wb_alu[1];
   ex_wb_t d_wb_mem[1];
   ex_wb_t d_wb_fpu[3];
-  bypass_t d_byp[BYPASS_W];
   br_update_t d_br[BR_UPDATE_W];
 
   always @(negedge clk) begin
@@ -121,7 +118,6 @@ module tb_rf_top
     d_wb_fpu[0] <= wb[2];
     d_wb_fpu[1] <= wb[3];
     d_wb_fpu[2] <= wb[4];
-    d_byp <= byp;
     d_br <= br;
   end
 
@@ -133,7 +129,6 @@ module tb_rf_top
   rf_top #(
     .I_PREG_NUM(I_PREG_NUM),
     .F_PREG_NUM(F_PREG_NUM),
-    .BYPASS_W(BYPASS_W),
     .BR_UPDATE_W(BR_UPDATE_W)
   ) dut (
     .clk(clk),
@@ -152,7 +147,6 @@ module tb_rf_top
     .wb_mem(d_wb_mem),
     .wb_fpu(d_wb_fpu),
     .complete_idx(cmp),
-    .coming_bypass(d_byp),
     .br_update(d_br)
   );
 
@@ -231,16 +225,17 @@ module tb_rf_top
 
   word_t prf[2][NPREG];
 
+  // バイパスで当たる WB（無ければ -1）
   function automatic int byp_hit(preg_t p);
-    for (int k = 0; k < BYPASS_W; k++) if (byp[k].valid && byp[k].preg == p) return k;
+    for (int w = 0; w < NW; w++) if (wb[w].valid && wb[w].rd == p) return w;
     return -1;
   endfunction
 
   function automatic word_t src_value(int l, int s, preg_t p);
-    int k;
+    int w;
     if (p.typ == PREG_TYPE_NONE) return '0;
-    k = byp_hit(p);
-    if (k >= 0) return byp[k].value;
+    w = byp_hit(p);
+    if (w >= 0) return wb[w].value;
     return prf[src_file(l, s, p.typ)][p.idx];
   endfunction
 
@@ -275,8 +270,8 @@ module tb_rf_top
 
   // 網羅できているかの数え上げ
   longint st_byp_hit;
-  longint st_byp_over_write;  // 同じサイクルに書く preg をバイパスで取った
-  longint st_same_rw;  // 同じサイクルに書く preg を PRF から読んだ（古い値になる）
+  longint st_byp_over_write;  // 同じサイクルに PRF に書く preg をバイパスで取った
+  longint st_byp_no_write;  // バイパスで当たったが PRF には書かない WB（ポートに無い typ）
   longint st_none;
   longint st_kill;
   longint st_clear;
@@ -331,8 +326,7 @@ module tb_rf_top
           if (byp_hit(s) >= 0) begin
             st_byp_hit++;
             if (written_now(src_file(l, k, s.typ), s.idx)) st_byp_over_write++;
-          end else if (written_now(src_file(l, k, s.typ), s.idx)) begin
-            st_same_rw++;
+            else st_byp_no_write++;
           end
           if ((l == 1 && k == 1) || (l == 3 && k == 0)) begin
             if (src_file(l, k, s.typ) == RF) st_fsel++;
@@ -428,7 +422,6 @@ module tb_rf_top
       wb[w] = '0;
       wb[w].rd = mk_preg(PREG_TYPE_NONE, 0);
     end
-    for (int k = 0; k < BYPASS_W; k++) byp[k] = '0;
     for (int u = 0; u < BR_UPDATE_W; u++) br[u] = '0;
   endtask
 
@@ -610,7 +603,7 @@ module tb_rf_top
     end_test(e0);
   endtask
 
-  // 書き込みと同じサイクルの読み出しは古い値、次のサイクルで新しい値
+  // 書き込みと同じサイクルの読み出しはバイパスで新しい値、次のサイクルは PRF から新しい値
   task automatic t_same_cycle();
     int e0;
     e0 = errors;
@@ -628,10 +621,11 @@ module tb_rf_top
     set_src(3, pi(2), pf(3));
     set_src(4, pf(3), pf(2));
     cycle();
-    expect_val(0, 0, ival(2 % I_PREG_NUM), "同じサイクル");
-    expect_val(0, 1, ival(3 % I_PREG_NUM), "同じサイクル");
-    expect_val(1, 0, ival(4 % I_PREG_NUM), "同じサイクル");
-    expect_val(2, 1, fval(3 % F_PREG_NUM), "同じサイクル");
+    expect_val(0, 0, 32'h1111_1111, "同じサイクル（wb_alu）");
+    expect_val(0, 1, 32'h2222_2222, "同じサイクル（wb_mem）");
+    expect_val(1, 0, 32'h3333_3333, "同じサイクル（wb_fpu[1]）");
+    expect_val(1, 1, 32'h4444_4444, "同じサイクル（wb_fpu[0]）");
+    expect_val(2, 1, 32'h5555_5555, "同じサイクル（wb_fpu[2]）");
     for (int w = 0; w < NW; w++) wb[w].valid = 1'b0;
     cycle();
     expect_val(0, 0, 32'h1111_1111, "次のサイクル");
@@ -652,15 +646,9 @@ module tb_rf_top
     set_src(2, mk_preg(PREG_TYPE_NONE, 0), mk_preg(PREG_TYPE_NONE, 1));
     set_src(3, mk_preg(PREG_TYPE_NONE, 0), mk_preg(PREG_TYPE_NONE, 2));
     set_src(4, mk_preg(PREG_TYPE_NONE, 0), mk_preg(PREG_TYPE_NONE, 3));
-    // NONE の preg を持つ bypass と、同じ idx の I の bypass があっても 0
-    byp[0].valid = 1'b1;
-    byp[0].preg = mk_preg(PREG_TYPE_NONE, 0);
-    byp[0].value = 32'hdead_beef;
-    if (BYPASS_W > 1) begin
-      byp[1].valid = 1'b1;
-      byp[1].preg = pi(0);
-      byp[1].value = 32'hfeed_f00d;
-    end
+    // rd が NONE の WB と、同じ idx の I に書く WB があっても 0
+    set_wb(1, mk_preg(PREG_TYPE_NONE, 0), 32'hdead_beef);
+    set_wb(0, pi(0), 32'hfeed_f00d);
     cycle();
     for (int l = 0; l < NL; l++) begin
       expect_val(l, 0, '0, "NONE");
@@ -673,27 +661,37 @@ module tb_rf_top
     int e0;
     preg_t p;
     word_t v;
+    int lane;
+    word_t other;
     e0 = errors;
     begin_test("バイパス");
     fill_known();
-    // bypass の各エントリが当たる
-    for (int k = 0; k < BYPASS_W; k++) begin
-      clear_inputs();
-      byp[k].valid = 1'b1;
-      byp[k].preg = pi(1);
-      byp[k].value = 32'h7000_0000 + 32'(k);
-      set_src(0, pi(1), pi(2));
-      set_src(2, pf(1), pf(1));  // 同じ idx の F は当たらない
-      cycle();
-      expect_val(0, 0, 32'h7000_0000 + 32'(k), $sformatf("bypass[%0d] が当たる", k));
-      expect_val(0, 1, ival(2 % I_PREG_NUM), $sformatf("bypass[%0d] と違う idx", k));
-      expect_val(2, 0, fval(1 % F_PREG_NUM), $sformatf("bypass[%0d] と typ が違う", k));
-      // valid=0 なら当たらない
-      byp[k].valid = 1'b0;
-      cycle();
-      expect_val(0, 0, ival(1 % I_PREG_NUM), $sformatf("bypass[%0d] が valid=0", k));
+    // 各 WB ポートが、書く typ ごとに当たる
+    for (int w = 0; w < NW; w++) begin
+      for (int ti = 0; ti < 2; ti++) begin
+        if (wb_file(w, (ti == 0) ? PREG_TYPE_I : PREG_TYPE_F) < 0) continue;
+        clear_inputs();
+        p = (ti == 0) ? pi(1) : pf(1);
+        lane = (ti == 0) ? 0 : 2;
+        v = 32'h7000_0000 + 32'(w * 4 + ti);
+        other = (ti == 0) ? prf[RF][1 % F_PREG_NUM] : prf[RI][1 % I_PREG_NUM];
+        set_wb(w, p, v);
+        set_src(lane, p, (ti == 0) ? pi(2) : pf(2));
+        set_src((ti == 0) ? 2 : 0, (ti == 0) ? pf(1) : pi(1), pn());  // 同じ idx で typ が違うものは当たらない
+        cycle();
+        expect_val(lane, 0, v, $sformatf("%s の typ=%0d が当たる", w_name(w), ti));
+        expect_val(lane, 1, (ti == 0) ? ival(2 % I_PREG_NUM) : fval(2 % F_PREG_NUM),
+                   $sformatf("%s と違う idx", w_name(w)));
+        // 前の繰り返しで書いた値が入っているのでモデルの PRF と比べる
+        expect_val((ti == 0) ? 2 : 0, 0, other, $sformatf("%s と typ が違う", w_name(w)));
+        // valid=0 なら当たらず、書かれてもいない
+        wb[w].value = v ^ 32'hffff_ffff;
+        wb[w].valid = 1'b0;
+        cycle();
+        expect_val(lane, 0, v, $sformatf("%s が valid=0（前のサイクルに書いた値）", w_name(w)));
+      end
     end
-    // 全レーン・全ソース（MEM rs2 / FPU長 rs1 は I と F の両方）
+    // 全レーン・全ソース（MEM rs2 / FPU長 rs1 は I と F の両方）。I は wb_alu、F は wb_fpu[2] から
     for (int l = 0; l < NL; l++) begin
       for (int s = 0; s < 2; s++) begin
         for (int ft = 0; ft < 2; ft++) begin
@@ -703,9 +701,7 @@ module tb_rf_top
           else if ((l == 1 && s == 1) || (l == 3 && s == 0)) p = (ft == 0) ? pi(3) : pf(3);
           else p = pf(3);
           v = 32'h6000_0000 + 32'(l * 16 + s * 4 + ft);
-          byp[BYPASS_W-1].valid = 1'b1;
-          byp[BYPASS_W-1].preg = p;
-          byp[BYPASS_W-1].value = v;
+          set_wb((p.typ == PREG_TYPE_I) ? 0 : 4, p, v);
           if (s == 0) set_src(l, p, pn());
           else set_src(l, pn(), p);
           cycle();
@@ -713,29 +709,16 @@ module tb_rf_top
         end
       end
     end
-    // 同じサイクルの WB の書き込みよりバイパスが優先
+    // ポートに無い typ の WB は PRF に書かないが、バイパスでは当たる
     clear_inputs();
-    set_wb(0, pi(4), 32'h1234_5678);
-    set_wb(4, pf(4), 32'h8765_4321);
-    byp[0].valid = 1'b1;
-    byp[0].preg = pi(4);
-    byp[0].value = 32'h0bad_cafe;
-    if (BYPASS_W > 1) begin
-      byp[1].valid = 1'b1;
-      byp[1].preg = pf(4);
-      byp[1].value = 32'h0bad_f00d;
-    end
-    set_src(0, pi(4), pi(4));
-    set_src(4, pf(4), pf(4));
+    set_wb(0, pf(5), 32'h0bad_cafe);
+    set_src(2, pf(5), pf(5));
     cycle();
-    expect_val(0, 0, 32'h0bad_cafe, "書き込みと同じサイクルのバイパス");
-    if (BYPASS_W > 1) expect_val(4, 1, 32'h0bad_f00d, "書き込みと同じサイクルのバイパス");
+    expect_val(2, 0, 32'h0bad_cafe, "wb_alu が F を書こうとしたときのバイパス");
     clear_inputs();
-    set_src(0, pi(4), pi(4));
-    set_src(4, pf(4), pf(4));
+    set_src(2, pf(5), pf(5));
     cycle();
-    expect_val(0, 0, 32'h1234_5678, "バイパスの次のサイクルは書いた値");
-    expect_val(4, 0, 32'h8765_4321, "バイパスの次のサイクルは書いた値");
+    expect_val(2, 0, prf[RF][5 % F_PREG_NUM], "wb_alu の F は PRF に書かない");
     end_test(e0);
   endtask
 
@@ -955,7 +938,6 @@ module tb_rf_top
     int r;
     preg_type_t t;
     preg_t p;
-    logic dup;
 
     for (int a = 0; a < 2; a++) for (int i = 0; i < NPREG; i++) used[a][i] = 1'b0;
     rst = rnd(400) == 0;
@@ -1010,23 +992,6 @@ module tb_rf_top
       br[u].valid = rnd(100) < 30;
       br[u].mispredict = rnd(100) < 40;
     end
-
-    for (int k = 0; k < BYPASS_W; k++) begin
-      byp[k].valid = rnd(100) < 60;
-      r = rnd(100);
-      if (r < 70) begin
-        r = rnd(NL);
-        p = (rnd(2) == 0) ? rr[r].rs1 : rr[r].rs2;
-      end else begin
-        p = rnd_src(rnd(NL), rnd(2));
-      end
-      byp[k].preg = p;
-      byp[k].value = rword();
-      // 同じ preg の valid な bypass は 1 つまで
-      dup = 1'b0;
-      for (int j = 0; j < k; j++) if (byp[j].valid && byp[j].preg == p) dup = 1'b1;
-      if (dup) byp[k].valid = 1'b0;
-    end
   endtask
 
   task automatic random_test(int n);
@@ -1043,12 +1008,12 @@ module tb_rf_top
     end
     clear_inputs();
     cycle();
-    say($sformatf("  内訳: バイパス %0d（うち同じサイクルの書き込みより優先 %0d）、同じサイクルの書き込みを PRF から %0d",
-                  st_byp_hit, st_byp_over_write, st_same_rw));
+    say($sformatf("  内訳: バイパス %0d（うち PRF にも書く %0d、PRF には書かない %0d）", st_byp_hit, st_byp_over_write,
+                  st_byp_no_write));
     say($sformatf("        NONE %0d、kill %0d、ビット落とし %0d、F/I 切り替え F %0d I %0d、書かない WB %0d、rst %0d、flush %0d",
                   st_none, st_kill, st_clear, st_fsel, st_isel, st_ignored_wr, st_rst, st_flush));
     if (n >= 10000) begin
-      if (st_byp_hit == 0 || st_byp_over_write == 0 || st_same_rw == 0 || st_none == 0 || st_kill == 0 ||
+      if (st_byp_hit == 0 || st_byp_over_write == 0 || st_byp_no_write == 0 || st_none == 0 || st_kill == 0 ||
           st_clear == 0 || st_fsel == 0 || st_isel == 0 || st_ignored_wr == 0 || st_rst == 0 || st_flush == 0)
         fail("ランダムで一度も起きなかった場合がある（上の内訳を見る）");
     end
@@ -1076,8 +1041,8 @@ module tb_rf_top
     test_name = "リセット";
     for (int a = 0; a < 2; a++) for (int i = 0; i < NPREG; i++) prf[a][i] = '0;
 
-    say($sformatf("rf_top: I_PREG_NUM=%0d F_PREG_NUM=%0d BYPASS_W=%0d BR_UPDATE_W=%0d seed=%0d cycles=%0d", I_PREG_NUM,
-                  F_PREG_NUM, BYPASS_W, BR_UPDATE_W, seed, ncycles));
+    say($sformatf("rf_top: I_PREG_NUM=%0d F_PREG_NUM=%0d BR_UPDATE_W=%0d seed=%0d cycles=%0d", I_PREG_NUM, F_PREG_NUM,
+                  BR_UPDATE_W, seed, ncycles));
 
     clear_inputs();
     t_reset();

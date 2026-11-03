@@ -12,12 +12,6 @@ package back_types;
     latency_t latency;  // ◯cycle後から来てもいいよ
   } wakeup_t;
 
-  typedef struct packed {
-    logic  valid;
-    preg_t preg;
-    word_t value;
-  } bypass_t;
-
   // 1本ずつ見る
   // mispredictした分岐に依存していたら消す
   function automatic logic br_killed(input brmask_t brmask, input br_update_t upd);

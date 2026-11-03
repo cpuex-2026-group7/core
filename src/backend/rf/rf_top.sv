@@ -11,9 +11,8 @@ module rf_top
   import ex_types::*;
   import rob_types::*;
 #(
-  parameter int I_PREG_NUM = 64,
-  parameter int F_PREG_NUM = 64,
-  parameter int BYPASS_W = 6,
+  parameter int I_PREG_NUM  = 64,
+  parameter int F_PREG_NUM  = 64,
   parameter int BR_UPDATE_W = 1
 ) (
   input wire logic clk,
@@ -42,9 +41,6 @@ module rf_top
 
   // to ROB
   output complete_t complete_idx[5],
-
-  // wakeup
-  input wire bypass_t coming_bypass[BYPASS_W],
 
   // ALUレーンのWBから
   input wire br_update_t br_update[BR_UPDATE_W]
@@ -126,13 +122,17 @@ module rf_top
     for (int i = 0; i < BR_UPDATE_W; i++) apply_br_update = br_resolved(apply_br_update, br_upd[i]);
   endfunction
 
+  // WBで書いている値からバイパス
+  ex_wb_t wb_all[5];
+  assign wb_all = '{wb_alu[0], wb_mem[0], wb_fpu[0], wb_fpu[1], wb_fpu[2]};
+
   function automatic word_t apply_type_none_and_bypass(preg_t preg, word_t val);
     if (preg.typ == PREG_TYPE_NONE) begin
       return '0;
     end else begin
-      for (int i = 0; i < BYPASS_W; i++) begin
-        if (coming_bypass[i].valid && coming_bypass[i].preg == preg) begin
-          return coming_bypass[i].value;
+      for (int i = 0; i < 5; i++) begin
+        if (wb_all[i].valid && wb_all[i].rd == preg) begin
+          return wb_all[i].value;
         end
       end
       return val;
@@ -214,7 +214,7 @@ module rf_top
     // EXで分岐ミスkillできていれば復帰より前に書き込まれてok
     complete_idx[0].valid   = wb_alu[0].valid;
     complete_idx[0].rob_idx = wb_alu[0].rob_idx;
-    complete_idx[1].valid   = wb_mem[0].valid;
+    complete_idx[1].valid   = wb_mem[0].valid;  // loadはここ
     complete_idx[1].rob_idx = wb_mem[0].rob_idx;
     complete_idx[2].valid   = wb_fpu[0].valid;
     complete_idx[2].rob_idx = wb_fpu[0].rob_idx;
