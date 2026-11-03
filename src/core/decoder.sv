@@ -6,8 +6,8 @@ module decoder
   import fpu_defs::*;
   import ctrl_defs::*;
 (
-  input  wire opcode_t op,
-  output ctrl_t        ctrl
+    input  wire opcode_t op,
+    output ctrl_t        ctrl
 );
 
   always_comb begin
