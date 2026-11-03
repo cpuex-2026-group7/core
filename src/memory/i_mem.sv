@@ -5,8 +5,10 @@ module i_mem
   import types::*;
   import isa::*;
 (
-  input wire addr_t addr,
-  output instr_t instr
+    input wire logic clk,
+    input wire logic en,
+    input wire addr_t addr,
+    output instr_t instr
 );
 
   word_t mem[1024];
@@ -19,7 +21,14 @@ module i_mem
 `else
   initial $readmemh("fib.mem", mem);
 `endif
-  assign instr = mem[addr[9:0]];
+
+  addr_t addr_inner;
+  always_ff @(posedge clk) begin
+    if (en) begin
+      addr_inner <= addr;
+      instr <= instr_t'(mem[addr_inner[9:0]]);
+    end
+  end
 
 endmodule
 
