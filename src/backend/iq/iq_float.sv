@@ -3,6 +3,7 @@
 
 module iq_float
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
   import back_types::*;
   import iq_types::*;
@@ -35,8 +36,6 @@ module iq_float
   input wire fdiv_blocked,
 
   // to RR
-  output logic issued[3],
-  output dest_fu_t issued_dest_fu[3],
   output iq_rr_t rr_ff[3],
   output float_payload_t rr_payload[3]
 );
@@ -97,8 +96,6 @@ module iq_float
     .dest_fu_blocked({fsqrt_blocked, fdiv_blocked, 1'b0, 1'b0}),
 
     // to RR
-    .issued(issued),
-    .issued_dest_fu(issued_dest_fu),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );

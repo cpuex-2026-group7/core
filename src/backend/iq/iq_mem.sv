@@ -3,6 +3,7 @@
 
 module iq_mem
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
   import back_types::*;
   import iq_types::*;
@@ -31,8 +32,6 @@ module iq_mem
   input wire br_update_t br_update[BR_UPDATE_W],
 
   // to RR
-  output logic issued[1],
-  output dest_fu_t issued_dest_fu[1],
   output iq_rr_t rr_ff[1],
   output mem_payload_t rr_payload[1]
 );
@@ -91,8 +90,6 @@ module iq_mem
     .dest_fu_blocked('{1'b0}),
 
     // to RR
-    .issued(issued),
-    .issued_dest_fu(issued_dest_fu),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );

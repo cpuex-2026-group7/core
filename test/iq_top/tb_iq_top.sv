@@ -12,7 +12,7 @@
 //
 // 参照モデルは RTL のカウンタを写さず、busy table も IQ のソースも「何サイクル目から使えるか」を絶対時刻で持つ。
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
-//   - issued_* / issued_dest_fu_* / disp_full_*（組み合わせ出力）
+//   - disp_full_*（組み合わせ出力）、各 IQ 内部の issued / issued_dest_fu
 //   - 内部の wakeup バス dut.all_wakeup（外からの分と、各 IQ の issue 時の分）
 //   - 次のサイクルの rr_ff_* / rr_payload_*
 //
@@ -34,6 +34,7 @@
 
 module tb_iq_top
   import types::*;
+  import ooo_types::*;
   import isa::*;
   import uop_types::*;
   import back_types::*;
@@ -156,12 +157,6 @@ module tb_iq_top
   end
 
   logic full_int, full_mem, full_fpu;
-  logic is_int[1];
-  logic is_mem[1];
-  logic is_fpu[3];
-  dest_fu_t df_int[1];
-  dest_fu_t df_mem[1];
-  dest_fu_t df_fpu[3];
   iq_rr_t rr_int[1];
   iq_rr_t rr_mem[1];
   iq_rr_t rr_fpu[3];
@@ -197,16 +192,10 @@ module tb_iq_top
     .br_update(d_br),
     .fdiv_blocked(d_fdiv_b),
     .fsqrt_blocked(d_fsqrt_b),
-    .issued_int(is_int),
-    .issued_dest_fu_int(df_int),
     .rr_ff_int(rr_int),
     .rr_payload_int(pl_int),
-    .issued_mem(is_mem),
-    .issued_dest_fu_mem(df_mem),
     .rr_ff_mem(rr_mem),
     .rr_payload_mem(pl_mem),
-    .issued_fpu(is_fpu),
-    .issued_dest_fu_fpu(df_fpu),
     .rr_ff_fpu(rr_fpu),
     .rr_payload_fpu(pl_fpu)
   );
@@ -216,11 +205,13 @@ module tb_iq_top
   endfunction
 
   function automatic logic o_issued(int q, int p);
-    return (q == QI) ? is_int[0] : (q == QM) ? is_mem[0] : is_fpu[p];
+    return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued[0] :
+           (q == QM) ? dut.u_iq_mem.u_iq_core_int.issued[0] : dut.u_iq_float.u_iq_core_int.issued[p];
   endfunction
 
   function automatic dest_fu_t o_fu(int q, int p);
-    return (q == QI) ? df_int[0] : (q == QM) ? df_mem[0] : df_fpu[p];
+    return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued_dest_fu[0] :
+           (q == QM) ? dut.u_iq_mem.u_iq_core_int.issued_dest_fu[0] : dut.u_iq_float.u_iq_core_int.issued_dest_fu[p];
   endfunction
 
   function automatic iq_rr_t o_rr(int q, int p);
@@ -718,9 +709,10 @@ module tb_iq_top
     disp_uop_t u = e.u;
     case (q)
       QI:
-      if (pl_int[0] !== int_payload_t'{op: u.op, imm: u.imm, pc: u.pc, rob_idx: u.rob_idx, br_tag: u.br_tag})
-        fail($sformatf("INT rr_payload=%h 期待 op=%h imm=%h pc=%h rob=%h br_tag=%h（id %0d）", pl_int[0], u.op, u.imm,
-                       u.pc, u.rob_idx, u.br_tag, e.id));
+      if (pl_int[0] !== int_payload_t'{op: u.op, imm: u.imm, pc: u.pc, predict_pc: u.predict_pc, ftq_idx: u.ftq_idx,
+                                       rob_idx: u.rob_idx, br_tag: u.br_tag})
+        fail($sformatf("INT rr_payload=%h 期待 op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
+                       pl_int[0], u.op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag, e.id));
       QM:
       if (pl_mem[0] !== mem_payload_t'{op: u.op, imm: u.imm, rob_idx: u.rob_idx, ldq_idx: u.ldq_idx, stq_idx: u.stq_idx})
         fail($sformatf("MEM rr_payload=%h 期待 op=%h imm=%h rob=%h ldq=%h stq=%h（id %0d）", pl_mem[0], u.op, u.imm,

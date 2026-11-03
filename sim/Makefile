@@ -28,8 +28,10 @@ RTL_DIR := $(abspath $(SIM_DIR)/../src)
 ifeq ($(wildcard $(RTL_DIR)/defs/types.sv),)
   $(error $(RTL_DIR)/defs/types.sv が無い。sim/ はリポジトリの直下（src/ と同じ階層）に置くこと)
 endif
-# package は使う側より先に読む必要がある
-PKGS := $(addprefix $(RTL_DIR)/defs/,types.sv isa.sv fpu_defs.sv ctrl_defs.sv)
+# package は使う側より先に読む必要がある。依存のあるものは順番を書き、それ以外の defs/ の中身はその後に読む
+PKG_ORDER := $(addprefix $(RTL_DIR)/defs/,types.sv ooo_types.sv isa.sv fpu_defs.sv ctrl_defs.sv uop_types.sv) \
+             $(addprefix $(RTL_DIR)/backend/defs/,back_types.sv iq_types.sv rr_types.sv ex_types.sv rob_types.sv)
+PKGS := $(PKG_ORDER) $(filter-out $(PKG_ORDER),$(shell find $(RTL_DIR) -path '*/defs/*.sv' | sort))
 RTL  := $(filter-out $(PKGS),$(shell find $(RTL_DIR) -name '*.sv' -not -path '*/ip/*' -not -name top.sv | sort))
 ifeq ($(shell grep -lE '^\s*module\s+core_top\b' $(RTL) /dev/null),)
   $(error $(RTL_DIR) 以下に module core_top が見つからない（見つかった .sv: $(notdir $(RTL))）)

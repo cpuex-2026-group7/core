@@ -7,7 +7,7 @@ WSL2 の Ubuntu で実行する想定。`verilator` と `g++` が必要。
 
 ```sh
 cd test/multi_port_ram
-make                        # I 側（3W5R）と F 側（4W7R）をビルドして実行
+make                        # I 側（4W5R）と F 側（4W7R）をビルドして実行
 make int                    # I 側だけ
 make fp                     # F 側だけ
 make custom W=2 R=3         # 任意の構成（SIZE=128 でエントリ数、WIDTH=6 でエントリ幅も変えられる）

@@ -3,6 +3,7 @@
 
 module iq_core
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
   import back_types::*;
   import iq_types::*;
@@ -41,8 +42,6 @@ module iq_core
 
   // FU (fdiv,fsqrtのブロック用)
   input wire logic [DEST_FU_NUM-1:0] dest_fu_blocked,
-  output logic issued[ISSUE_W],
-  output dest_fu_t issued_dest_fu[ISSUE_W],
 
   // to RR
   output iq_rr_t rr_ff[ISSUE_W],
@@ -68,25 +67,14 @@ module iq_core
   logic [SIZE-1:0] bitmaps[DEST_FU_NUM];
   logic [SIZE-1:0] n_bitmaps[DEST_FU_NUM];
 
-  // mispredictした分岐に依存していたら消す
   function automatic logic branch_kill_check(input brmask_t brmask, input br_update_t br_upd[BR_UPDATE_W]);
     branch_kill_check = 1'b0;
-    for (int i = 0; i < BR_UPDATE_W; i++) begin
-      if (br_upd[i].valid && br_upd[i].mispredict && brmask[br_upd[i].tag]) begin
-        branch_kill_check = 1'b1;
-      end
-    end
+    for (int i = 0; i < BR_UPDATE_W; i++) branch_kill_check |= br_killed(brmask, br_upd[i]);
   endfunction
 
-  // 当たった分岐のビットを落とす
   function automatic brmask_t apply_br_update(input brmask_t brmask, input br_update_t br_upd[BR_UPDATE_W]);
-    brmask_t ret = brmask;
-    for (int i = 0; i < BR_UPDATE_W; i++) begin
-      if (br_upd[i].valid && !br_upd[i].mispredict) begin
-        ret[br_upd[i].tag] = 1'b0;
-      end
-    end
-    return ret;
+    apply_br_update = brmask;
+    for (int i = 0; i < BR_UPDATE_W; i++) apply_br_update = br_resolved(apply_br_update, br_upd[i]);
   endfunction
 
   // 分岐ミスで消されたやつを抜いたbitmap
@@ -171,6 +159,8 @@ module iq_core
 
   logic [SIZE-1:0] grant[ISSUE_W];
   logic [IDX_W-1:0] issued_slot[ISSUE_W];
+  logic issued[ISSUE_W];
+  dest_fu_t issued_dest_fu[ISSUE_W];
   generate
     for (genvar i = 0; i < ISSUE_W; i++) begin : g_issue
       // 一番古いのを選ぶ

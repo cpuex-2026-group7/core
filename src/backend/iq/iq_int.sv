@@ -3,6 +3,7 @@
 
 module iq_int
   import types::*;
+  import ooo_types::*;
   import uop_types::*;
   import back_types::*;
   import iq_types::*;
@@ -31,8 +32,6 @@ module iq_int
   input wire br_update_t br_update[BR_UPDATE_W],
 
   // to RR
-  output logic issued[1],
-  output dest_fu_t issued_dest_fu[1],
   output iq_rr_t rr_ff[1],
   output int_payload_t rr_payload[1]
 );
@@ -56,6 +55,8 @@ module iq_int
         op: disp_uop[i].op,
         imm: disp_uop[i].imm,
         pc: disp_uop[i].pc,
+        predict_pc: disp_uop[i].predict_pc,
+        ftq_idx: disp_uop[i].ftq_idx,
         rob_idx: disp_uop[i].rob_idx,
         br_tag: disp_uop[i].br_tag
       };
@@ -91,8 +92,6 @@ module iq_int
     .dest_fu_blocked({1'b0}),
 
     // to RR
-    .issued(issued),
-    .issued_dest_fu(issued_dest_fu),
     .rr_ff(rr_ff),
     .rr_payload(rr_payload_raw)
   );
