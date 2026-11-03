@@ -21,8 +21,8 @@ CYCLES ?= 200000
 SEED   ?= 1
 TRACE  ?= 0
 
-# I 側・F 側の構成（claude/ooo-execution-units.md の決定どおり）
-INT_W := 3
+# I 側・F 側の構成（rf_top と同じ。I の W は ALU / lw / ftoi / feq・flt）
+INT_W := 4
 INT_R := 5
 FP_W  := 4
 FP_R  := 7

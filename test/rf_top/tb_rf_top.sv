@@ -16,7 +16,7 @@
 //
 // テストの前提にしている仕様
 //   - PRF の書き込みは立ち上がりで反映。同じサイクルの読み出しは書く前の値（バイパスが無ければ）。初期値は 0
-//   - 書き込みポート：wb_alu→I、wb_mem→I/F、wb_fpu[0]→F、wb_fpu[1]→I/F、wb_fpu[2]→F。
+//   - 書き込みポート：wb_alu→I、wb_mem→I/F、wb_fpu[0]→I/F（feq/flt は I）、wb_fpu[1]→I/F、wb_fpu[2]→F。
 //     valid=0、rd.typ が NONE、ポートに無い方の typ は書かない
 //   - 読み出し：INT の rs1/rs2 と MEM の rs1 は I。MEM の rs2 と FPU長 の rs1 は typ が F なら F、そうでなければ I。
 //     それ以外（FPU短 / FPU長 の rs2 / FPU超長）は F
@@ -214,7 +214,7 @@ module tb_rf_top
   function automatic int wb_file(int w, preg_type_t t);
     case (w)
       0: return (t == PREG_TYPE_I) ? RI : -1;
-      1, 3: return (t == PREG_TYPE_I) ? RI : (t == PREG_TYPE_F) ? RF : -1;
+      1, 2, 3: return (t == PREG_TYPE_I) ? RI : (t == PREG_TYPE_F) ? RF : -1;
       default: return (t == PREG_TYPE_F) ? RF : -1;
     endcase
   endfunction
@@ -562,7 +562,7 @@ module tb_rf_top
         set_src(2, pf(1), pf(1));
         cycle();
         // ポートが持つ PRF（仕様どおりに手で書いた表）
-        wi = (ti == 0) && (w == 0 || w == 1 || w == 3);
+        wi = (ti == 0) && (w == 0 || w == 1 || w == 2 || w == 3);
         wf = (ti == 1) && (w == 1 || w == 2 || w == 3 || w == 4);
         expect_val(0, 0, wi ? v : 32'haaaa_0000 + 32'(w * 16 + ti),
                    $sformatf("%s が typ=%0d valid=%b で書いた後の I[1]", w_name(w), ti == 3 ? 0 : t, ti != 3));
@@ -783,6 +783,20 @@ module tb_rf_top
       set_src(4, pf(r + 1), pf(r + 3));
       cycle();
     end
+    // I の 4 ポート（alu / mem / fpu0 / fpu1）が全部同時に書く
+    for (int r = 0; r < 20; r++) begin
+      clear_inputs();
+      set_wb(0, pi(r), rword());
+      set_wb(1, pi(r + 1), rword());
+      set_wb(2, pi(r + 2), rword());
+      set_wb(3, pi(r + 3), rword());
+      set_wb(4, pf(r), rword());
+      if (I_PREG_NUM < 4) wb[3].valid = 1'b0;
+      set_src(0, pi(r), pi(r + 2));
+      set_src(1, pi(r + 1), pi(r + 3));
+      set_src(3, pi(r + 2), pf(r));
+      cycle();
+    end
     clear_inputs();
     cycle();
     end_test(e0);
@@ -955,13 +969,13 @@ module tb_rf_top
       if (r < 90) begin
         case (w)
           0: t = PREG_TYPE_I;
-          1, 3: t = (rnd(2) == 0) ? PREG_TYPE_I : PREG_TYPE_F;
+          1, 2, 3: t = (rnd(2) == 0) ? PREG_TYPE_I : PREG_TYPE_F;
           default: t = PREG_TYPE_F;
         endcase
       end else begin
         case (w)
           0: t = (rnd(2) == 0) ? PREG_TYPE_F : PREG_TYPE_NONE;
-          1, 3: t = PREG_TYPE_NONE;
+          1, 2, 3: t = PREG_TYPE_NONE;
           default: t = (rnd(2) == 0) ? PREG_TYPE_I : PREG_TYPE_NONE;
         endcase
       end

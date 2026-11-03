@@ -52,7 +52,7 @@ module rf_top
 
   localparam int ENTRY_WIDTH_INT = 32;
   localparam int R_INT = 5;
-  localparam int W_INT = 3;
+  localparam int W_INT = 4;
 
   word_t r_data_int[R_INT];
   // INT
@@ -67,11 +67,12 @@ module rf_top
     '{
       wb_alu[0].valid & wb_alu[0].rd.typ == PREG_TYPE_I,
       wb_mem[0].valid & wb_mem[0].rd.typ == PREG_TYPE_I,
+      wb_fpu[0].valid & wb_fpu[0].rd.typ == PREG_TYPE_I,
       wb_fpu[1].valid & wb_fpu[1].rd.typ == PREG_TYPE_I
     }
     ),
-    .w_addr('{wb_alu[0].rd.idx, wb_mem[0].rd.idx, wb_fpu[1].rd.idx}),
-    .w_data('{wb_alu[0].value, wb_mem[0].value, wb_fpu[1].value}),
+    .w_addr('{wb_alu[0].rd.idx, wb_mem[0].rd.idx, wb_fpu[0].rd.idx, wb_fpu[1].rd.idx}),
+    .w_data('{wb_alu[0].value, wb_mem[0].value, wb_fpu[0].value, wb_fpu[1].value}),
     .r_addr(
     '{rr_ff_int[0].rs1.idx, rr_ff_int[0].rs2.idx, rr_ff_mem[0].rs1.idx, rr_ff_mem[0].rs2.idx, rr_ff_fpu[1].rs1.idx}
     ),
