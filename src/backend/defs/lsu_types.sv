@@ -29,7 +29,6 @@ package lsu_types;
     addr_t     addr;
     logic      mmio;             // MMIOのloadはROBの先頭に来るまで待つ
     logic      cache_requested;  // NACK来たら落とす
-    logic      waiting_resp;     // D$の応答待ち。killされても応答が来るまで再利用しない
     stq_mask_t st_dep_mask;      // 自分より古いstoreのmask
     stq_idx_t  tail_stq_idx;     // dispatch時のSTQのtail
     logic      violated;         // load順序違反
@@ -118,6 +117,9 @@ package lsu_types;
     stq_idx_t stq_idx;
   } lsu_tag_t;
 
+  // D$に渡すtagの幅
+  localparam int DC_TAG_W = $bits(lsu_tag_t);
+
   // controllerからD$へ
   typedef struct packed {
     logic     valid;
@@ -125,6 +127,7 @@ package lsu_types;
     addr_t    addr;
     word_t    wdata;
     lsu_tag_t tag;
+    brmask_t  brmask;  // このサイクルのbr_updateを当てた後。このサイクルにkillされるものは出さない
   } dc_req_t;
 
   // D$からcontrollerへ

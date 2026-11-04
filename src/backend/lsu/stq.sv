@@ -21,7 +21,7 @@ module stq
   input wire disp_lsu_t disp_st[DISP_W],
   output stq_idx_t disp_stq_idx[DISP_W],
   output logic disp_full[DISP_W],
-  // dispatch（branch）
+  // dispatch(branch)
   input wire logic disp_br_valid[DISP_W],
   input wire br_tag_t disp_br_tag[DISP_W],
 

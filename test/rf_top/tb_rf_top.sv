@@ -18,8 +18,8 @@
 //   - PRF の書き込みは立ち上がりで反映。初期値は 0
 //   - 書き込みポート：wb_alu→I、wb_mem→I/F、wb_fpu[0]→I/F（feq/flt は I）、wb_fpu[1]→I/F、wb_fpu[2]→F。
 //     valid=0、rd.typ が NONE、ポートに無い方の typ は書かない
-//   - 読み出し：INT の rs1/rs2 と MEM の rs1 は I。MEM の rs2 と FPU長 の rs1 は typ が F なら F、そうでなければ I。
-//     それ以外（FPU短 / FPU長 の rs2 / FPU超長）は F
+//   - 読み出し：I は 4R。INT の rs1/rs2 と MEM の rs1 は I。FPU長 の rs1 は typ が F なら F、そうでなければ I。
+//     それ以外（MEM の rs2 / FPU短 / FPU長 の rs2 / FPU超長）は F。MEM の rs2 は fsw のデータだけで、typ が I のものは来ない
 //   - ソースの値：typ が NONE なら 0。同じサイクルの WB に valid で rd（typ と idx）が一致するものがあればその value
 //     （バイパス）。複数当たったら wb_alu, wb_mem, wb_fpu[0], wb_fpu[1], wb_fpu[2] の順で先のもの。無ければ PRF
 //   - valid = !rst && !flush && rr.valid && mispredict した分岐に依存していない
@@ -217,7 +217,7 @@ module tb_rf_top
   function automatic int src_file(int l, int s, preg_type_t t);
     case (l)
       0: return RI;
-      1: return (s == 0) ? RI : ((t == PREG_TYPE_F) ? RF : RI);
+      1: return (s == 0) ? RI : RF;
       3: return (s == 0) ? ((t == PREG_TYPE_F) ? RF : RI) : RF;
       default: return RF;
     endcase
@@ -275,8 +275,8 @@ module tb_rf_top
   longint st_none;
   longint st_kill;
   longint st_clear;
-  longint st_fsel;  // MEM rs2 / FPU長 rs1 で F を読んだ
-  longint st_isel;  // MEM rs2 / FPU長 rs1 で I を読んだ
+  longint st_fsel;  // FPU長 rs1 で F を読んだ
+  longint st_isel;  // FPU長 rs1 で I を読んだ
   longint st_ignored_wr;  // valid だが書かない WB（NONE / ポートに無い typ）
   longint st_rst;
   longint st_flush;
@@ -328,7 +328,7 @@ module tb_rf_top
             if (written_now(src_file(l, k, s.typ), s.idx)) st_byp_over_write++;
             else st_byp_no_write++;
           end
-          if ((l == 1 && k == 1) || (l == 3 && k == 0)) begin
+          if (l == 3 && k == 0) begin
             if (src_file(l, k, s.typ) == RF) st_fsel++;
             else st_isel++;
           end
@@ -578,7 +578,7 @@ module tb_rf_top
     for (int k = 0; k < n; k++) begin
       clear_inputs();
       set_src(0, pi(k), pi(n - 1 - k));
-      set_src(1, pi(k), pi(n - 1 - k));
+      set_src(1, pi(k), pf(n - 1 - k));
       set_src(2, pf(k), pf(n - 1 - k));
       set_src(3, pi(k), pf(n - 1 - k));
       set_src(4, pf(k), pf(n - 1 - k));
@@ -586,7 +586,7 @@ module tb_rf_top
       expect_val(0, 0, ival(k), "INT rs1 は I");
       expect_val(0, 1, ival(n - 1 - k), "INT rs2 は I");
       expect_val(1, 0, ival(k), "MEM rs1 は I");
-      expect_val(1, 1, ival(n - 1 - k), "MEM rs2 が I のとき I");
+      expect_val(1, 1, fval(n - 1 - k), "MEM rs2 は F");
       expect_val(2, 0, fval(k), "FPU短 rs1 は F");
       expect_val(2, 1, fval(n - 1 - k), "FPU短 rs2 は F");
       expect_val(3, 0, ival(k), "FPU長 rs1 が I のとき I");
@@ -594,10 +594,8 @@ module tb_rf_top
       expect_val(4, 0, fval(k), "FPU超長 rs1 は F");
       expect_val(4, 1, fval(n - 1 - k), "FPU超長 rs2 は F");
       clear_inputs();
-      set_src(1, pi(k), pf(k));
       set_src(3, pf(k), pf(k));
       cycle();
-      expect_val(1, 1, fval(k), "MEM rs2 が F のとき F");
       expect_val(3, 0, fval(k), "FPU長 rs1 が F のとき F");
     end
     end_test(e0);
@@ -691,14 +689,14 @@ module tb_rf_top
         expect_val(lane, 0, v, $sformatf("%s が valid=0（前のサイクルに書いた値）", w_name(w)));
       end
     end
-    // 全レーン・全ソース（MEM rs2 / FPU長 rs1 は I と F の両方）。I は wb_alu、F は wb_fpu[2] から
+    // 全レーン・全ソース（FPU長 rs1 は I と F の両方）。I は wb_alu、F は wb_fpu[2] から
     for (int l = 0; l < NL; l++) begin
       for (int s = 0; s < 2; s++) begin
         for (int ft = 0; ft < 2; ft++) begin
-          if (ft == 1 && !((l == 1 && s == 1) || (l == 3 && s == 0))) continue;
+          if (ft == 1 && !(l == 3 && s == 0)) continue;
           clear_inputs();
           if ((l == 0) || (l == 1 && s == 0)) p = pi(3);
-          else if ((l == 1 && s == 1) || (l == 3 && s == 0)) p = (ft == 0) ? pi(3) : pf(3);
+          else if (l == 3 && s == 0) p = (ft == 0) ? pi(3) : pf(3);
           else p = pf(3);
           v = 32'h6000_0000 + 32'(l * 16 + s * 4 + ft);
           set_wb((p.typ == PREG_TYPE_I) ? 0 : 4, p, v);
@@ -776,8 +774,8 @@ module tb_rf_top
       set_wb(4, pf(r), rword());
       if (I_PREG_NUM < 4) wb[3].valid = 1'b0;
       set_src(0, pi(r), pi(r + 2));
-      set_src(1, pi(r + 1), pi(r + 3));
-      set_src(3, pi(r + 2), pf(r));
+      set_src(1, pi(r + 1), pf(r));
+      set_src(3, pi(r + 3), pf(r));
       cycle();
     end
     clear_inputs();
@@ -917,7 +915,7 @@ module tb_rf_top
       0: return (r < 85) ? mk_preg(PREG_TYPE_I, hot_idx(RI)) : pn();
       1:
       if (s == 0) return (r < 85) ? mk_preg(PREG_TYPE_I, hot_idx(RI)) : pn();
-      else return (r < 40) ? mk_preg(PREG_TYPE_I, hot_idx(RI)) : (r < 80) ? mk_preg(PREG_TYPE_F, hot_idx(RF)) : pn();
+      else return (r < 80) ? mk_preg(PREG_TYPE_F, hot_idx(RF)) : pn();
       3:
       if (s == 0) return (r < 35) ? mk_preg(PREG_TYPE_I, hot_idx(RI)) : (r < 85) ? mk_preg(PREG_TYPE_F, hot_idx(RF)) : pn();
       else return (r < 85) ? mk_preg(PREG_TYPE_F, hot_idx(RF)) : pn();

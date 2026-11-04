@@ -26,7 +26,7 @@ module lsu_controller
 
   // LDQ
   input wire ldq_entry_t ldq[LDQ_SIZE],
-  input wire ldq_idx_t ldq_head,  // loadの先頭（MMIO用）
+  input wire ldq_idx_t ldq_head,  // loadの先頭(MMIO用)
   output ld_addr_t ld_addr,
   output ldq_idx_with_valid_t ld_requested,
   output ldq_idx_with_valid_t ld_nack,
@@ -34,7 +34,7 @@ module lsu_controller
 
   // STQ
   input wire stq_entry_t stq[STQ_SIZE],
-  input wire stq_idx_t stq_head,  // storeの先頭（MMIO用）
+  input wire stq_idx_t stq_head,  // storeの先頭(MMIO用)
   input wire stq_idx_t stq_exec_head,  // 次にD$に送るstore
   output st_addr_t st_addr,
   output st_data_t st_data,
@@ -53,7 +53,8 @@ module lsu_controller
   output wakeup_t slow_wakeup_mem,
 
   // D$
-  output dc_req_t dc_req,
+  // ここ3つはFF
+  output dc_req_t dc_req,  // acceptされるまで保持。毎サイクルbr_updateを当てる
   input wire logic dc_accepted,
   input wire dc_resp_t dc_resp
 );

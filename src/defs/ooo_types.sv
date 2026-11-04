@@ -39,12 +39,13 @@ package ooo_types;
   typedef logic [FTQ_IDX_WIDTH-1:0] ftq_idx_t;
 
   typedef struct packed {
-    logic    valid;
-    logic    mispredict;
-    br_tag_t tag;
-    logic    taken;
-    pc_t     pc;
-    pc_t     target;
+    logic     valid;
+    logic     mispredict;
+    br_tag_t  tag;
+    logic     taken;
+    pc_t      pc;
+    pc_t      target;
+    rob_idx_t rob_idx;
   } br_update_t;
 endpackage
 
