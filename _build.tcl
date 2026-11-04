@@ -288,6 +288,29 @@ proc fix_ips {} {
 }
 
 # ---------------------------------------------------------------
+# memory リポジトリの取得
+# ---------------------------------------------------------------
+
+# src/memory/memory_repository に cpuex-2026-group7/memory を取ってくる。あれば最新版に更新する
+proc fetch_memory_repo {} {
+    set url https://github.com/cpuex-2026-group7/memory.git
+    set dir [file join $::script_dir src memory memory_repository]
+    section "Fetch memory"
+    if {[file isdirectory [file join $dir .git]]} {
+        puts "updating $dir"
+        if {[catch {exec -ignorestderr git -C $dir pull --ff-only -q} err]} {
+            puts "WARNING: update failed, using the local version: $err"
+        }
+    } else {
+        puts "cloning $url into $dir"
+        file mkdir [file dirname $dir]
+        if {[catch {exec -ignorestderr git clone -q --depth 1 $url $dir} err]} {
+            die "git clone failed: $err"
+        }
+    }
+}
+
+# ---------------------------------------------------------------
 # ビルド
 # ---------------------------------------------------------------
 proc build_bitstream {force} {
@@ -431,6 +454,9 @@ if {$board_repo ne ""} {
     set_param board.repoPaths [list $board_repo]
 } else {
     puts "WARNING: board files not found in: [join $board_repo_candidates {, }]"
+}
+if {$mode eq "all" || $mode eq "build"} {
+    fetch_memory_repo
 }
 open_project [lindex $xprs 0]
 

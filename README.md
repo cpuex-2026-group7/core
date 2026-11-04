@@ -62,6 +62,7 @@ Windows のコマンドプロンプトか PowerShell で、リポジトリ直下
 .\build.bat ip              :: IP（clk_wiz_0）の状態を表示し、ロックされていれば更新・再生成
 ```
 
+- all と build のときは、最初に src/memory/memory_repository に cpuex-2026-group7/memory を取得する（あれば `git pull --ff-only` で更新）。git には入れない
 - ソースが前回のビルドから変わっていなければ、合成・配置配線は飛ばす
 - clone 直後や別の PC で「locked IP」と言われたら、先に `.\build.bat ip` を実行する
 - ボードが見つからないと言われたら、USB ケーブル・電源スイッチ・ドライバを確認する
