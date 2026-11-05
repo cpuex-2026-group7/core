@@ -13,12 +13,12 @@ package uop_types;
   typedef logic [2:0] dest_eu_t;
   typedef logic [1:0] dest_fu_t;  // EUの中のFU
 
-  localparam int FU_PER_EU = 1 << $bits(dest_fu_t);
+  localparam int       FU_PER_EU      = 1 << $bits(dest_fu_t);
 
-  localparam latency_t LAT_FAST   = 2'd0;
-  localparam latency_t LAT_ITOF   = 2'd1;
-  localparam latency_t LAT_FADD   = 2'd1;
-  localparam latency_t LAT_FMUL   = 2'd3;
+  localparam latency_t LAT_FAST       = 2'd0;
+  localparam latency_t LAT_ITOF       = 2'd2;
+  localparam latency_t LAT_FADD       = 2'd3;
+  localparam latency_t LAT_FMUL       = 2'd1;
 
   localparam dest_eu_t EU_ALU         = 3'd0;
   localparam dest_eu_t EU_MEM         = 3'd1;
@@ -27,12 +27,12 @@ package uop_types;
   localparam dest_eu_t EU_F_VERY_LONG = 3'd4;
 
   // F長
-  localparam dest_fu_t FU_FMUL  = 2'd0;
-  localparam dest_fu_t FU_FCVT  = 2'd1;  // itof, ftoi
-  localparam dest_fu_t FU_FADD  = 2'd2;  // fadd, fsub
+  localparam dest_fu_t FU_FMUL        = 2'd0;
+  localparam dest_fu_t FU_FCVT        = 2'd1;                   // itof, ftoi
+  localparam dest_fu_t FU_FADD        = 2'd2;                   // fadd, fsub
   // F超長
-  localparam dest_fu_t FU_FSQRT = 2'd0;
-  localparam dest_fu_t FU_FDIV  = 2'd1;
+  localparam dest_fu_t FU_FSQRT       = 2'd0;
+  localparam dest_fu_t FU_FDIV        = 2'd1;
 
   // 使わないレジスタは typ=PREG_TYPE_NONE
   typedef struct packed {
