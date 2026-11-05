@@ -14,11 +14,15 @@
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
 //   - disp_full_*（組み合わせ出力）、各 IQ 内部の issued / issued_dest_fu
 //   - 内部の wakeup バス dut.all_wakeup（外からの分と、各 IQ の issue 時の分）
-//   - 次のサイクルの rr_ff_* / rr_payload_*
+//   - 次のサイクルの rr_ff_* / rr_payload_* / rr_issue_part_mem
 //
 // テストの前提にしている仕様
 //   - IQ は INT（FU 1 個、ポート 1）、MEM（FU 1 個、slow wakeup）、FP（SHORT→port0, LONG→port1, DIV/SQRT→port2、
 //     DIV と SQRT は slow wakeup かつ blocking、fdiv_blocked は DIV、fsqrt_blocked は SQRT を止める）
+//   - FU はテストの中では TF_*（INT / MEM は 0）で持ち、put で uop の dest_eu / dest_fu に直す
+//     （ALU=0, MEM=1, F短=2, F長=3, F超長=4。F超長の中は fsqrt=0, fdiv=1）
+//   - MEM は rs1 側（STA / LDA）と rs2 側（STD）を別々に出す。put で rd が NONE かつ rs2 がレジスタなら store
+//     （op.eff=EFF_MEM、出す側 2'b11）、そうでなければ load（op.eff は MEM 以外、出す側 2'b01）にする
 //   - wakeup バスは [0, WAKEUP_W) が外から、WAKEUP_W が INT、+1 が MEM、+2〜+4 が FP の port0〜2
 //   - busy table
 //       rst / flush で全部 ready（そのサイクルの dispatch の rd も無視）
@@ -65,6 +69,32 @@ module tb_iq_top
   localparam int MAX_ERRORS = 30;
 
   typedef logic [63:0] cyc_t;
+
+  // テストの中の FP の FU 番号
+  localparam int TF_SHORT = 0;
+  localparam int TF_LONG = 1;
+  localparam int TF_DIV = 2;
+  localparam int TF_SQRT = 3;
+
+  function automatic dest_eu_t eu_of(int q, int f);
+    if (q == QI) return EU_ALU;
+    if (q == QM) return EU_MEM;
+    return (f == TF_SHORT) ? EU_F_SHORT : (f == TF_LONG) ? EU_F_LONG : EU_F_VERY_LONG;
+  endfunction
+
+  function automatic dest_fu_t lfu_of(int q, int f);
+    if (q == QF && f == TF_DIV) return FU_FDIV;
+    if (q == QF && f == TF_SQRT) return FU_FSQRT;
+    return '0;
+  endfunction
+
+  // uop の dest_eu / dest_fu からテストの中の FU 番号に戻す
+  function automatic int gfu(int q, disp_uop_t u);
+    if (q != QF) return 0;
+    if (u.dest_eu == EU_F_SHORT) return TF_SHORT;
+    if (u.dest_eu == EU_F_LONG) return TF_LONG;
+    return (u.dest_fu == FU_FDIV) ? TF_DIV : TF_SQRT;
+  endfunction
 
   function automatic int q_size(int q);
     return (q == QI) ? SIZE_INT : (q == QM) ? SIZE_MEM : SIZE_FPU;
@@ -162,6 +192,7 @@ module tb_iq_top
   iq_rr_t rr_fpu[3];
   int_payload_t pl_int[1];
   mem_payload_t pl_mem[1];
+  logic [1:0] part_mem[1];
   float_payload_t pl_fpu[3];
 
   iq_top #(
@@ -196,6 +227,7 @@ module tb_iq_top
     .rr_payload_int(pl_int),
     .rr_ff_mem(rr_mem),
     .rr_payload_mem(pl_mem),
+    .rr_issue_part_mem(part_mem),
     .rr_ff_fpu(rr_fpu),
     .rr_payload_fpu(pl_fpu)
   );
@@ -206,12 +238,12 @@ module tb_iq_top
 
   function automatic logic o_issued(int q, int p);
     return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued[0] :
-           (q == QM) ? dut.u_iq_mem.u_iq_core_int.issued[0] : dut.u_iq_float.u_iq_core_int.issued[p];
+           (q == QM) ? dut.u_iq_mem.u_iq_core_mem.issued[0] : dut.u_iq_float.u_iq_core_float.issued[p];
   endfunction
 
   function automatic dest_fu_t o_fu(int q, int p);
     return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued_dest_fu[0] :
-           (q == QM) ? dut.u_iq_mem.u_iq_core_int.issued_dest_fu[0] : dut.u_iq_float.u_iq_core_int.issued_dest_fu[p];
+           (q == QM) ? dut.u_iq_mem.u_iq_core_mem.issued_dest_fu[0] : dut.u_iq_float.u_iq_core_float.issued_dest_fu[p];
   endfunction
 
   function automatic iq_rr_t o_rr(int q, int p);
@@ -290,6 +322,7 @@ module tb_iq_top
     cyc_t r1;  // このサイクルから使える
     cyc_t r2;
     brmask_t bm;
+    logic [1:0] pend;  // MEM でまだ出していない側（[0]: rs1 側、[1]: rs2 側）。他の IQ は 2'b11 のまま
   } ment_t;
 
   ment_t m[NQ][MAXS];
@@ -309,8 +342,10 @@ module tb_iq_top
   cyc_t cyc_limit;
   logic checking;
   int exp_idx[NQ][MAXP];
+  logic [1:0] exp_part[NQ][MAXP];
   logic exp_rr_v[NQ][MAXP];
   ment_t exp_rr[NQ][MAXP];
+  logic [1:0] exp_rr_part[NQ][MAXP];
   cyc_t issued_at[int];
 
   // このサイクルの wakeup バス
@@ -353,6 +388,8 @@ module tb_iq_top
   longint st_rst;
   longint st_resolve;
   longint st_pend_kill;
+  longint st_mem_partial;  // MEM で片側だけ出した
+  longint st_mem_both;  // MEM の store を 1 回で出した
 
   int logf;
 
@@ -404,6 +441,15 @@ module tb_iq_top
     return (q_size(q) - occ(q)) < q_dw(q);
   endfunction
 
+  // このサイクルに出せる側。MEM は出していない側ごと、他は両方 ready なら 2'b11
+  function automatic logic [1:0] ready_part(int q, ment_t e);
+    logic r1, r2;
+    r1 = e.w1 && cyc >= e.r1;
+    r2 = e.w2 && cyc >= e.r2;
+    if (q == QM) return {e.pend[1] && r2, e.pend[0] && r1};
+    return (r1 && r2) ? 2'b11 : 2'b00;
+  endfunction
+
   // サイクル頭の状態と入力から、このサイクルに各ポートが出すエントリを決める
   task automatic compute_expect();
     ment_t e;
@@ -411,13 +457,14 @@ module tb_iq_top
     for (int q = 0; q < NQ; q++) begin
       for (int p = 0; p < MAXP; p++) begin
         exp_idx[q][p] = -1;
+        exp_part[q][p] = 2'b00;
         if (p >= q_ports(q) || rst || flush) continue;
         for (int k = 0; k < q_size(q); k++) begin
           e = m[q][k];
           if (!e.valid || killed_by(e.bm)) continue;
-          f = int'(e.u.dest_fu);
+          f = gfu(q, e.u);
           if (fu_port(q, f) != p) continue;
-          if (!(e.w1 && cyc >= e.r1 && e.w2 && cyc >= e.r2)) continue;
+          if (ready_part(q, e) == 2'b00) continue;
           if (in_blocked(q, f)) begin
             st_in_block[q]++;
             continue;
@@ -428,6 +475,7 @@ module tb_iq_top
           end
           if (exp_idx[q][p] < 0 || e.seq < m[q][exp_idx[q][p]].seq) exp_idx[q][p] = k;
         end
+        if (exp_idx[q][p] >= 0) exp_part[q][p] = ready_part(q, m[q][exp_idx[q][p]]);
       end
     end
   endtask
@@ -459,7 +507,7 @@ module tb_iq_top
         end
         if (o_fu(q, p) !== e.u.dest_fu)
           fail($sformatf("%s port%0d issued_dest_fu=%0d 期待=%0d", q_name(q), p, o_fu(q, p), e.u.dest_fu));
-        xv = !fu_slow(q, int'(e.u.dest_fu)) && e.u.rd.typ != PREG_TYPE_NONE;
+        xv = !fu_slow(q, gfu(q, e.u)) && e.u.rd.typ != PREG_TYPE_NONE;
         if (bw.valid !== xv)
           fail($sformatf("%s port%0d の wakeup（バス %0d）valid=%0b 期待=%0b（id %0d）", q_name(q), p, bus_idx(q, p),
                          bw.valid, xv, e.id));
@@ -565,10 +613,11 @@ module tb_iq_top
         idx = exp_idx[q][pp];
         exp_rr_v[q][pp] = idx >= 0;
         exp_rr[q][pp] = '0;
+        exp_rr_part[q][pp] = exp_part[q][pp];
         if (idx < 0) continue;
         exp_rr[q][pp] = m[q][idx];
         exp_rr[q][pp].bm = resolve_mask(m[q][idx].bm);
-        f = int'(m[q][idx].u.dest_fu);
+        f = gfu(q, m[q][idx].u);
         if (!fu_slow(q, f) && m[q][idx].u.rd.typ != PREG_TYPE_NONE) begin
           cwv[bus_idx(q, pp)] = 1'b1;
           cwp[bus_idx(q, pp)] = m[q][idx].u.rd;
@@ -605,12 +654,19 @@ module tb_iq_top
         issued_at[int'(m[q][idx].id)] = cyc;
         fate[int'(m[q][idx].id)] = $sformatf("issue %0d", cyc);
         st_issue[q][pp]++;
-        f = int'(m[q][idx].u.dest_fu);
+        f = gfu(q, m[q][idx].u);
         if (fu_blk(q, f)) begin
           memo_v[q][f]  = 1'b1;
           memo_at[q][f] = cyc;
         end
-        m[q][idx].valid = 1'b0;
+        if (q == QM) begin
+          if (exp_part[q][pp] == 2'b11) st_mem_both++;
+          else if (m[q][idx].pend == 2'b11) st_mem_partial++;
+          m[q][idx].pend &= ~exp_part[q][pp];
+          if (m[q][idx].pend == 2'b00) m[q][idx].valid = 1'b0;
+        end else begin
+          m[q][idx].valid = 1'b0;
+        end
       end
     end
 
@@ -666,6 +722,7 @@ module tb_iq_top
         m[q][j].seq = next_seq++;
         m[q][j].u = u;
         m[q][j].bm = resolve_mask(u.brmask);
+        m[q][j].pend = (q != QM) ? 2'b11 : (u.op.eff == EFF_MEM) ? 2'b11 : 2'b01;
         src_init(q, u.rs1);
         m[q][j].w1 = si_w;
         m[q][j].r1 = si_r;
@@ -745,6 +802,8 @@ module tb_iq_top
           fail($sformatf("%s port%0d rr_ff.dest_fu=%0d 期待=%0d（id %0d）", q_name(q), p, r.dest_fu, e.u.dest_fu, e.id));
         if (r.brmask !== e.bm)
           fail($sformatf("%s port%0d rr_ff.brmask=%b 期待=%b（id %0d）", q_name(q), p, r.brmask, e.bm, e.id));
+        if (q == QM && part_mem[0] !== exp_rr_part[q][p])
+          fail($sformatf("MEM rr_issue_part=%b 期待=%b（id %0d）", part_mem[0], exp_rr_part[q][p], e.id));
         check_payload(q, p, e);
       end
     end
@@ -791,9 +850,18 @@ module tb_iq_top
   endtask
 
   task automatic put(int q, int lane, disp_uop_t u);
+    int f;
     if (lane >= q_dw(q)) begin
       fail($sformatf("%s のレーン %0d は無い（テストの誤り）", q_name(q), lane));
       return;
+    end
+    // mk_uop はテストの中の FU 番号を dest_fu に入れているので直す
+    f = int'(u.dest_fu);
+    u.dest_eu = eu_of(q, f);
+    u.dest_fu = lfu_of(q, f);
+    if (q == QM) begin
+      if (u.rd.typ == PREG_TYPE_NONE && is_reg(u.rs2)) u.op.eff = EFF_MEM;
+      else if (u.op.eff == EFF_MEM) u.op.eff = EFF_WI;
     end
     tvalid[q][lane] = 1'b1;
     tuop[q][lane] = u;
@@ -888,7 +956,7 @@ module tb_iq_top
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(1), pi(63), pi(0), 0, '0, a));
     put(QM, 0, mk_uop(0, pn(), pi(17), pf(63), 0, '0, b));
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(2), pf(0), pi(40), 0, '0, c));
+    put(QF, 0, mk_uop(TF_SHORT, pf(2), pf(0), pi(40), 0, '0, c));
     cycle();
     run_idle(3);
     expect_at(a, t0 + 1);
@@ -911,19 +979,19 @@ module tb_iq_top
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(10), pi(20), pi(21), 0, bit_of(2), a));
     put(QM, 0, mk_uop(0, pf(11), pi(22), pn(), 0, bit_of(7), b));
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(12), pf(23), pn(), 0, '0, c));
+    put(QF, 0, mk_uop(TF_SHORT, pf(12), pf(23), pn(), 0, '0, c));
     cycle();
     t1 = cyc;
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_LONG, pi(13), pf(24), pf(25), 3, bit_of(0), d));
+    put(QF, 0, mk_uop(TF_LONG, pi(13), pf(24), pf(25), 3, bit_of(0), d));
     cycle();
     t2 = cyc;
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_DIV, pf(14), pf(26), pf(27), 2, '0, e));
+    put(QF, 0, mk_uop(TF_DIV, pf(14), pf(26), pf(27), 2, '0, e));
     cycle();
     t3 = cyc;
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_SQRT, pf(15), pf(28), pn(), 1, '0, g));
+    put(QF, 0, mk_uop(TF_SQRT, pf(15), pf(28), pn(), 1, '0, g));
     cycle();
     run_idle(6);
     expect_at(a, t0 + 1);
@@ -978,19 +1046,19 @@ module tb_iq_top
     pfu[0] = 0;
     pp[0] = pi(30);
     pq[1] = QF;
-    pfu[1] = FU_F_LONG;
+    pfu[1] = TF_LONG;
     pp[1] = pf(30);
     pq[2] = QF;
-    pfu[2] = FU_F_LONG;
+    pfu[2] = TF_LONG;
     pp[2] = pi(31);  // ftoi など
     cq[0] = QI;
     cf[0] = 0;
     cq[1] = QM;
     cf[1] = 0;
     cq[2] = QF;
-    cf[2] = FU_F_SHORT;
+    cf[2] = TF_SHORT;
     cq[3] = QF;
-    cf[3] = FU_F_LONG;
+    cf[3] = TF_LONG;
     for (int i = 0; i < 3; i++)
       for (int k = 0; k < 4; k++)
         for (int lat = 0; lat < 4; lat++)
@@ -1011,7 +1079,7 @@ module tb_iq_top
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(5), pn(), pn(), 2, '0, a));
     put(QM, 0, mk_uop(0, pn(), pi(5), pi(6), 0, '0, b));
-    put(QF, 0, mk_uop(FU_F_LONG, pf(7), pi(5), pn(), 1, '0, c));
+    put(QF, 0, mk_uop(TF_LONG, pf(7), pi(5), pn(), 1, '0, c));
     cycle();
     run_idle(6);
     expect_at(a, t0 + 1);
@@ -1025,7 +1093,7 @@ module tb_iq_top
     t1 = cyc;
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(8), pn(), pn(), 3, '0, d));
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(9), pf(8), pn(), 0, '0, e));
+    put(QF, 0, mk_uop(TF_SHORT, pf(9), pf(8), pn(), 0, '0, e));
     cycle();
     run_idle(3);
     expect_at(d, t1 + 1);
@@ -1039,7 +1107,7 @@ module tb_iq_top
     t2 = cyc;
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(10), pn(), pn(), 0, '0, g));
-    put(QF, 0, mk_uop(FU_F_LONG, pf(11), pn(), pn(), 1, '0, h));
+    put(QF, 0, mk_uop(TF_LONG, pf(11), pn(), pn(), 1, '0, h));
     put(QM, 0, mk_uop(0, pn(), pi(10), pf(11), 0, '0, x));
     cycle();
     run_idle(5);
@@ -1067,8 +1135,8 @@ module tb_iq_top
       z  = nid();
       t4 = cyc;
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_LONG, pf(14), pn(), pn(), 3, '0, y));
-      put(QF, 1, mk_uop(FU_F_SHORT, pf(15), pf(14), pf(14), 0, '0, z));
+      put(QF, 0, mk_uop(TF_LONG, pf(14), pn(), pn(), 3, '0, y));
+      put(QF, 1, mk_uop(TF_SHORT, pf(15), pf(14), pf(14), 0, '0, z));
       cycle();
       run_idle(6);
       expect_at(y, t4 + 1);
@@ -1163,7 +1231,7 @@ module tb_iq_top
     run_idle(1);
     clear_inputs();
     ext(0, pi(32), 3);
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(1), pi(32), pn(), 0, '0, c2));
+    put(QF, 0, mk_uop(TF_SHORT, pf(1), pi(32), pn(), 0, '0, c2));
     cycle();
     clear_inputs();
     put(QM, 0, mk_uop(0, pn(), pi(32), pn(), 0, '0, c3));
@@ -1187,7 +1255,7 @@ module tb_iq_top
     cycle();
     clear_inputs();
     ext(WAKEUP_W - 1, pf(33), 0);
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(34), pf(33), pn(), 0, '0, c));
+    put(QF, 0, mk_uop(TF_SHORT, pf(34), pf(33), pn(), 0, '0, c));
     cycle();
     run_idle(4);
     expect_at(c, tx + 3);
@@ -1207,7 +1275,7 @@ module tb_iq_top
         put(QM, 0, mk_uop(0, (k % 2) ? pf(40) : pi(40), pi(1), pn(), 0, '0, l));
         cycle();
         clear_inputs();
-        put(q, 0, mk_uop((q == QF) ? FU_F_SHORT : 0, pn(), (k % 2) ? pf(40) : pi(40), pn(), 0, '0, c));
+        put(q, 0, mk_uop((q == QF) ? TF_SHORT : 0, pn(), (k % 2) ? pf(40) : pi(40), pn(), 0, '0, c));
         cycle();
         run_idle(4);
         expect_never(c);
@@ -1221,7 +1289,7 @@ module tb_iq_top
         // busy table 側にも当たっている
         c = nid();
         clear_inputs();
-        put(q, 0, mk_uop((q == QF) ? FU_F_LONG : 0, pn(), pn(), (k % 2) ? pf(40) : pi(40), 0, '0, c));
+        put(q, 0, mk_uop((q == QF) ? TF_LONG : 0, pn(), pn(), (k % 2) ? pf(40) : pi(40), 0, '0, c));
         tx = cyc;
         cycle();
         run_idle(2);
@@ -1245,10 +1313,10 @@ module tb_iq_top
       put(QM, 0, mk_uop(0, pf(35), pi(1), pn(), 0, '0, l));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_DIV, pf(50), pf(35), pf(1), 0, '0, a));
+      put(QF, 0, mk_uop(TF_DIV, pf(50), pf(35), pf(1), 0, '0, a));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_SQRT, pf(51), pf(35), pn(), 0, '0, b));
+      put(QF, 0, mk_uop(TF_SQRT, pf(51), pf(35), pn(), 0, '0, b));
       cycle();
       run_idle(1);
       tw = cyc;
@@ -1274,10 +1342,10 @@ module tb_iq_top
       put(QM, 0, mk_uop(0, pf(36), pi(1), pn(), 0, '0, l));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_SQRT, pf(52), pf(36), pn(), 0, '0, d));
+      put(QF, 0, mk_uop(TF_SQRT, pf(52), pf(36), pn(), 0, '0, d));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_DIV, pf(53), pf(36), pf(2), 0, '0, c));
+      put(QF, 0, mk_uop(TF_DIV, pf(53), pf(36), pf(2), 0, '0, c));
       cycle();
       run_idle(1);
       tw = cyc;
@@ -1306,13 +1374,13 @@ module tb_iq_top
       put(QM, 0, mk_uop(0, pf(37), pi(1), pn(), 0, '0, l));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_DIV, pf(54), pf(37), pf(3), 0, '0, e));
+      put(QF, 0, mk_uop(TF_DIV, pf(54), pf(37), pf(3), 0, '0, e));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_DIV, pf(55), pf(37), pf(4), 0, '0, f));
+      put(QF, 0, mk_uop(TF_DIV, pf(55), pf(37), pf(4), 0, '0, f));
       cycle();
       clear_inputs();
-      put(QF, 0, mk_uop(FU_F_SQRT, pf(56), pf(37), pn(), 0, '0, g));
+      put(QF, 0, mk_uop(TF_SQRT, pf(56), pf(37), pn(), 0, '0, g));
       cycle();
       run_idle(1);
       tw = cyc;
@@ -1331,12 +1399,12 @@ module tb_iq_top
     b  = nid();
     tw = cyc;
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(57), pn(), pn(), 0, '0, a));
+    put(QF, 0, mk_uop(TF_SHORT, pf(57), pn(), pn(), 0, '0, a));
     cycle();
     clear_inputs();
     fdiv_b  = 1'b1;
     fsqrt_b = 1'b1;
-    put(QF, 0, mk_uop(FU_F_LONG, pf(58), pn(), pn(), 0, '0, b));
+    put(QF, 0, mk_uop(TF_LONG, pf(58), pn(), pn(), 0, '0, b));
     cycle();
     clear_inputs();
     fdiv_b  = 1'b1;
@@ -1367,20 +1435,20 @@ module tb_iq_top
     put(QM, 0, mk_uop(0, pf(40), pi(1), pn(), 0, '0, l));
     cycle();
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(41), pf(40), pn(), 0, '0, s));
+    put(QF, 0, mk_uop(TF_SHORT, pf(41), pf(40), pn(), 0, '0, s));
     put(QM, 0, mk_uop(0, pn(), pi(2), pf(40), 0, '0, mm));
     put(QI, 0, mk_uop(0, pi(46), pn(), pf(40), 0, '0, x));
     cycle();
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_LONG, pi(42), pf(40), pn(), 3, '0, g));
+    put(QF, 0, mk_uop(TF_LONG, pi(42), pf(40), pn(), 3, '0, g));
     put(QM, 0, mk_uop(0, pn(), pi(3), pf(41), 0, '0, c1));
     put(QI, 0, mk_uop(0, pi(47), pi(42), pi(46), 0, '0, c2));
     cycle();
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_DIV, pf(43), pf(40), pf(40), 0, '0, v));
+    put(QF, 0, mk_uop(TF_DIV, pf(43), pf(40), pf(40), 0, '0, v));
     cycle();
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(44), pf(43), pn(), 0, '0, c3));
+    put(QF, 0, mk_uop(TF_SHORT, pf(44), pf(43), pn(), 0, '0, c3));
     cycle();
     run_idle(1);
     tw = cyc;
@@ -1422,11 +1490,11 @@ module tb_iq_top
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(51), pi(50), pn(), 0, bit_of(3), a));
     put(QM, 0, mk_uop(0, pn(), pi(50), pn(), 0, bit_of(3) | bit_of(5), b));
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(52), pi(50), pn(), 0, bit_of(3), c));
+    put(QF, 0, mk_uop(TF_SHORT, pf(52), pi(50), pn(), 0, bit_of(3), c));
     cycle();
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(53), pi(50), pn(), 0, bit_of(5), d));
-    put(QF, 0, mk_uop(FU_F_LONG, pf(54), pi(50), pn(), 1, bit_of(1) | bit_of(5), e));
+    put(QF, 0, mk_uop(TF_LONG, pf(54), pi(50), pn(), 1, bit_of(1) | bit_of(5), e));
     // dispatch と同じサイクルの kill（MEM と FP）
     put(QM, 0, mk_uop(0, pn(), pi(50), pn(), 0, bit_of(4), y));
     mispredict(0, 4);
@@ -1467,14 +1535,14 @@ module tb_iq_top
       cycle();
       clear_inputs();
       put(QI, 0, mk_uop(0, pi(56), pi(55), pn(), 0, bit_of(1) | bit_of(7), f));
-      put(QF, 0, mk_uop(FU_F_SHORT, pf(57), pi(55), pn(), 0, bit_of(1), g));
+      put(QF, 0, mk_uop(TF_SHORT, pf(57), pi(55), pn(), 0, bit_of(1), g));
       put(QM, 0, mk_uop(0, pn(), pi(55), pn(), 0, bit_of(1) | bit_of(2), h));
       cycle();
       tk = cyc;
       clear_inputs();
       resolve(0, 1);
       mispredict(1, 7);
-      put(QF, 0, mk_uop(FU_F_LONG, pf(58), pi(55), pn(), 0, bit_of(7), z));
+      put(QF, 0, mk_uop(TF_LONG, pf(58), pi(55), pn(), 0, bit_of(7), z));
       cycle();
       clear_inputs();
       resolve(1, 2);
@@ -1509,7 +1577,7 @@ module tb_iq_top
         cycle();
         clear_inputs();
         put(QI, 0, mk_uop(0, pi(52), pi(51), pn(), 0, '0, a));
-        put(QF, 0, mk_uop(FU_F_LONG, pf(52), pf(1), pi(51), 3, '0, nid()));
+        put(QF, 0, mk_uop(TF_LONG, pf(52), pf(1), pi(51), 3, '0, nid()));
         cycle();
         run_idle(3);
         clear_inputs();
@@ -1553,7 +1621,7 @@ module tb_iq_top
         clear_inputs();
         for (int k = 0; k < q_dw(q); k++) begin
           fill.push_back(nid());
-          put(q, k, mk_uop((q == QF) ? FU_F_SHORT : 0, pn(), pi(54), pn(), 0, '0, fill[fill.size()-1]));
+          put(q, k, mk_uop((q == QF) ? TF_SHORT : 0, pn(), pi(54), pn(), 0, '0, fill[fill.size()-1]));
         end
         cycle();
       end
@@ -1589,7 +1657,7 @@ module tb_iq_top
     cycle();
     t1 = cyc;
     clear_inputs();
-    put(QF, 0, mk_uop(FU_F_SHORT, pf(3), pn(), pf(0), 0, '0, c));
+    put(QF, 0, mk_uop(TF_SHORT, pf(3), pn(), pf(0), 0, '0, c));
     cycle();
     run_idle(3);
     expect_at(a, t0 + 1);
@@ -1903,7 +1971,7 @@ module tb_iq_top
     for (int q = 0; q < NQ; q++) begin
       for (int p = 0; p < q_ports(q); p++) begin
         if (!exp_rr_v[q][p]) continue;
-        f = int'(exp_rr[q][p].u.dest_fu);
+        f = gfu(q, exp_rr[q][p].u);
         pe.preg = exp_rr[q][p].u.rd;
         pe.bm = exp_rr[q][p].bm;
         pe.id = exp_rr[q][p].id;
@@ -1996,6 +2064,8 @@ module tb_iq_top
     st_rst = 0;
     st_resolve = 0;
     st_pend_kill = 0;
+    st_mem_partial = 0;
+    st_mem_both = 0;
 
     for (int k = 0; k < n; k++) begin
       gen_random(1'b1, 1'b1);
@@ -2033,6 +2103,7 @@ module tb_iq_top
     $display("  dispatch と同じサイクルの wakeup %0d, 二重 wakeup %0d, busy table が拾った wakeup %0d / 無視 %0d",
              st_disp_wake, st_rewake, st_tbl_wake, st_tbl_ignore);
     $display("  数えている途中の rd の割り当て直し %0d, wakeup と同じサイクルの割り当て直し %0d", st_mark_counting, st_mark_wake);
+    $display("  MEM の store: 片側だけ先に出した %0d, 1 回で出した %0d", st_mem_partial, st_mem_both);
     for (int q = 0; q < NQ; q++) begin
       $display("  %s: kill %0d, dispatch で kill %0d, 満杯 %0d サイクル, blocked で止めた %0d, ISSUE_TO_FU で止めた %0d", q_name(q),
                st_kill[q], st_drop_kill[q], st_full[q], st_in_block[q], st_memo_block[q]);
@@ -2063,6 +2134,8 @@ module tb_iq_top
     expect_true(st_rst > 0, "rst が起きていない");
     expect_true(st_resolve > 0, "resolve が起きていない");
     expect_true(st_pend_kill > 0, "書き込み前の kill が起きていない");
+    expect_true(st_mem_partial > 0, "MEM の store を片側だけ先に出す状況が起きていない");
+    expect_true(st_mem_both > 0, "MEM の store を 1 回で出す状況が起きていない");
     end_test();
   endtask
 

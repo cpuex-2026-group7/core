@@ -3,7 +3,7 @@
 
 module iq_mem
   import types::*;
-  import isa::eff_t;
+  import isa::*;
   import ooo_types::*;
   import uop_types::*;
   import back_types::*;
@@ -42,10 +42,10 @@ module iq_mem
 
   wrapper_ff_t disp_entry[DISPATCH_W];
   logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W];
-  logic [1:0] disp_part[DISPATCH_W];
+  logic [1:0] to_issue_part[DISPATCH_W];
   always_comb begin
     for (int i = 0; i < DISPATCH_W; i++) begin
-      disp_part[i] = (disp_uop[i].op.eff == EFF_MEM) ? 2'b11 : 2'b01;
+      to_issue_part[i] = (disp_uop[i].op.eff == EFF_MEM) ? 2'b11 : 2'b01;
       disp_entry[i].rd = disp_uop[i].rd;
       disp_entry[i].rs1.preg = disp_uop[i].rs1;
       disp_entry[i].rs1.st = disp_rs1_st[i];
@@ -88,7 +88,7 @@ module iq_mem
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
-    .disp_part(disp_part),
+    .to_issue_part(to_issue_part),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),

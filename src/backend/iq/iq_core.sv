@@ -27,7 +27,7 @@ module iq_core
   input wire logic disp_valid[DISPATCH_W],
   input wire wrapper_ff_t disp_entry[DISPATCH_W],  // wrapper -> ff
   input wire logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W],
-  input wire logic [1:0] to_issue_part[DISPATCH_W],  // ALLOW_APLIT_ISSUEの場合専用。loadは2'b01、storeは2'b11
+  input wire logic [1:0] to_issue_part[DISPATCH_W],  // ALLOW_SPLIT_ISSUEの場合専用。loadは2'b01、storeは2'b11
   output logic disp_full,
 
   // wakeup bus

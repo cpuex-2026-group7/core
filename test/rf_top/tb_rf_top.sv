@@ -24,7 +24,7 @@
 //     （バイパス）。複数当たったら wb_alu, wb_mem, wb_fpu[0], wb_fpu[1], wb_fpu[2] の順で先のもの。無ければ PRF
 //   - valid = !rst && !flush && rr.valid && mispredict した分岐に依存していない
 //   - brmask は当たった分岐（valid && !mispredict）のビットを落とす
-//   - rd / rs1 / rs2 / dest_fu / payload はそのまま 1 サイクル遅れで出る
+//   - rd / rs1 / rs2 / dest_fu / payload / MEM の issue_part はそのまま 1 サイクル遅れで出る
 //   - complete_idx[k] は WB の k 番目（alu, mem, fpu0, fpu1, fpu2）の valid と rob_idx をそのまま出す
 
 module tb_rf_top
@@ -84,6 +84,7 @@ module tb_rf_top
   iq_rr_t rr[NL];
   int_payload_t pl_int;
   mem_payload_t pl_mem;
+  logic [1:0] part_mem;
   float_payload_t pl_fpu[3];
   ex_wb_t wb[NW];
   br_update_t br[BR_UPDATE_W];
@@ -96,6 +97,7 @@ module tb_rf_top
   iq_rr_t d_rr_fpu[3];
   int_payload_t d_pl_int[1];
   mem_payload_t d_pl_mem[1];
+  logic [1:0] d_part_mem[1];
   float_payload_t d_pl_fpu[3];
   ex_wb_t d_wb_alu[1];
   ex_wb_t d_wb_mem[1];
@@ -112,6 +114,7 @@ module tb_rf_top
     d_rr_fpu[2] <= rr[4];
     d_pl_int[0] <= pl_int;
     d_pl_mem[0] <= pl_mem;
+    d_part_mem[0] <= part_mem;
     d_pl_fpu <= pl_fpu;
     d_wb_alu[0] <= wb[0];
     d_wb_mem[0] <= wb[1];
@@ -138,6 +141,7 @@ module tb_rf_top
     .rr_payload_int(d_pl_int),
     .rr_ff_mem(d_rr_mem),
     .rr_payload_mem(d_pl_mem),
+    .rr_issue_part_mem(d_part_mem),
     .rr_ff_fpu(d_rr_fpu),
     .rr_payload_fpu(d_pl_fpu),
     .ex_ff_int(ex_int),
@@ -256,6 +260,7 @@ module tb_rf_top
   rr_ex_t exp_c[NL];
   int_payload_t exp_pl_int;
   mem_payload_t exp_pl_mem;
+  logic [1:0] exp_part_mem;
   float_payload_t exp_pl_fpu[3];
   complete_t exp_cmp[NW];
 
@@ -337,6 +342,7 @@ module tb_rf_top
     end
     exp_pl_int = pl_int;
     exp_pl_mem = pl_mem;
+    exp_part_mem = part_mem;
     exp_pl_fpu = pl_fpu;
     for (int w = 0; w < NW; w++) begin
       exp_cmp[w].valid = wb[w].valid;
@@ -374,6 +380,8 @@ module tb_rf_top
       fail($sformatf("INT payload %h、期待 %h", ex_int[0].payload, exp_pl_int));
     if (ex_mem[0].payload !== exp_pl_mem)
       fail($sformatf("MEM payload %h、期待 %h", ex_mem[0].payload, exp_pl_mem));
+    if (ex_mem[0].issue_part !== exp_part_mem)
+      fail($sformatf("MEM issue_part %b、期待 %b", ex_mem[0].issue_part, exp_part_mem));
     for (int p = 0; p < 3; p++)
       if (ex_fpu[p].payload !== exp_pl_fpu[p])
         fail($sformatf("%s payload %h、期待 %h", l_name(2 + p), ex_fpu[p].payload, exp_pl_fpu[p]));
@@ -417,6 +425,7 @@ module tb_rf_top
     end
     pl_int = '0;
     pl_mem = '0;
+    part_mem = 2'b11;
     for (int p = 0; p < 3; p++) pl_fpu[p] = '0;
     for (int w = 0; w < NW; w++) begin
       wb[w] = '0;
@@ -983,6 +992,7 @@ module tb_rf_top
     end
     for (int b = 0; b < $bits(int_payload_t); b++) pl_int[b] = 1'(rnd(2));
     for (int b = 0; b < $bits(mem_payload_t); b++) pl_mem[b] = 1'(rnd(2));
+    part_mem = 2'(rnd(4));
     for (int p2 = 0; p2 < 3; p2++) for (int b = 0; b < $bits(float_payload_t); b++) pl_fpu[p2][b] = 1'(rnd(2));
 
     for (int u = 0; u < BR_UPDATE_W; u++) begin

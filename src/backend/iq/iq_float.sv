@@ -84,7 +84,7 @@ module iq_float
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
-    .disp_part('{default: 2'b11}),
+    .to_issue_part('{default: 2'b11}),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),

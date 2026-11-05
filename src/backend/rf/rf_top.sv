@@ -25,6 +25,7 @@ module rf_top
 
   input wire iq_rr_t rr_ff_mem[1],
   input wire mem_payload_t rr_payload_mem[1],
+  input wire logic [1:0] rr_issue_part_mem[1],
 
   input wire iq_rr_t rr_ff_fpu[3],
   input wire float_payload_t rr_payload_fpu[3],
@@ -166,6 +167,7 @@ module rf_top
     ex_ff_mem[0].common.dest_fu <= rr_ff_mem[0].dest_fu;
     ex_ff_mem[0].common.brmask <= apply_br_update(rr_ff_mem[0].brmask, br_update);
     ex_ff_mem[0].payload <= rr_payload_mem[0];
+    ex_ff_mem[0].issue_part <= rr_issue_part_mem[0];
 
     // FPU短
     ex_ff_fpu[0].common.valid <= !rst & !flush & rr_ff_fpu[0].valid & !branch_kill_check(
