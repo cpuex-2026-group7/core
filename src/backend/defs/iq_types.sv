@@ -30,6 +30,7 @@ package iq_types;
     src_reg_t rs1;
     src_reg_t rs2;
     latency_t lat;
+    dest_eu_t dest_eu;
     dest_fu_t dest_fu;
     brmask_t  brmask;
   } wrapper_ff_t;

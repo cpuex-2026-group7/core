@@ -11,14 +11,9 @@ module iq_core
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
   parameter int ISSUE_W = 1,
-  parameter int DEST_FU_NUM = 1,
-  parameter logic [DEST_FU_NUM-1:0][ISSUE_W-1:0] FU_LISTEN_PORT = '0, // このFUはこのPORTからの入力を受け付けますか
-  // FU_LISTEN_PORT = '{ 3'b100,   // FU_F_SQRT
-  //               3'b100,   // FU_F_DIV
-  //               3'b010,   // FU_F_LONG
-  //               3'b001 }; // FU_F_SHORT
-  parameter logic [DEST_FU_NUM-1:0] SLOW_WAKEUP_FU = '0,
-  parameter logic [DEST_FU_NUM-1:0] BLOCKING_FU = '0,
+  parameter dest_eu_t EU_BASE = '0,  // EU=EU_BASE+port
+  parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] SLOW_WAKEUP_FU = '0,
+  parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] BLOCKING_FU = '0,
   parameter int WAKEUP_W = 5,
   parameter int BR_UPDATE_W = 1,
   parameter int PAYLOAD_W = 64
@@ -41,15 +36,19 @@ module iq_core
   input wire br_update_t br_update[BR_UPDATE_W],
 
   // FU (fdiv,fsqrtのブロック用)
-  input wire logic [DEST_FU_NUM-1:0] dest_fu_blocked,
+  input wire logic [ISSUE_W-1:0][FU_PER_EU-1:0] dest_fu_blocked,
 
   // to RR
   output iq_rr_t rr_ff[ISSUE_W],
   output logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W]
 );
 
-  localparam int IDX_W = (SIZE > 1) ? $clog2(SIZE) : 1;
-  localparam int FU_IDX_W = (DEST_FU_NUM > 1) ? $clog2(DEST_FU_NUM) : 1;
+  localparam int IDX_W  = (SIZE > 1) ? $clog2(SIZE) : 1;
+  localparam int PORT_W = (ISSUE_W > 1) ? $clog2(ISSUE_W) : 1;
+
+  function automatic logic [PORT_W-1:0] port_of(input dest_eu_t eu);
+    port_of = PORT_W'(eu - EU_BASE);
+  endfunction
 
   // one hotをidxに
   function automatic logic [IDX_W-1:0] onehot_to_idx(input logic [SIZE-1:0] onehot);
@@ -63,9 +62,9 @@ module iq_core
   wrapper_ff_t iq_ff[SIZE];
   wrapper_ff_t n_iq_ff[SIZE];
 
-  // FUごとの使用中ビット
-  logic [SIZE-1:0] bitmaps[DEST_FU_NUM];
-  logic [SIZE-1:0] n_bitmaps[DEST_FU_NUM];
+  // portごとの使用中ビット
+  logic [SIZE-1:0] bitmaps[ISSUE_W];
+  logic [SIZE-1:0] n_bitmaps[ISSUE_W];
 
   function automatic logic branch_kill_check(input brmask_t brmask, input br_update_t br_upd[BR_UPDATE_W]);
     branch_kill_check = 1'b0;
@@ -78,9 +77,9 @@ module iq_core
   endfunction
 
   // 分岐ミスで消されたやつを抜いたbitmap
-  logic [SIZE-1:0] killed_bitmaps[DEST_FU_NUM];
+  logic [SIZE-1:0] killed_bitmaps[ISSUE_W];
   always_comb begin
-    for (int i = 0; i < DEST_FU_NUM; i++) begin
+    for (int i = 0; i < ISSUE_W; i++) begin
       killed_bitmaps[i] = bitmaps[i];
       for (int j = 0; j < SIZE; j++) begin
         killed_bitmaps[i][j] &= !branch_kill_check(iq_ff[j].brmask, br_update);
@@ -91,7 +90,7 @@ module iq_core
   logic [SIZE-1:0] or_bitmaps;
   always_comb begin
     or_bitmaps = '0;
-    for (int i = 0; i < DEST_FU_NUM; i++) or_bitmaps |= bitmaps[i];  // kill前使ってパス短縮
+    for (int i = 0; i < ISSUE_W; i++) or_bitmaps |= bitmaps[i];  // kill前使ってパス短縮
   end
 
   // 空きスロット探し
@@ -143,17 +142,22 @@ module iq_core
 
   // issueしてからFUがblockedを出すまで止めておく
   localparam int ISSUE_TO_FU = 2;  // issueからFUまでのレイテンシ
-  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] busy_memo[DEST_FU_NUM];
+  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] busy_memo[ISSUE_W][FU_PER_EU];
 
-  // ポートごとのreq
+  logic [FU_PER_EU-1:0] fu_blocked[ISSUE_W];
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      for (int f = 0; f < FU_PER_EU; f++) fu_blocked[i][f] = dest_fu_blocked[i][f] || |busy_memo[i][f];
+    end
+  end
+
+  // ポートごとのreq 自分のFUが止まってるエントリは出さない
   logic [SIZE-1:0] req[ISSUE_W];
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
-      req[i] = '0;
-      for (int j = 0; j < DEST_FU_NUM; j++) begin
-        if (FU_LISTEN_PORT[j][i] && !dest_fu_blocked[j] && ~|busy_memo[j]) req[i] |= killed_bitmaps[j];
+      for (int j = 0; j < SIZE; j++) begin
+        req[i][j] = killed_bitmaps[i][j] && ready[j] && !fu_blocked[i][iq_ff[j].dest_fu];
       end
-      req[i] &= ready;
     end
   end
 
@@ -182,44 +186,41 @@ module iq_core
     end
   end
 
-  // FUごとにissueしたか
-  logic issued_fu[DEST_FU_NUM];
-  always_comb begin
-    for (int i = 0; i < DEST_FU_NUM; i++) issued_fu[i] = 1'b0;
-    for (int i = 0; i < ISSUE_W; i++) begin
-      if (issued[i]) issued_fu[FU_IDX_W'(issued_dest_fu[i])] = 1'b1;
-    end
-  end
-
   always_ff @(posedge clk) begin
     if (rst || flush) begin
-      for (int i = 0; i < DEST_FU_NUM; i++) busy_memo[i] <= '0;
+      for (int i = 0; i < ISSUE_W; i++) begin
+        for (int f = 0; f < FU_PER_EU; f++) busy_memo[i][f] <= '0;
+      end
     end else begin
-      for (int i = 0; i < DEST_FU_NUM; i++) begin
-        busy_memo[i] <= (ISSUE_TO_FU)'({busy_memo[i][ISSUE_TO_FU-1:0], issued_fu[i] & BLOCKING_FU[i]});
+      for (int i = 0; i < ISSUE_W; i++) begin
+        for (int f = 0; f < FU_PER_EU; f++) begin
+          busy_memo[i][f] <= (ISSUE_TO_FU)'({
+            busy_memo[i][f][ISSUE_TO_FU-1:0], issued[i] && issued_dest_fu[i] == dest_fu_t'(f) && BLOCKING_FU[i][f]
+          });
+        end
       end
     end
   end
 
   // bitmap更新 dispatchで立ててissueで落とす
   always_comb begin
-    for (int i = 0; i < DEST_FU_NUM; i++) begin
+    for (int i = 0; i < ISSUE_W; i++) begin
       n_bitmaps[i] = killed_bitmaps[i];
     end
 
     for (int i = 0; i < DISPATCH_W; i++) begin
-      if (alloc_valid[i]) n_bitmaps[FU_IDX_W'(disp_entry[i].dest_fu)][alloc_slot[i]] = 1'b1;
+      if (alloc_valid[i]) n_bitmaps[port_of(disp_entry[i].dest_eu)][alloc_slot[i]] = 1'b1;
     end
     for (int i = 0; i < ISSUE_W; i++) begin
-      if (issued[i]) n_bitmaps[FU_IDX_W'(issued_dest_fu[i])][issued_slot[i]] = 1'b0;
+      if (issued[i]) n_bitmaps[i][issued_slot[i]] = 1'b0;
     end
   end
 
   always_ff @(posedge clk) begin
     if (rst || flush) begin
-      for (int i = 0; i < DEST_FU_NUM; i++) bitmaps[i] <= '0;
+      for (int i = 0; i < ISSUE_W; i++) bitmaps[i] <= '0;
     end else begin
-      for (int i = 0; i < DEST_FU_NUM; i++) bitmaps[i] <= n_bitmaps[i];
+      for (int i = 0; i < ISSUE_W; i++) bitmaps[i] <= n_bitmaps[i];
     end
   end
 
@@ -269,7 +270,7 @@ module iq_core
   // slowなFUとrdなしは出さない
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
-      sending_wakeup[i].valid = issued[i] && !SLOW_WAKEUP_FU[FU_IDX_W'(issued_dest_fu[i])] && iq_ff[issued_slot[i]].rd.typ != PREG_TYPE_NONE;
+      sending_wakeup[i].valid = issued[i] && !SLOW_WAKEUP_FU[i][issued_dest_fu[i]] && iq_ff[issued_slot[i]].rd.typ != PREG_TYPE_NONE;
       sending_wakeup[i].preg = iq_ff[issued_slot[i]].rd;
       sending_wakeup[i].latency = iq_ff[issued_slot[i]].lat;
     end

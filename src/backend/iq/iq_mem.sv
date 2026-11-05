@@ -48,6 +48,7 @@ module iq_mem
       disp_entry[i].rs2.preg = disp_uop[i].rs2;
       disp_entry[i].rs2.st = disp_rs2_st[i];
       disp_entry[i].lat = disp_uop[i].lat;
+      disp_entry[i].dest_eu = disp_uop[i].dest_eu;
       disp_entry[i].dest_fu = disp_uop[i].dest_fu;
       disp_entry[i].brmask = disp_uop[i].brmask;
 
@@ -68,10 +69,9 @@ module iq_mem
     .SIZE(SIZE),
     .DISPATCH_W(DISPATCH_W),
     .ISSUE_W(1),
-    .DEST_FU_NUM(1),
-    .FU_LISTEN_PORT({1'b1}),
-    .SLOW_WAKEUP_FU(1'b1),
-    .BLOCKING_FU(1'b0),
+    .EU_BASE(EU_MEM),
+    .SLOW_WAKEUP_FU(4'b0001),
+    .BLOCKING_FU(4'b0000),
     .WAKEUP_W(WAKEUP_W),
     .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
@@ -87,7 +87,7 @@ module iq_mem
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
     .br_update(br_update),
-    .dest_fu_blocked('{1'b0}),
+    .dest_fu_blocked(4'b0000),
 
     // to RR
     .rr_ff(rr_ff),

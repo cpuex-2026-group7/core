@@ -52,6 +52,7 @@ module iq_float
       disp_entry[i].rs2.preg = disp_uop[i].rs2;
       disp_entry[i].rs2.st = disp_rs2_st[i];
       disp_entry[i].lat = disp_uop[i].lat;
+      disp_entry[i].dest_eu = disp_uop[i].dest_eu;
       disp_entry[i].dest_fu = disp_uop[i].dest_fu;
       disp_entry[i].brmask = disp_uop[i].brmask;
 
@@ -69,15 +70,10 @@ module iq_float
     .SIZE(SIZE),
     .DISPATCH_W(DISPATCH_W),
     .ISSUE_W(3),
-    .DEST_FU_NUM(4),
-    .FU_LISTEN_PORT({
-      3'b100,  // FU_F_SQRT
-      3'b100,  // FU_F_DIV
-      3'b010,  // FU_F_LONG
-      3'b001  // FU_F_SHORT
-    }),
-    .SLOW_WAKEUP_FU(4'b1100),
-    .BLOCKING_FU(4'b1100),
+    .EU_BASE(EU_F_SHORT),
+    // {F超長, F長, F短}、各4bitはFU番号順(bit0がFU0)
+    .SLOW_WAKEUP_FU({4'b0011, 4'b0000, 4'b0000}),
+    .BLOCKING_FU({4'b0011, 4'b0000, 4'b0000}),
     .WAKEUP_W(WAKEUP_W),
     .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
@@ -93,7 +89,7 @@ module iq_float
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
     .br_update(br_update),
-    .dest_fu_blocked({fsqrt_blocked, fdiv_blocked, 1'b0, 1'b0}),
+    .dest_fu_blocked({{2'b00, fdiv_blocked, fsqrt_blocked}, 4'b0000, 4'b0000}),
 
     // to RR
     .rr_ff(rr_ff),
