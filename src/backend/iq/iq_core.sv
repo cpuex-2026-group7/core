@@ -141,6 +141,7 @@ module iq_core
 
 
   // issueしてからFUがblockedを出すまで止めておく
+  // killはうまみがあまりない...
   localparam int ISSUE_TO_FU = 2;  // issueからFUまでのレイテンシ
   logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] busy_memo[ISSUE_W][FU_PER_EU];
 
