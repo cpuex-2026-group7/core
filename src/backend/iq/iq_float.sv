@@ -71,8 +71,7 @@ module iq_float
     .DISPATCH_W(DISPATCH_W),
     .ISSUE_W(3),
     .EU_BASE(EU_F_SHORT),
-    // {F超長, F長, F短}、各4bitはFU番号順(bit0がFU0)
-    .SLOW_WAKEUP_FU({4'b0011, 4'b0000, 4'b0000}),
+    .SLOW_WAKEUP_FU({4'b0011, 4'b0000, 4'b0000}),  // {F超長, F長, F短}
     .BLOCKING_FU({4'b0011, 4'b0000, 4'b0000}),
     .WAKEUP_W(WAKEUP_W),
     .BR_UPDATE_W(BR_UPDATE_W),
@@ -85,6 +84,7 @@ module iq_float
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
+    .disp_part('{default: 2'b11}),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
@@ -93,7 +93,8 @@ module iq_float
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw)
+    .rr_payload(rr_payload_raw),
+    .rr_issue_part()  // 不要
   );
 
 endmodule

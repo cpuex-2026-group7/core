@@ -52,6 +52,7 @@ module iq_top
 
   output iq_rr_t rr_ff_mem[1],
   output mem_payload_t rr_payload_mem[1],
+  output logic [1:0] rr_issue_part_mem[1],
 
   output iq_rr_t rr_ff_fpu[3],
   output float_payload_t rr_payload_fpu[3]
@@ -256,7 +257,8 @@ module iq_top
 
     // to RR
     .rr_ff(rr_ff_mem),
-    .rr_payload(rr_payload_mem)
+    .rr_payload(rr_payload_mem),
+    .rr_issue_part(rr_issue_part_mem)
   );
 
   iq_float #(

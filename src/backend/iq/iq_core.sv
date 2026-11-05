@@ -16,7 +16,8 @@ module iq_core
   parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] BLOCKING_FU = '0,
   parameter int WAKEUP_W = 5,
   parameter int BR_UPDATE_W = 1,
-  parameter int PAYLOAD_W = 64
+  parameter int PAYLOAD_W = 64,
+  parameter bit ALLOW_SPLIT_ISSUE = 1'b0  // STA/STDを分けてissueできるようにする
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -26,6 +27,7 @@ module iq_core
   input wire logic disp_valid[DISPATCH_W],
   input wire wrapper_ff_t disp_entry[DISPATCH_W],  // wrapper -> ff
   input wire logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W],
+  input wire logic [1:0] to_issue_part[DISPATCH_W],  // ALLOW_APLIT_ISSUEの場合専用。loadは2'b01、storeは2'b11
   output logic disp_full,
 
   // wakeup bus
@@ -40,7 +42,8 @@ module iq_core
 
   // to RR
   output iq_rr_t rr_ff[ISSUE_W],
-  output logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W]
+  output logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W],
+  output logic [1:0] rr_issue_part[ISSUE_W]  // ALLOW_SPLIT_ISSUEでなければ常に2'b11
 );
 
   localparam int IDX_W  = (SIZE > 1) ? $clog2(SIZE) : 1;
@@ -127,15 +130,26 @@ module iq_core
     .older(older)
   );
 
+  // SPLIT_ISSUE用。まだissueしていないもの
+  logic [1:0] pend[SIZE];
+  logic [1:0] n_pend[SIZE];
+
   // 両方wakeup済みでカウントも終わってたらready
   logic [SIZE-1:0] ready;
+  logic [1:0] part_ready[SIZE];  // SPLIT_ISSUE用。ready=|part_ready
   always_comb begin
     logic rs1_ready;
     logic rs2_ready;
     for (int i = 0; i < SIZE; i++) begin
       rs1_ready = iq_ff[i].rs1.st.counting && iq_ff[i].rs1.st.cnt == 0;
       rs2_ready = iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt == 0;
-      ready[i]  = rs1_ready && rs2_ready;
+      if (ALLOW_SPLIT_ISSUE) begin
+        part_ready[i] = {pend[i][1] && rs2_ready, pend[i][0] && rs1_ready};
+        ready[i] = |part_ready[i];
+      end else begin
+        part_ready[i] = 2'b11;
+        ready[i] = rs1_ready && rs2_ready;
+      end
     end
   end
 
@@ -187,6 +201,34 @@ module iq_core
     end
   end
 
+  // readyな側はまとめて出す 全部出したらエントリを空ける
+  logic [1:0] issued_part[ISSUE_W];
+  logic issue_done[ISSUE_W];  // 全部pend落ちた?
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      issued_part[i] = part_ready[issued_slot[i]];
+      issue_done[i]  = !ALLOW_SPLIT_ISSUE || (pend[issued_slot[i]] & ~issued_part[i]) == 2'b00;
+    end
+  end
+
+  always_comb begin
+    n_pend = pend;
+    if (ALLOW_SPLIT_ISSUE) begin
+      // issue分のpendを落として
+      for (int i = 0; i < ISSUE_W; i++) begin
+        if (issued[i]) n_pend[issued_slot[i]] = pend[issued_slot[i]] & ~issued_part[i];
+      end
+      // dispatch分のpendを立てる
+      for (int i = 0; i < DISPATCH_W; i++) begin
+        if (alloc_valid[i]) n_pend[alloc_slot[i]] = to_issue_part[i];
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < SIZE; i++) pend[i] <= n_pend[i];
+  end
+
   always_ff @(posedge clk) begin
     if (rst || flush) begin
       for (int i = 0; i < ISSUE_W; i++) begin
@@ -203,7 +245,7 @@ module iq_core
     end
   end
 
-  // bitmap更新 dispatchで立ててissueで落とす
+  // bitmap更新 dispatchで立てて全部issueしたら落とす
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
       n_bitmaps[i] = killed_bitmaps[i];
@@ -213,7 +255,7 @@ module iq_core
       if (alloc_valid[i]) n_bitmaps[port_of(disp_entry[i].dest_eu)][alloc_slot[i]] = 1'b1;
     end
     for (int i = 0; i < ISSUE_W; i++) begin
-      if (issued[i]) n_bitmaps[i][issued_slot[i]] = 1'b0;
+      if (issued[i] && issue_done[i]) n_bitmaps[i][issued_slot[i]] = 1'b0;
     end
   end
 
@@ -299,10 +341,12 @@ module iq_core
       for (int i = 0; i < ISSUE_W; i++) begin
         rr_ff[i] <= '0;
         rr_payload[i] <= '0;
+        rr_issue_part[i] <= '0;
       end
     end else begin
       for (int i = 0; i < ISSUE_W; i++) begin
         rr_payload[i] <= iq_payload[i];
+        rr_issue_part[i] <= issued_part[i];
         rr_ff[i].valid <= issued[i];
         rr_ff[i].rd    <= iq_ff[issued_slot[i]].rd;
         rr_ff[i].rs1   <= iq_ff[issued_slot[i]].rs1.preg;

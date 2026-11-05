@@ -3,6 +3,7 @@
 
 module iq_mem
   import types::*;
+  import isa::eff_t;
   import ooo_types::*;
   import uop_types::*;
   import back_types::*;
@@ -33,15 +34,18 @@ module iq_mem
 
   // to RR
   output iq_rr_t rr_ff[1],
-  output mem_payload_t rr_payload[1]
+  output mem_payload_t rr_payload[1],
+  output logic [1:0] rr_issue_part[1]  // 0:STA/LDA 1:STD
 );
 
   localparam int PAYLOAD_W = $bits(mem_payload_t);
 
   wrapper_ff_t disp_entry[DISPATCH_W];
   logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W];
+  logic [1:0] disp_part[DISPATCH_W];
   always_comb begin
     for (int i = 0; i < DISPATCH_W; i++) begin
+      disp_part[i] = (disp_uop[i].op.eff == EFF_MEM) ? 2'b11 : 2'b01;
       disp_entry[i].rd = disp_uop[i].rd;
       disp_entry[i].rs1.preg = disp_uop[i].rs1;
       disp_entry[i].rs1.st = disp_rs1_st[i];
@@ -74,7 +78,8 @@ module iq_mem
     .BLOCKING_FU(4'b0000),
     .WAKEUP_W(WAKEUP_W),
     .BR_UPDATE_W(BR_UPDATE_W),
-    .PAYLOAD_W(PAYLOAD_W)
+    .PAYLOAD_W(PAYLOAD_W),
+    .ALLOW_SPLIT_ISSUE(1'b1)
   ) u_iq_core_mem (
     .clk  (clk),
     .rst  (rst),
@@ -83,6 +88,7 @@ module iq_mem
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
+    .disp_part(disp_part),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
@@ -91,7 +97,8 @@ module iq_mem
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw)
+    .rr_payload(rr_payload_raw),
+    .rr_issue_part(rr_issue_part)
   );
 
 endmodule

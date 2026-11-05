@@ -85,6 +85,7 @@ module iq_int
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
+    .disp_part('{default: 2'b11}),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
@@ -93,7 +94,8 @@ module iq_int
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw)
+    .rr_payload(rr_payload_raw),
+    .rr_issue_part()  // 不要
   );
 
 endmodule
