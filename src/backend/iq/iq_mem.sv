@@ -75,7 +75,7 @@ module iq_mem
     .WAKEUP_W(WAKEUP_W),
     .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
-  ) u_iq_core_int (
+  ) u_iq_core_mem (
     .clk  (clk),
     .rst  (rst),
     .flush(flush),

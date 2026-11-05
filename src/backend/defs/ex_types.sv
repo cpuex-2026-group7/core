@@ -13,19 +13,17 @@ package ex_types;
     rob_idx_t rob_idx;
   } ex_wb_t;
 
-  typedef enum logic [1:0] {
-    LSU_LD,
-    LSU_STA,
-    LSU_STD
-  } lsu_kind_t;
-
   // AGUからLSUへ
+  // validは addr_valid | data_valid
+  // STAとSTDを同時にissueできるようにする
   typedef struct packed {
-    logic      valid;
-    lsu_kind_t kind;
-    word_t     data;     // LD,STAならaddress、STDならdata
-    ldq_idx_t  ldq_idx;
-    stq_idx_t  stq_idx;
+    logic     is_store;
+    logic     addr_valid;  // LDA, STA
+    logic     data_valid;  // STD
+    addr_t    addr;
+    word_t    data;
+    ldq_idx_t ldq_idx;
+    stq_idx_t stq_idx;
   } ex_lsu_t;
 
 endpackage
