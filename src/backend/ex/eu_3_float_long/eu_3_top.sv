@@ -23,8 +23,8 @@ module eu_3_top
   output ex_wb_t to_wb,
 
   // RRへ
-  output ex_wb_t bypass_f[2],
-  output ex_wb_t bypass_i[1]
+  output bypass_t bypass_f[2],
+  output bypass_t bypass_i[1]
 );
 
   // 入口のFFから結果が出るまでのFFの段数
@@ -100,29 +100,26 @@ module eu_3_top
   localparam int BYPASS_STAGE_1 = BYPASS_STAGE_0 + 1;
 
   // バイパス(killは当てない)
-  assign bypass_f[0] = ex_wb_t'{
+  assign bypass_f[0] = bypass_t'{
       valid: meta_ff[BYPASS_STAGE_0].valid & (meta_ff[BYPASS_STAGE_0].dest_fu == FU_FMUL),
       rd: meta_ff[BYPASS_STAGE_0].rd,
-      value: fu_0_result,
-      rob_idx: meta_ff[BYPASS_STAGE_0].rob_idx
+      value: fu_0_result
     };
 
   logic bypass_stage_1_itof;
   assign bypass_stage_1_itof = (meta_ff[BYPASS_STAGE_1].dest_fu == FU_FCVT) & (meta_ff[BYPASS_STAGE_1].rd.typ == PREG_TYPE_F);
-  assign bypass_f[1] = ex_wb_t'{
+  assign bypass_f[1] = bypass_t'{
       valid: meta_ff[BYPASS_STAGE_1].valid & ((meta_ff[BYPASS_STAGE_1].dest_fu == FU_FMUL) | bypass_stage_1_itof),
       rd: meta_ff[BYPASS_STAGE_1].rd,
-      value: (meta_ff[BYPASS_STAGE_1].dest_fu == FU_FMUL) ? fmul_delay_ff[BYPASS_STAGE_1] : fu_1_result,
-      rob_idx: meta_ff[BYPASS_STAGE_1].rob_idx
+      value: (meta_ff[BYPASS_STAGE_1].dest_fu == FU_FMUL) ? fmul_delay_ff[BYPASS_STAGE_1-FMUL_STAGES] : fu_1_result
     };
 
   logic bypass_stage_1_ftoi;
   assign bypass_stage_1_ftoi = (meta_ff[BYPASS_STAGE_1].dest_fu == FU_FCVT) & (meta_ff[BYPASS_STAGE_1].rd.typ == PREG_TYPE_I);
-  assign bypass_i[0] = ex_wb_t'{
+  assign bypass_i[0] = bypass_t'{
       valid: meta_ff[BYPASS_STAGE_1].valid & bypass_stage_1_ftoi,
       rd: meta_ff[BYPASS_STAGE_1].rd,
-      value: fu_1_result,
-      rob_idx: meta_ff[BYPASS_STAGE_1].rob_idx
+      value: fu_1_result
     };
 
   // meta_ffとdelay_ffの更新

@@ -24,8 +24,8 @@ module ex_top
   output ex_wb_t wb_fpu[3],
 
   // RRへ(F長の書き込み段より前からのバイパス)
-  output ex_wb_t bypass_fpu_f[2],
-  output ex_wb_t bypass_fpu_i[1],
+  output bypass_t bypass_fpu_f[2],
+  output bypass_t bypass_fpu_i[1],
 
   // LSUへ
   output ex_lsu_t ex_lsu[1],
