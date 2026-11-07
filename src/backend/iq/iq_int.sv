@@ -52,7 +52,8 @@ module iq_int
       disp_entry[i].brmask = disp_uop[i].brmask;
 
       disp_payload[i] = int_payload_t'{
-        op: disp_uop[i].op,
+        imm_type: disp_uop[i].imm_type,
+        fu_op: disp_uop[i].fu_op,
         imm: disp_uop[i].imm,
         pc: disp_uop[i].pc,
         predict_pc: disp_uop[i].predict_pc,

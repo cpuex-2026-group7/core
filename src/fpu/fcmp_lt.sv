@@ -12,14 +12,14 @@ module fcmp_lt
   output logic result
 );
 
-  word_t rs1_q;
-  word_t rs2_q;
-  logic  aux_q;
+  word_t rs1_ff;
+  word_t rs2_ff;
+  logic  aux_ff;
 
   always_ff @(posedge clk) begin
-    rs1_q <= rs1_val;
-    rs2_q <= rs2_val;
-    aux_q <= aux;
+    rs1_ff <= rs1_val;
+    rs2_ff <= rs2_val;
+    aux_ff <= aux;
   end
 
 endmodule

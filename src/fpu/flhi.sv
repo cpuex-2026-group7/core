@@ -10,10 +10,10 @@ module flhi
   output word_t result
 );
 
-  logic [4:0] aux_q;
+  logic [4:0] aux_ff;
 
   always_ff @(posedge clk) begin
-    aux_q <= aux;
+    aux_ff <= aux;
   end
 
 endmodule

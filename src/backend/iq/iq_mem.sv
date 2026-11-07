@@ -44,7 +44,7 @@ module iq_mem
   logic [1:0] to_issue_part[DISPATCH_W];
   always_comb begin
     for (int i = 0; i < DISPATCH_W; i++) begin
-      to_issue_part[i] = (disp_uop[i].op.eff == EFF_MEM) ? 2'b11 : 2'b01;
+      to_issue_part[i] = disp_uop[i].is_store ? 2'b11 : 2'b01;
       disp_entry[i].rd = disp_uop[i].rd;
       disp_entry[i].rs1.preg = disp_uop[i].rs1;
       disp_entry[i].rs1.st = disp_rs1_st[i];
@@ -56,7 +56,8 @@ module iq_mem
       disp_entry[i].brmask = disp_uop[i].brmask;
 
       disp_payload[i] = mem_payload_t'{
-        op: disp_uop[i].op,
+        imm_type: disp_uop[i].imm_type,
+        is_store: disp_uop[i].is_store,
         imm: disp_uop[i].imm,
         rob_idx: disp_uop[i].rob_idx,
         ldq_idx: disp_uop[i].ldq_idx,

@@ -22,7 +22,7 @@
 //   - FU はテストの中では TF_*（INT / MEM は 0）で持ち、put で uop の dest_eu / dest_fu に直す
 //     （ALU=0, MEM=1, F短=2, F長=3, F超長=4。F超長の中は fsqrt=0, fdiv=1）
 //   - MEM は rs1 側（STA / LDA）と rs2 側（STD）を別々に出す。put で rd が NONE かつ rs2 がレジスタなら store
-//     （op.eff=EFF_MEM、出す側 2'b11）、そうでなければ load（op.eff は MEM 以外、出す側 2'b01）にする
+//     （is_store=1、出す側 2'b11）、そうでなければ load（is_store=0、出す側 2'b01）にする
 //   - wakeup バスは [0, WAKEUP_W) が外から、WAKEUP_W が INT、+1 が MEM、+2〜+4 が FP の port0〜2
 //   - busy table
 //       rst / flush で全部 ready（そのサイクルの dispatch の rd も無視）
@@ -737,7 +737,7 @@ module tb_iq_top
         m[q][j].seq = next_seq++;
         m[q][j].u = u;
         m[q][j].bm = resolve_mask(u.brmask);
-        m[q][j].pend = (q != QM) ? 2'b11 : (u.op.eff == EFF_MEM) ? 2'b11 : 2'b01;
+        m[q][j].pend = (q != QM) ? 2'b11 : u.is_store ? 2'b11 : 2'b01;
         src_init(q, u.rs1);
         m[q][j].w1 = si_w;
         m[q][j].r1 = si_r;
@@ -781,19 +781,23 @@ module tb_iq_top
     disp_uop_t u = e.u;
     case (q)
       QI:
-      if (pl_int[0] !== int_payload_t'{op: u.op, imm: u.imm, pc: u.pc, predict_pc: u.predict_pc, ftq_idx: u.ftq_idx,
-                                       rob_idx: u.rob_idx, br_tag: u.br_tag})
-        fail($sformatf("INT rr_payload=%h 期待 op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
-                       pl_int[0], u.op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag, e.id));
+      if (pl_int[0] !== int_payload_t'{imm_type: u.imm_type, fu_op: u.fu_op, imm: u.imm, pc: u.pc,
+                                       predict_pc: u.predict_pc, ftq_idx: u.ftq_idx, rob_idx: u.rob_idx,
+                                       br_tag: u.br_tag})
+        fail($sformatf("INT rr_payload=%h 期待 imm_type=%h fu_op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
+                       pl_int[0], u.imm_type, u.fu_op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag, e.id));
       QM:
-      if (pl_mem[0] !== mem_payload_t'{op: u.op, imm: u.imm, rob_idx: u.rob_idx, ldq_idx: u.ldq_idx, stq_idx: u.stq_idx})
-        fail($sformatf("MEM rr_payload=%h 期待 op=%h imm=%h rob=%h ldq=%h stq=%h（id %0d）", pl_mem[0], u.op, u.imm,
-                       u.rob_idx, u.ldq_idx, u.stq_idx, e.id));
+      if (pl_mem[0] !== mem_payload_t'{imm_type: u.imm_type, is_store: u.is_store, imm: u.imm, rob_idx: u.rob_idx,
+                                       ldq_idx: u.ldq_idx, stq_idx: u.stq_idx})
+        fail($sformatf("MEM rr_payload=%h 期待 imm_type=%h is_store=%h imm=%h rob=%h ldq=%h stq=%h（id %0d）",
+                       pl_mem[0], u.imm_type, u.is_store, u.imm, u.rob_idx, u.ldq_idx, u.stq_idx, e.id));
       default:
-      if (pl_fpu[p] !== float_payload_t'{op: u.op, imm: u.imm, pc: u.pc, predict_pc: u.predict_pc, ftq_idx: u.ftq_idx,
-                                         rob_idx: u.rob_idx, br_tag: u.br_tag})
-        fail($sformatf("FP port%0d rr_payload=%h 期待 op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
-                       p, pl_fpu[p], u.op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag, e.id));
+      if (pl_fpu[p] !== float_payload_t'{imm_type: u.imm_type, fu_op: u.fu_op, imm: u.imm, pc: u.pc,
+                                         predict_pc: u.predict_pc, ftq_idx: u.ftq_idx, rob_idx: u.rob_idx,
+                                         br_tag: u.br_tag})
+        fail($sformatf("FP port%0d rr_payload=%h 期待 imm_type=%h fu_op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
+                       p, pl_fpu[p], u.imm_type, u.fu_op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag,
+                       e.id));
     endcase
   endtask
 
@@ -875,10 +879,7 @@ module tb_iq_top
     f = int'(u.dest_fu);
     u.dest_eu = eu_of(q, f);
     u.dest_fu = lfu_of(q, f);
-    if (q == QM) begin
-      if (u.rd.typ == PREG_TYPE_NONE && is_reg(u.rs2)) u.op.eff = EFF_MEM;
-      else if (u.op.eff == EFF_MEM) u.op.eff = EFF_WI;
-    end
+    if (q == QM) u.is_store = u.rd.typ == PREG_TYPE_NONE && is_reg(u.rs2);
     tvalid[q][lane] = 1'b1;
     tuop[q][lane] = u;
   endtask
