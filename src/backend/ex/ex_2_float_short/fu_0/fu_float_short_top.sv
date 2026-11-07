@@ -69,6 +69,9 @@ module fu_float_short_top
     .result(fcsign_result)
   );
 
+  // D形式のofsはimm[14:0]
+  assign target = pc_q + pc_t'($signed(imm_q[14:0]));
+
 endmodule
 
 `default_nettype wire

@@ -56,7 +56,11 @@ package iq_types;
   typedef struct packed {
     opcode_t  op;
     imm_raw_t imm;
+    pc_t      pc;
+    pc_t      predict_pc;
+    ftq_idx_t ftq_idx;
     rob_idx_t rob_idx;
+    br_tag_t  br_tag;
   } float_payload_t;
 
   // IQとRRの間のFF

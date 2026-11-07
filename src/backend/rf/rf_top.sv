@@ -139,76 +139,76 @@ module rf_top
     end
   endfunction
 
-  always_ff @(posedge clk) begin
+  always_comb begin
     // INT
-    ex_ff_int[0].common.valid <= !rst & !flush & rr_ff_int[0].valid & !branch_kill_check(
+    ex_ff_int[0].common.valid = !rst & !flush & rr_ff_int[0].valid & !branch_kill_check(
       rr_ff_int[0].brmask, br_update
     );
-    ex_ff_int[0].common.rd <= rr_ff_int[0].rd;
-    ex_ff_int[0].common.rs1 <= rr_ff_int[0].rs1;
-    ex_ff_int[0].common.rs2 <= rr_ff_int[0].rs2;
-    ex_ff_int[0].common.rs1_val <= apply_type_none_and_bypass(rr_ff_int[0].rs1, r_data_int[0]);
-    ex_ff_int[0].common.rs2_val <= apply_type_none_and_bypass(rr_ff_int[0].rs2, r_data_int[1]);
-    ex_ff_int[0].common.dest_fu <= rr_ff_int[0].dest_fu;
-    ex_ff_int[0].common.brmask <= apply_br_update(rr_ff_int[0].brmask, br_update);
-    ex_ff_int[0].payload <= rr_payload_int[0];
+    ex_ff_int[0].common.rd = rr_ff_int[0].rd;
+    ex_ff_int[0].common.rs1 = rr_ff_int[0].rs1;
+    ex_ff_int[0].common.rs2 = rr_ff_int[0].rs2;
+    ex_ff_int[0].common.rs1_val = apply_type_none_and_bypass(rr_ff_int[0].rs1, r_data_int[0]);
+    ex_ff_int[0].common.rs2_val = apply_type_none_and_bypass(rr_ff_int[0].rs2, r_data_int[1]);
+    ex_ff_int[0].common.dest_fu = rr_ff_int[0].dest_fu;
+    ex_ff_int[0].common.brmask = apply_br_update(rr_ff_int[0].brmask, br_update);
+    ex_ff_int[0].payload = rr_payload_int[0];
 
     // MEM
-    ex_ff_mem[0].common.valid <= !rst & !flush & rr_ff_mem[0].valid & !branch_kill_check(
+    ex_ff_mem[0].common.valid = !rst & !flush & rr_ff_mem[0].valid & !branch_kill_check(
       rr_ff_mem[0].brmask, br_update
     );
-    ex_ff_mem[0].common.rd <= rr_ff_mem[0].rd;
-    ex_ff_mem[0].common.rs1 <= rr_ff_mem[0].rs1;
-    ex_ff_mem[0].common.rs2 <= rr_ff_mem[0].rs2;
-    ex_ff_mem[0].common.rs1_val <= apply_type_none_and_bypass(rr_ff_mem[0].rs1, r_data_int[2]);
-    ex_ff_mem[0].common.rs2_val <= apply_type_none_and_bypass(
+    ex_ff_mem[0].common.rd = rr_ff_mem[0].rd;
+    ex_ff_mem[0].common.rs1 = rr_ff_mem[0].rs1;
+    ex_ff_mem[0].common.rs2 = rr_ff_mem[0].rs2;
+    ex_ff_mem[0].common.rs1_val = apply_type_none_and_bypass(rr_ff_mem[0].rs1, r_data_int[2]);
+    ex_ff_mem[0].common.rs2_val = apply_type_none_and_bypass(
       rr_ff_mem[0].rs2, rr_ff_mem[0].rs2.typ == PREG_TYPE_F ? r_data_float[0] : r_data_int[3]
     );
-    ex_ff_mem[0].common.dest_fu <= rr_ff_mem[0].dest_fu;
-    ex_ff_mem[0].common.brmask <= apply_br_update(rr_ff_mem[0].brmask, br_update);
-    ex_ff_mem[0].payload <= rr_payload_mem[0];
-    ex_ff_mem[0].issue_part <= rr_issue_part_mem[0];
+    ex_ff_mem[0].common.dest_fu = rr_ff_mem[0].dest_fu;
+    ex_ff_mem[0].common.brmask = apply_br_update(rr_ff_mem[0].brmask, br_update);
+    ex_ff_mem[0].payload = rr_payload_mem[0];
+    ex_ff_mem[0].issue_part = rr_issue_part_mem[0];
 
     // FPU短
-    ex_ff_fpu[0].common.valid <= !rst & !flush & rr_ff_fpu[0].valid & !branch_kill_check(
+    ex_ff_fpu[0].common.valid = !rst & !flush & rr_ff_fpu[0].valid & !branch_kill_check(
       rr_ff_fpu[0].brmask, br_update
     );
-    ex_ff_fpu[0].common.rd <= rr_ff_fpu[0].rd;
-    ex_ff_fpu[0].common.rs1 <= rr_ff_fpu[0].rs1;
-    ex_ff_fpu[0].common.rs2 <= rr_ff_fpu[0].rs2;
-    ex_ff_fpu[0].common.rs1_val <= apply_type_none_and_bypass(rr_ff_fpu[0].rs1, r_data_float[1]);
-    ex_ff_fpu[0].common.rs2_val <= apply_type_none_and_bypass(rr_ff_fpu[0].rs2, r_data_float[2]);
-    ex_ff_fpu[0].common.dest_fu <= rr_ff_fpu[0].dest_fu;
-    ex_ff_fpu[0].common.brmask <= apply_br_update(rr_ff_fpu[0].brmask, br_update);
-    ex_ff_fpu[0].payload <= rr_payload_fpu[0];
+    ex_ff_fpu[0].common.rd = rr_ff_fpu[0].rd;
+    ex_ff_fpu[0].common.rs1 = rr_ff_fpu[0].rs1;
+    ex_ff_fpu[0].common.rs2 = rr_ff_fpu[0].rs2;
+    ex_ff_fpu[0].common.rs1_val = apply_type_none_and_bypass(rr_ff_fpu[0].rs1, r_data_float[1]);
+    ex_ff_fpu[0].common.rs2_val = apply_type_none_and_bypass(rr_ff_fpu[0].rs2, r_data_float[2]);
+    ex_ff_fpu[0].common.dest_fu = rr_ff_fpu[0].dest_fu;
+    ex_ff_fpu[0].common.brmask = apply_br_update(rr_ff_fpu[0].brmask, br_update);
+    ex_ff_fpu[0].payload = rr_payload_fpu[0];
 
     // FPU長
-    ex_ff_fpu[1].common.valid <= !rst & !flush & rr_ff_fpu[1].valid & !branch_kill_check(
+    ex_ff_fpu[1].common.valid = !rst & !flush & rr_ff_fpu[1].valid & !branch_kill_check(
       rr_ff_fpu[1].brmask, br_update
     );
-    ex_ff_fpu[1].common.rd <= rr_ff_fpu[1].rd;
-    ex_ff_fpu[1].common.rs1 <= rr_ff_fpu[1].rs1;
-    ex_ff_fpu[1].common.rs2 <= rr_ff_fpu[1].rs2;
-    ex_ff_fpu[1].common.rs1_val <= apply_type_none_and_bypass(
+    ex_ff_fpu[1].common.rd = rr_ff_fpu[1].rd;
+    ex_ff_fpu[1].common.rs1 = rr_ff_fpu[1].rs1;
+    ex_ff_fpu[1].common.rs2 = rr_ff_fpu[1].rs2;
+    ex_ff_fpu[1].common.rs1_val = apply_type_none_and_bypass(
       rr_ff_fpu[1].rs1, rr_ff_fpu[1].rs1.typ == PREG_TYPE_F ? r_data_float[3] : r_data_int[4]
     );
-    ex_ff_fpu[1].common.rs2_val <= apply_type_none_and_bypass(rr_ff_fpu[1].rs2, r_data_float[4]);
-    ex_ff_fpu[1].common.dest_fu <= rr_ff_fpu[1].dest_fu;
-    ex_ff_fpu[1].common.brmask <= apply_br_update(rr_ff_fpu[1].brmask, br_update);
-    ex_ff_fpu[1].payload <= rr_payload_fpu[1];
+    ex_ff_fpu[1].common.rs2_val = apply_type_none_and_bypass(rr_ff_fpu[1].rs2, r_data_float[4]);
+    ex_ff_fpu[1].common.dest_fu = rr_ff_fpu[1].dest_fu;
+    ex_ff_fpu[1].common.brmask = apply_br_update(rr_ff_fpu[1].brmask, br_update);
+    ex_ff_fpu[1].payload = rr_payload_fpu[1];
 
     // FPU超長
-    ex_ff_fpu[2].common.valid <= !rst & !flush & rr_ff_fpu[2].valid & !branch_kill_check(
+    ex_ff_fpu[2].common.valid = !rst & !flush & rr_ff_fpu[2].valid & !branch_kill_check(
       rr_ff_fpu[2].brmask, br_update
     );
-    ex_ff_fpu[2].common.rd <= rr_ff_fpu[2].rd;
-    ex_ff_fpu[2].common.rs1 <= rr_ff_fpu[2].rs1;
-    ex_ff_fpu[2].common.rs2 <= rr_ff_fpu[2].rs2;
-    ex_ff_fpu[2].common.rs1_val <= apply_type_none_and_bypass(rr_ff_fpu[2].rs1, r_data_float[5]);
-    ex_ff_fpu[2].common.rs2_val <= apply_type_none_and_bypass(rr_ff_fpu[2].rs2, r_data_float[6]);
-    ex_ff_fpu[2].common.dest_fu <= rr_ff_fpu[2].dest_fu;
-    ex_ff_fpu[2].common.brmask <= apply_br_update(rr_ff_fpu[2].brmask, br_update);
-    ex_ff_fpu[2].payload <= rr_payload_fpu[2];
+    ex_ff_fpu[2].common.rd = rr_ff_fpu[2].rd;
+    ex_ff_fpu[2].common.rs1 = rr_ff_fpu[2].rs1;
+    ex_ff_fpu[2].common.rs2 = rr_ff_fpu[2].rs2;
+    ex_ff_fpu[2].common.rs1_val = apply_type_none_and_bypass(rr_ff_fpu[2].rs1, r_data_float[5]);
+    ex_ff_fpu[2].common.rs2_val = apply_type_none_and_bypass(rr_ff_fpu[2].rs2, r_data_float[6]);
+    ex_ff_fpu[2].common.dest_fu = rr_ff_fpu[2].dest_fu;
+    ex_ff_fpu[2].common.brmask = apply_br_update(rr_ff_fpu[2].brmask, br_update);
+    ex_ff_fpu[2].payload = rr_payload_fpu[2];
   end
 
   always_comb begin

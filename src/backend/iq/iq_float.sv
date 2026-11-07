@@ -56,7 +56,15 @@ module iq_float
       disp_entry[i].dest_fu = disp_uop[i].dest_fu;
       disp_entry[i].brmask = disp_uop[i].brmask;
 
-      disp_payload[i] = float_payload_t'{op: disp_uop[i].op, imm: disp_uop[i].imm, rob_idx: disp_uop[i].rob_idx};
+      disp_payload[i] = float_payload_t'{
+        op: disp_uop[i].op,
+        imm: disp_uop[i].imm,
+        pc: disp_uop[i].pc,
+        predict_pc: disp_uop[i].predict_pc,
+        ftq_idx: disp_uop[i].ftq_idx,
+        rob_idx: disp_uop[i].rob_idx,
+        br_tag: disp_uop[i].br_tag
+      };
     end
   end
 
