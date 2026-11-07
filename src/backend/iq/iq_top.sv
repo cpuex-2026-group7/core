@@ -39,22 +39,22 @@ module iq_top
   input wire wakeup_t coming_wakeup[WAKEUP_W],
 
   // ex_topのFFから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // fdiv,fsqrtから
   input wire fdiv_blocked,
   input wire fsqrt_blocked,
 
   // to RR
-  output iq_rr_t rr_ff_int[1],
-  output int_payload_t rr_payload_int[1],
+  output iq_rr_t rr_int_ff[1],
+  output int_payload_t rr_payload_int_ff[1],
 
-  output iq_rr_t rr_ff_mem[1],
-  output mem_payload_t rr_payload_mem[1],
-  output logic [1:0] rr_issue_part_mem[1],
+  output iq_rr_t rr_mem_ff[1],
+  output mem_payload_t rr_payload_mem_ff[1],
+  output logic [1:0] rr_issue_part_mem_ff[1],
 
-  output iq_rr_t rr_ff_fpu[3],
-  output float_payload_t rr_payload_fpu[3]
+  output iq_rr_t rr_fpu_ff[3],
+  output float_payload_t rr_payload_fpu_ff[3]
 );
 
   localparam int ALL_WAKEUP_W = WAKEUP_W + 5;
@@ -222,11 +222,11 @@ module iq_top
     .sending_wakeup(all_wakeup[WAKEUP_W+:1]),
 
     // ex_topのFFから
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
 
     // to RR
-    .rr_ff(rr_ff_int),
-    .rr_payload(rr_payload_int)
+    .rr_ff(rr_int_ff),
+    .rr_payload_ff(rr_payload_int_ff)
   );
 
   iq_mem #(
@@ -250,12 +250,12 @@ module iq_top
     .sending_wakeup(all_wakeup[WAKEUP_W+1+:1]),
 
     // ex_topのFFから
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
 
     // to RR
-    .rr_ff(rr_ff_mem),
-    .rr_payload(rr_payload_mem),
-    .rr_issue_part(rr_issue_part_mem)
+    .rr_ff(rr_mem_ff),
+    .rr_payload_ff(rr_payload_mem_ff),
+    .rr_issue_part_ff(rr_issue_part_mem_ff)
   );
 
   iq_float #(
@@ -279,15 +279,15 @@ module iq_top
     .sending_wakeup(all_wakeup[WAKEUP_W+2+:3]),
 
     // ex_topのFFから
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
 
     // fdiv,fsqrtから
     .fdiv_blocked (fdiv_blocked),
     .fsqrt_blocked(fsqrt_blocked),
 
     // to RR
-    .rr_ff(rr_ff_fpu),
-    .rr_payload(rr_payload_fpu)
+    .rr_ff(rr_fpu_ff),
+    .rr_payload_ff(rr_payload_fpu_ff)
   );
 
 endmodule

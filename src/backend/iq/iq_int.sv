@@ -28,11 +28,11 @@ module iq_int
   output wakeup_t sending_wakeup[1],
 
   // ex_topのFFから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // to RR
   output iq_rr_t rr_ff[1],
-  output int_payload_t rr_payload[1]
+  output int_payload_t rr_payload_ff[1]
 );
 
   localparam int PAYLOAD_W = $bits(int_payload_t);
@@ -65,7 +65,7 @@ module iq_int
   end
 
   logic [PAYLOAD_W-1:0] rr_payload_raw[1];
-  assign rr_payload[0] = int_payload_t'(rr_payload_raw[0]);
+  assign rr_payload_ff[0] = int_payload_t'(rr_payload_raw[0]);
 
   iq_core #(
     .SIZE(SIZE),
@@ -88,13 +88,13 @@ module iq_int
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
     .dest_fu_blocked(4'b0000),
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw),
-    .rr_issue_part()  // 不要
+    .rr_payload_ff(rr_payload_raw),
+    .rr_issue_part_ff()  // 不要
   );
 
 endmodule

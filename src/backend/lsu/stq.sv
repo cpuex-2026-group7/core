@@ -40,7 +40,7 @@ module stq
   output stq_entry_t stq_ff[STQ_SIZE],
 
   // EXから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // ROB
   input wire logic commit_st[COMMIT_W],

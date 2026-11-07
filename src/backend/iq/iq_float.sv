@@ -28,7 +28,7 @@ module iq_float
   output wakeup_t sending_wakeup[3],
 
   // ex_topのFFから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // fdiv,fsqrtから
   input wire fsqrt_blocked,
@@ -36,7 +36,7 @@ module iq_float
 
   // to RR
   output iq_rr_t rr_ff[3],
-  output float_payload_t rr_payload[3]
+  output float_payload_t rr_payload_ff[3]
 );
 
   localparam int PAYLOAD_W = $bits(float_payload_t);
@@ -70,9 +70,9 @@ module iq_float
 
   logic [PAYLOAD_W-1:0] rr_payload_raw[3];
 
-  assign rr_payload[0] = float_payload_t'(rr_payload_raw[0]);
-  assign rr_payload[1] = float_payload_t'(rr_payload_raw[1]);
-  assign rr_payload[2] = float_payload_t'(rr_payload_raw[2]);
+  assign rr_payload_ff[0] = float_payload_t'(rr_payload_raw[0]);
+  assign rr_payload_ff[1] = float_payload_t'(rr_payload_raw[1]);
+  assign rr_payload_ff[2] = float_payload_t'(rr_payload_raw[2]);
 
   iq_core #(
     .SIZE(SIZE),
@@ -95,13 +95,13 @@ module iq_float
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
     .dest_fu_blocked({{2'b00, fdiv_blocked, fsqrt_blocked}, 4'b0000, 4'b0000}),
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw),
-    .rr_issue_part()  // 不要
+    .rr_payload_ff(rr_payload_raw),
+    .rr_issue_part_ff()  // 不要
   );
 
 endmodule

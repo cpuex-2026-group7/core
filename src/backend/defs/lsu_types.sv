@@ -110,7 +110,7 @@ package lsu_types;
     word_t    data;
   } forward_result_t;
 
-  // dc_req、dc_respのtag
+  // dc_req_ff、dc_respのtag
   typedef struct packed {
     logic     is_store;
     ldq_idx_t ldq_idx;
@@ -127,7 +127,7 @@ package lsu_types;
     addr_t    addr;
     word_t    wdata;
     lsu_tag_t tag;
-    brmask_t  brmask;  // このサイクルのbr_updateを当てた後。このサイクルにkillされるものは出さない
+    brmask_t  brmask;  // このサイクルのbr_update_ffを当てた後。このサイクルにkillされるものは出さない
   } dc_req_t;
 
   // D$からcontrollerへ

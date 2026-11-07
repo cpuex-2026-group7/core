@@ -14,10 +14,10 @@ module ex_float_very_long_top
   input wire logic flush,  // loadの順序違反でflush
 
   // RRから
-  input wire rr_ex_float_t ex_ff,
+  input wire rr_ex_float_t rr_ex,
 
   // EXから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // RFへ
   output ex_wb_t to_wb,

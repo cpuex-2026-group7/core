@@ -41,7 +41,7 @@ module ldq
   output ldq_entry_t ldq_ff[LDQ_SIZE],
 
   // EXから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // ROB
   input wire logic commit_ld[COMMIT_W],

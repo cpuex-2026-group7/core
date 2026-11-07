@@ -235,16 +235,16 @@ module tb_iq_top
     .disp_uop_fpu(du_fpu),
     .disp_full_fpu(full_fpu),
     .coming_wakeup(d_ext_w),
-    .br_update(d_br),
+    .br_update_ff(d_br),
     .fdiv_blocked(d_fdiv_b),
     .fsqrt_blocked(d_fsqrt_b),
-    .rr_ff_int(rr_int),
-    .rr_payload_int(pl_int),
-    .rr_ff_mem(rr_mem),
-    .rr_payload_mem(pl_mem),
-    .rr_issue_part_mem(part_mem),
-    .rr_ff_fpu(rr_fpu),
-    .rr_payload_fpu(pl_fpu)
+    .rr_int_ff(rr_int),
+    .rr_payload_int_ff(pl_int),
+    .rr_mem_ff(rr_mem),
+    .rr_payload_mem_ff(pl_mem),
+    .rr_issue_part_mem_ff(part_mem),
+    .rr_fpu_ff(rr_fpu),
+    .rr_payload_fpu_ff(pl_fpu)
   );
 
   function automatic logic o_full(int q);

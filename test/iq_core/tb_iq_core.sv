@@ -178,11 +178,11 @@ module tb_iq_core
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
-    .br_update(d_br_update),
+    .br_update_ff(d_br_update),
     .dest_fu_blocked(d_dut_fu_blocked),
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload),
-    .rr_issue_part(rr_issue_part)
+    .rr_payload_ff(rr_payload),
+    .rr_issue_part_ff(rr_issue_part)
   );
 
   // ---------------- 乱数（xorshift64） ----------------

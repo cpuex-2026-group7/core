@@ -14,9 +14,9 @@ module ex_top
   input wire logic flush, // loadの順序違反でflush
 
   // RRから
-  input wire rr_ex_int_t   ex_ff_int[1],
-  input wire rr_ex_mem_t   ex_ff_mem[1],
-  input wire rr_ex_float_t ex_ff_fpu[3],
+  input wire rr_ex_int_t   rr_ex_int[1],
+  input wire rr_ex_mem_t   rr_ex_mem[1],
+  input wire rr_ex_float_t rr_ex_fpu[3],
 
   // RFへ
   output ex_wb_t wb_alu[1],
@@ -26,7 +26,7 @@ module ex_top
   output ex_lsu_t lsu_ff[1],
 
   // 全体へ(FF)
-  output br_update_t br_update,
+  output br_update_t br_update_ff,
 
   // IQへ
   output wakeup_t slow_wakeup_fpu,
@@ -42,8 +42,8 @@ module ex_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_ff(ex_ff_int[0]),
-    .br_update(br_update),
+    .rr_ex(rr_ex_int[0]),
+    .br_update_ff(br_update_ff),
     .to_wb(wb_alu[0]),
     .br_result(br_result[0])
   );
@@ -52,8 +52,8 @@ module ex_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_ff(ex_ff_mem[0]),
-    .br_update(br_update),
+    .rr_ex(rr_ex_mem[0]),
+    .br_update_ff(br_update_ff),
     .lsu_ff(lsu_ff[0])
   );
 
@@ -61,8 +61,8 @@ module ex_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_ff(ex_ff_fpu[0]),
-    .br_update(br_update),
+    .rr_ex(rr_ex_fpu[0]),
+    .br_update_ff(br_update_ff),
     .to_wb(wb_fpu[0]),
     .br_result(br_result[1])
   );
@@ -71,8 +71,8 @@ module ex_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_ff(ex_ff_fpu[1]),
-    .br_update(br_update),
+    .rr_ex(rr_ex_fpu[1]),
+    .br_update_ff(br_update_ff),
     .to_wb(wb_fpu[1])
   );
 
@@ -80,8 +80,8 @@ module ex_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_ff(ex_ff_fpu[2]),
-    .br_update(br_update),
+    .rr_ex(rr_ex_fpu[2]),
+    .br_update_ff(br_update_ff),
     .to_wb(wb_fpu[2]),
     .slow_wakeup(slow_wakeup_fpu),
     .fdiv_blocked(fdiv_blocked),
@@ -115,7 +115,7 @@ module ex_top
   end
 
   always_ff @(posedge clk) begin
-    br_update <= (rst | flush) ? '0 : n_br_update;
+    br_update_ff <= (rst | flush) ? '0 : n_br_update;
   end
 
 endmodule

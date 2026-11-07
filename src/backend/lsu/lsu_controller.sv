@@ -17,7 +17,7 @@ module lsu_controller
   input wire ex_lsu_t lsu_ff,
 
   // EXから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // ROBから
   input wire logic rob_head_ld,
@@ -52,7 +52,7 @@ module lsu_controller
 
   // D$
   // ここ3つはFF
-  output dc_req_t dc_req,  // acceptされるまで保持。毎サイクルbr_updateを当てる
+  output dc_req_t dc_req_ff,  // acceptされるまで保持。毎サイクルbr_update_ffを当てる
   input wire logic dc_accepted,
   input wire dc_resp_t dc_resp
 );

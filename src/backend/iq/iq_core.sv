@@ -34,15 +34,15 @@ module iq_core
   output wakeup_t sending_wakeup[ISSUE_W],
 
   // ex_topのFFから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // FU (fdiv,fsqrtのブロック用)
   input wire logic [ISSUE_W-1:0][FU_PER_EU-1:0] dest_fu_blocked,
 
   // to RR
   output iq_rr_t rr_ff[ISSUE_W],
-  output logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W],
-  output logic [1:0] rr_issue_part[ISSUE_W]  // ALLOW_SPLIT_ISSUEでなければ常に2'b11
+  output logic [PAYLOAD_W-1:0] rr_payload_ff[ISSUE_W],
+  output logic [1:0] rr_issue_part_ff[ISSUE_W]  // ALLOW_SPLIT_ISSUEでなければ常に2'b11
 );
 
   localparam int IDX_W  = (SIZE > 1) ? $clog2(SIZE) : 1;
@@ -74,7 +74,7 @@ module iq_core
     for (int i = 0; i < ISSUE_W; i++) begin
       killed_bitmaps[i] = bitmaps[i];
       for (int j = 0; j < SIZE; j++) begin
-        killed_bitmaps[i][j] &= !br_kill_check(iq_ff[j].brmask, br_update);
+        killed_bitmaps[i][j] &= !br_kill_check(iq_ff[j].brmask, br_update_ff);
       end
     end
   end
@@ -103,7 +103,7 @@ module iq_core
   logic alloc_valid[DISPATCH_W];
   always_comb begin
     for (int i = 0; i < DISPATCH_W; i++) begin
-      alloc_valid[i] = disp_valid[i] && empty_found[i] && !br_kill_check(disp_entry[i].brmask, br_update);
+      alloc_valid[i] = disp_valid[i] && empty_found[i] && !br_kill_check(disp_entry[i].brmask, br_update_ff);
     end
   end
 
@@ -276,7 +276,7 @@ module iq_core
       if (iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt > 0) n_iq_ff[i].rs2.st.cnt = iq_ff[i].rs2.st.cnt - 1;
       n_iq_ff[i].rs1 = apply_wakeup(n_iq_ff[i].rs1, coming_wakeup);
       n_iq_ff[i].rs2 = apply_wakeup(n_iq_ff[i].rs2, coming_wakeup);
-      n_iq_ff[i].brmask = apply_br_resolve(iq_ff[i].brmask, br_update);
+      n_iq_ff[i].brmask = apply_br_resolve(iq_ff[i].brmask, br_update_ff);
     end
 
     // dispatch 同じサイクルのwakeupと分岐も当てる
@@ -290,7 +290,7 @@ module iq_core
           n_iq_ff[alloc_slot[i]].rs2.st.cnt = disp_entry[i].rs2.st.cnt - 1;
         n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, coming_wakeup);
         n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, coming_wakeup);
-        n_iq_ff[alloc_slot[i]].brmask = apply_br_resolve(disp_entry[i].brmask, br_update);
+        n_iq_ff[alloc_slot[i]].brmask = apply_br_resolve(disp_entry[i].brmask, br_update_ff);
       end
     end
   end
@@ -329,19 +329,19 @@ module iq_core
     if (rst || flush) begin
       for (int i = 0; i < ISSUE_W; i++) begin
         rr_ff[i] <= '0;
-        rr_payload[i] <= '0;
-        rr_issue_part[i] <= '0;
+        rr_payload_ff[i] <= '0;
+        rr_issue_part_ff[i] <= '0;
       end
     end else begin
       for (int i = 0; i < ISSUE_W; i++) begin
-        rr_payload[i] <= iq_payload[i];
-        rr_issue_part[i] <= issued_part[i];
+        rr_payload_ff[i] <= iq_payload[i];
+        rr_issue_part_ff[i] <= issued_part[i];
         rr_ff[i].valid <= issued[i];
         rr_ff[i].rd    <= iq_ff[issued_slot[i]].rd;
         rr_ff[i].rs1   <= iq_ff[issued_slot[i]].rs1.preg;
         rr_ff[i].rs2   <= iq_ff[issued_slot[i]].rs2.preg;
         rr_ff[i].dest_fu <= iq_ff[issued_slot[i]].dest_fu;
-        rr_ff[i].brmask  <= apply_br_resolve(iq_ff[issued_slot[i]].brmask, br_update);
+        rr_ff[i].brmask  <= apply_br_resolve(iq_ff[issued_slot[i]].brmask, br_update_ff);
       end
     end
   end

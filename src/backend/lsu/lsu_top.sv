@@ -33,7 +33,7 @@ module lsu_top
   input wire ex_lsu_t lsu_ff[1],
 
   // EXから
-  input wire br_update_t br_update,
+  input wire br_update_t br_update_ff,
 
   // ROB
   input wire logic commit_ld[COMMIT_W],  // loadをコミットしたヨ
@@ -55,12 +55,12 @@ module lsu_top
   // パラメータとして DC_TAG_WとMAX_BRを渡す
   // clk(coreと同じ)、rst(coreと同じ)D$に渡す
   // 下は全部core側のFF
-  output logic dc_req_valid,
-  output logic dc_req_we,
-  output logic [31:0] dc_req_addr,  // ワードアドレッシング
-  output logic [31:0] dc_req_wdata,
-  output logic [DC_TAG_W-1:0] dc_req_tag,
-  output logic [MAX_BR-1:0] dc_req_brmask,  // storeはcommit後なので'0
+  output logic dc_req_valid_ff,
+  output logic dc_req_we_ff,
+  output logic [31:0] dc_req_addr_ff,  // ワードアドレッシング
+  output logic [31:0] dc_req_wdata_ff,
+  output logic [DC_TAG_W-1:0] dc_req_tag_ff,
+  output logic [MAX_BR-1:0] dc_req_brmask_ff,  // storeはcommit後なので'0
 
   input wire logic dc_req_accepted,
 
@@ -69,31 +69,31 @@ module lsu_top
   input wire logic [31:0] dc_resp_rdata,
   input wire logic [DC_TAG_W-1:0] dc_resp_tag,
 
-  output logic [MAX_BR-1:0] dc_br_kill_mask,  // 予測ミスしていてkillすべき分岐のmask
-  output logic [MAX_BR-1:0] dc_br_resolve_mask,  // 予測あっていてbitを落とすべき分岐のmask
-  output logic dc_kill_all  // loadを全kill
+  output logic [MAX_BR-1:0] dc_br_kill_mask_ff,  // 予測ミスしていてkillすべき分岐のmask
+  output logic [MAX_BR-1:0] dc_br_resolve_mask_ff,  // 予測あっていてbitを落とすべき分岐のmask
+  output logic dc_kill_all_ff  // loadを全kill
 );
 
-  dc_req_t  dc_req;
+  dc_req_t  dc_req_ff;
   dc_resp_t dc_resp;
 
-  assign dc_req_valid = dc_req.valid;
-  assign dc_req_we = dc_req.we;
-  assign dc_req_addr = dc_req.addr;
-  assign dc_req_wdata = dc_req.wdata;
-  assign dc_req_tag = dc_req.tag;
-  assign dc_req_brmask = dc_req.brmask;
+  assign dc_req_valid_ff = dc_req_ff.valid;
+  assign dc_req_we_ff = dc_req_ff.we;
+  assign dc_req_addr_ff = dc_req_ff.addr;
+  assign dc_req_wdata_ff = dc_req_ff.wdata;
+  assign dc_req_tag_ff = dc_req_ff.tag;
+  assign dc_req_brmask_ff = dc_req_ff.brmask;
 
   assign dc_resp.valid = dc_resp_valid;
   assign dc_resp.tag = lsu_tag_t'(dc_resp_tag);
   assign dc_resp.ack = dc_resp_ack;
   assign dc_resp.rdata = dc_resp_rdata;
 
-  assign dc_br_kill_mask = br_update.kill_mask;
-  assign dc_br_resolve_mask = br_update.resolve_mask;
+  assign dc_br_kill_mask_ff = br_update_ff.kill_mask;
+  assign dc_br_resolve_mask_ff = br_update_ff.resolve_mask;
 
   always_ff @(posedge clk) begin
-    dc_kill_all <= !rst & flush;
+    dc_kill_all_ff <= !rst & flush;
   end
 
   st_dep_t st_dep[DISP_W];
@@ -134,7 +134,7 @@ module lsu_top
     .ld_nack(ld_nack),
     .ld_gone_to_wb(ld_gone_to_wb),
     .violation_mask(violation_mask),
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
     .commit_ld(commit_ld),
     .ldq_ff(ldq),
     .ldq_head(ldq_head),
@@ -159,7 +159,7 @@ module lsu_top
     .st_requested(st_requested),
     .st_ack(st_ack),
     .st_nack(st_nack),
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
     .commit_st(commit_st),
     .stq_ff(stq),
     .stq_head(stq_head),
@@ -172,7 +172,7 @@ module lsu_top
     .rst(rst),
     .flush(flush),
     .lsu_ff(lsu_ff[0]),
-    .br_update(br_update),
+    .br_update_ff(br_update_ff),
     .rob_head_ld(rob_head_ld),
     .ldq(ldq),
     .ldq_head(ldq_head),
@@ -192,7 +192,7 @@ module lsu_top
     .forward_result(forward_result),
     .wb_mem(wb_mem[0]),
     .slow_wakeup_mem(slow_wakeup_mem),
-    .dc_req(dc_req),
+    .dc_req_ff(dc_req_ff),
     .dc_accepted(dc_req_accepted),
     .dc_resp(dc_resp)
   );

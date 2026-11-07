@@ -152,21 +152,21 @@ module tb_rf_top
     .clk(clk),
     .rst(d_rst),
     .flush(d_flush),
-    .rr_ff_int(d_rr_int),
-    .rr_payload_int(d_pl_int),
-    .rr_ff_mem(d_rr_mem),
-    .rr_payload_mem(d_pl_mem),
-    .rr_issue_part_mem(d_part_mem),
-    .rr_ff_fpu(d_rr_fpu),
-    .rr_payload_fpu(d_pl_fpu),
-    .ex_ff_int(ex_int),
-    .ex_ff_mem(ex_mem),
-    .ex_ff_fpu(ex_fpu),
+    .rr_int_ff(d_rr_int),
+    .rr_payload_int_ff(d_pl_int),
+    .rr_mem_ff(d_rr_mem),
+    .rr_payload_mem_ff(d_pl_mem),
+    .rr_issue_part_mem_ff(d_part_mem),
+    .rr_fpu_ff(d_rr_fpu),
+    .rr_payload_fpu_ff(d_pl_fpu),
+    .rr_ex_int(ex_int),
+    .rr_ex_mem(ex_mem),
+    .rr_ex_fpu(ex_fpu),
     .wb_alu(d_wb_alu),
     .wb_mem(d_wb_mem),
     .wb_fpu(d_wb_fpu),
     .complete_idx(cmp),
-    .br_update(d_br)
+    .br_update_ff(d_br)
   );
 
   function automatic rr_ex_t o_common(int l);
