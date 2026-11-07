@@ -9,10 +9,15 @@ module test_frontend;
   logic rst = 1;
   always #5 clk = ~clk;
 
+  // backend redirect は src の PC に BTB を学習させる。テストで使う PC と index もタグも重ならない値を既定にする
+  localparam types::addr_t UNUSED_SRC = 32'd1000;
+
   types::addr_t pc_backend_redirect = '0;
   logic backend_redirect = 0;
+  types::addr_t pc_backend_redirect_src = UNUSED_SRC;
   isa::instr_t fetchq_dout;
   logic fetchq_pop = 1;
+  logic fetchq_valid;
   logic [QUEUE_IDX_WIDTH-1:0] ftq_get_idx = '0;
   frontend_pkg::ftq_data_t ftq_dout;
   logic ftq_pop = 0;
@@ -27,14 +32,15 @@ module test_frontend;
   // Independently check a nonzero reset vector as well.
   isa::instr_t reset_fetchq_dout;
   frontend_pkg::ftq_data_t reset_ftq_dout;
+  logic reset_fetchq_valid;
   frontend #(
       .FETCHQ_IDX_WIDTH(QUEUE_IDX_WIDTH),
       .FTQ_IDX_WIDTH(QUEUE_IDX_WIDTH),
       .RESET_PC(32'd64)
   ) reset_dut (
       .clk(clk), .rst(rst),
-      .pc_backend_redirect(32'b0), .backend_redirect(1'b0),
-      .fetchq_dout(reset_fetchq_dout), .fetchq_pop(1'b1),
+      .pc_backend_redirect(32'b0), .backend_redirect(1'b0), .pc_backend_redirect_src(32'b0),
+      .fetchq_dout(reset_fetchq_dout), .fetchq_pop(1'b1), .fetchq_valid(reset_fetchq_valid),
       .ftq_get_idx(QUEUE_IDX_WIDTH'(0)), .ftq_dout(reset_ftq_dout),
       .ftq_pop(1'b0), .ftq_restore_idx(QUEUE_IDX_WIDTH'(0))
   );
@@ -57,7 +63,6 @@ module test_frontend;
   endfunction
 
   // Compare actual Fetch Queue output against requests accepted at F3.
-  // The module currently does not expose empty, so qualify pop internally.
   always @(posedge clk) begin
     if (rst) begin
       pushed_pcs.delete();
@@ -80,7 +85,7 @@ module test_frontend;
         if (dut.fire_instr || dut.frontend_redirect_fire)
           $fatal(1, "Old F3 instruction was accepted on backend redirect");
       end else begin
-        if (fetchq_pop && !dut.fetchq_empty) begin
+        if (fetchq_pop && fetchq_valid) begin
           if (expected_fetchq.size() == 0)
             $fatal(1, "Unexpected Fetch Queue output");
           if (fetchq_dout !== expected_fetchq.pop_front())
@@ -109,6 +114,7 @@ module test_frontend;
     @(negedge clk);
     rst = 1;
     backend_redirect = 0;
+    pc_backend_redirect_src = UNUSED_SRC;
     fetchq_pop = 1;
     ftq_pop = 0;
     ftq_restore_idx = '1;
@@ -205,7 +211,7 @@ module test_frontend;
     pc_backend_redirect = 100;
     tick();
     expect_redirect_request(100);
-    if (!dut.fetchq_empty) $fatal(1, "Backend redirect did not clear Fetch Queue");
+    if (fetchq_valid) $fatal(1, "Backend redirect did not clear Fetch Queue");
     @(negedge clk);
     backend_redirect = 0;
     repeat (8) tick();
@@ -215,7 +221,7 @@ module test_frontend;
     reset_all();
     fetchq_pop = 0;
     repeat (10) tick();
-    if (!dut.stall || !dut.fetchq_full) $fatal(1, "Expected full Fetch Queue");
+    if (!dut.stall || dut.fetchq_ready) $fatal(1, "Expected full Fetch Queue");
     redirect_start = pushed_pcs.size();
     @(negedge clk);
     backend_redirect = 1;
@@ -318,6 +324,32 @@ module test_frontend;
     repeat (8) tick();
     expect_linear(0, 200);
     $display("PASS: backend redirect can replace the initial reset request");
+
+    // backend redirect で src の PC に飛び先を学習し、次にそこを通るときはバブル無しで予測する
+    reset_all();
+    dut.u_i_mem.mem[5] = jal(95);
+    @(negedge clk);
+    backend_redirect = 1;
+    pc_backend_redirect = 100;
+    pc_backend_redirect_src = 5;
+    tick();
+    if (!dut.u_btb.valid[5] || dut.u_btb.tags[5] !== 0 || dut.u_btb.targets[5] !== 100)
+      $fatal(1, "Backend redirect did not train the BTB at its source PC");
+    checks++;
+    redirect_start = pushed_pcs.size();
+    @(negedge clk);
+    pc_backend_redirect = 5;
+    pc_backend_redirect_src = UNUSED_SRC;
+    tick();
+    expect_redirect_request(5);
+    @(negedge clk);
+    backend_redirect = 0;
+    repeat (8) tick();
+    expect_pc(redirect_start, 5);
+    expect_linear(redirect_start + 1, 100);
+    if (pushed_cycles[redirect_start + 1] != pushed_cycles[redirect_start] + 1)
+      $fatal(1, "BTB entry trained by backend redirect inserted a bubble");
+    $display("PASS: backend redirect trains the BTB at its source PC");
 
     $display("PASS: frontend (%0d checks)", checks);
     $finish;

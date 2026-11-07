@@ -23,6 +23,6 @@ enableによる保持を前提とします。
 - stall中のfrontend redirectを保持し、再開時に一度だけ適用すること。
 - backend redirectがfrontend redirectと古い命令のBTB更新に優先すること。
 - 連続したbackend redirectと、初回要求より先に来るbackend redirect。
+- backend redirectでsrcのPCにBTBを学習させ、次に通るときバブル無しで予測すること。
 
 Fetch Queueの出力をスコアボードと比較し、PCと命令の対応も確認します。
-Queueの有効性を示す出力がfrontendにまだないため、popの判定には内部のemptyを参照します。

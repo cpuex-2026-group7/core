@@ -1143,16 +1143,18 @@ module tb_iq_top
       expect_at(z, t4 + 5);
     end
     if (DW_MEM >= 2) begin
-      // load の rd を同じサイクルの store が読む（slow なので外からの wakeup まで待つ）
+      // load の rd を同じサイクルの store が読む（slow なので STD は外からの wakeup まで待つ。STA は先に出る）
       quiet();
       y = nid();
       z = nid();
+      t3 = cyc;
       clear_inputs();
       put(QM, 0, mk_uop(0, pf(16), pi(3), pn(), 0, '0, y));
       put(QM, 1, mk_uop(0, pn(), pi(3), pf(16), 0, '0, z));
       cycle();
       run_idle(4);
-      expect_never(z);
+      expect_at(y, t3 + 1);
+      expect_at(z, t3 + 2);
       t4 = cyc;
       clear_inputs();
       ext(0, pf(16), 0);

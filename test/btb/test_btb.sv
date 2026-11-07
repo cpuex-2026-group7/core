@@ -17,7 +17,9 @@ module test_btb;
   logic rst = 0;
   addr_t pc = '0;
   frontend_pkg::btb_resp_t resp, resp_F0;
+  logic en = 1;
   logic update_en = 0;
+  logic update_validness = 1;
   addr_t update_pc = '0;
   addr_t update_target = '0;
   int checks = 0;
@@ -25,10 +27,12 @@ module test_btb;
   btb #(.TAG_WIDTH(TAG_WIDTH), .IDX_WIDTH(IDX_WIDTH)) dut (
     .clk(clk),
     .rst(rst),
+    .en(en),
     .pc(pc),
     .resp(resp),
     .resp_F0(resp_F0),
     .update_en(update_en),
+    .update_validness(update_validness),
     .update_pc(update_pc),
     .update_target(update_target)
   );
@@ -41,11 +45,13 @@ module test_btb;
     input logic reset_value,
     input logic enable_value,
     input addr_t addr,
-    input addr_t target
+    input addr_t target,
+    input logic validness = 1
   );
     @(negedge clk);
     rst = reset_value;
     update_en = enable_value;
+    update_validness = validness;
     update_pc = addr;
     update_target = target;
     @(posedge clk);
@@ -53,6 +59,7 @@ module test_btb;
     @(negedge clk);
     rst = 0;
     update_en = 0;
+    update_validness = 1;
   endtask
 
   task automatic check_response(
@@ -206,6 +213,34 @@ module test_btb;
     check_f0_response("reset clears F1 feedback", 0, '0);
     stream_cycle("reset clears pending lookup", PC_A, 0, '0, 0, '0);
     stream_cycle("reset clears table", PC_A, 0, '0, 0, '0);
+
+    // 14. update_validness=0 の更新でエントリが無効になる。
+    apply_cycle(0, 1, PC_A, 32'h900);
+    check_lookup("insert before invalidate", PC_A, 1, 32'h900);
+    apply_cycle(0, 1, PC_A, 32'h900, 0);
+    check_lookup("invalidate", PC_A, 0, '0);
+
+    // 15. en=0 の間は F1 の PC と F2 の応答を保持し、en=1 に戻すと進む。
+    apply_cycle(0, 1, PC_C, 32'ha00);
+    check_lookup("prime before stall", PC_C, 1, 32'ha00);
+    @(negedge clk);
+    en = 0;
+    pc = PC_B;
+    repeat (2) begin
+      @(posedge clk);
+      #1;
+      check_response("stall holds F2", 1, 32'ha00);
+      check_f0_response("stall holds F1", 1, 32'ha00);
+    end
+    @(negedge clk);
+    en = 1;
+    @(posedge clk);
+    #1;
+    check_f0_response("resume takes new PC into F1", 0, '0);
+    check_response("resume F2 gets held F1 result", 1, 32'ha00);
+    @(posedge clk);
+    #1;
+    check_response("resume F2 gets new PC result", 0, '0);
 
     $display("PASS: BTB (%0d checks)", checks);
     $finish;
