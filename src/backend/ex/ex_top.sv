@@ -3,6 +3,7 @@
 
 module ex_top
   import types::*;
+  import isa::*;
   import ooo_types::*;
   import uop_types::*;
   import back_types::*;
@@ -34,40 +35,52 @@ module ex_top
   output logic fsqrt_blocked
 );
 
-  localparam int BR_EU_NUM = 2;  // ALU, F短
+  localparam int BR_EU_NUM = 2;  // ALU, F短から
 
   br_result_t br_result[BR_EU_NUM];
 
-  ex_int_top u_ex_int_top (
+  // extend
+  function automatic word_t extend_imm(input imm_t imm_type, input imm_raw_t imm);
+    case (imm_type)
+      IMM_A:   return {imm[19:0], 12'b0};
+      IMM_B:   return {{12{imm[19]}}, imm[19:0]};
+      default: return {{17{imm[14]}}, imm[14:0]};  // C, D
+    endcase
+  endfunction
+
+  eu_int_top u_eu_int_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
     .rr_ex(rr_ex_int[0]),
+    .imm(extend_imm(rr_ex_int[0].payload.imm_type, rr_ex_int[0].payload.imm)),
     .br_update_ff(br_update_ff),
     .to_wb(wb_alu[0]),
     .br_result(br_result[0])
   );
 
-  ex_mem_top u_ex_mem_top (
+  eu_mem_top u_eu_mem_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
     .rr_ex(rr_ex_mem[0]),
+    .imm(extend_imm(rr_ex_mem[0].payload.imm_type, rr_ex_mem[0].payload.imm)),
     .br_update_ff(br_update_ff),
     .lsu_ff(lsu_ff[0])
   );
 
-  ex_float_short_top u_ex_float_short_top (
+  eu_float_short_top u_eu_float_short_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
     .rr_ex(rr_ex_fpu[0]),
+    .imm(extend_imm(rr_ex_fpu[0].payload.imm_type, rr_ex_fpu[0].payload.imm)),
     .br_update_ff(br_update_ff),
     .to_wb(wb_fpu[0]),
     .br_result(br_result[1])
   );
 
-  ex_float_long_top u_ex_float_long_top (
+  eu_float_long_top u_eu_float_long_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -76,7 +89,7 @@ module ex_top
     .to_wb(wb_fpu[1])
   );
 
-  ex_float_very_long_top u_ex_float_very_long_top (
+  eu_float_very_long_top u_eu_float_very_long_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
