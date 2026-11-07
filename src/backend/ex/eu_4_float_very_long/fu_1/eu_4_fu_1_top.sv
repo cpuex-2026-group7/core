@@ -6,7 +6,7 @@ module eu_4_fu_1_top
 (
   input wire logic  clk,
   input wire logic  rst,
-  input wire logic  start,
+  input wire logic  issued,
   input wire logic  abort,
   input wire word_t rs1_val,
   input wire word_t rs2_val,
@@ -19,7 +19,7 @@ module eu_4_fu_1_top
   fdiv u_fdiv (
     .clk(clk),
     .rst(rst),
-    .start(start),
+    .issued(issued),
     .abort(abort),
     .rs1_val(rs1_val),
     .rs2_val(rs2_val),

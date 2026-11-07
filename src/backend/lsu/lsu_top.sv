@@ -30,7 +30,7 @@ module lsu_top
   input wire br_tag_t disp_br_tag[DISP_W],
 
   // AGUから
-  input wire ex_lsu_t lsu_ff[1],
+  input wire ex_lsu_t ex_lsu[1],
 
   // EXから
   input wire br_update_t br_update_ff,
@@ -171,7 +171,7 @@ module lsu_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .lsu_ff(lsu_ff[0]),
+    .ex_lsu(ex_lsu[0]),
     .br_update_ff(br_update_ff),
     .rob_head_ld(rob_head_ld),
     .ldq(ldq),

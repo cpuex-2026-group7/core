@@ -23,8 +23,12 @@ module ex_top
   output ex_wb_t wb_alu[1],
   output ex_wb_t wb_fpu[3],
 
+  // RRへ(F長の書き込み段より前からのバイパス)
+  output ex_wb_t bypass_fpu_f[2],
+  output ex_wb_t bypass_fpu_i[1],
+
   // LSUへ
-  output ex_lsu_t lsu_ff[1],
+  output ex_lsu_t ex_lsu[1],
 
   // 全体へ(FF)
   output br_update_t br_update_ff,
@@ -48,7 +52,7 @@ module ex_top
     endcase
   endfunction
 
-  eu_int_top u_eu_int_top (
+  eu_0_top u_eu_0_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -59,17 +63,17 @@ module ex_top
     .br_result(br_result[0])
   );
 
-  eu_mem_top u_eu_mem_top (
+  eu_1_top u_eu_1_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
     .rr_ex(rr_ex_mem[0]),
     .imm(extend_imm(rr_ex_mem[0].payload.imm_type, rr_ex_mem[0].payload.imm)),
     .br_update_ff(br_update_ff),
-    .lsu_ff(lsu_ff[0])
+    .ex_lsu(ex_lsu[0])
   );
 
-  eu_float_short_top u_eu_float_short_top (
+  eu_2_top u_eu_2_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -80,16 +84,18 @@ module ex_top
     .br_result(br_result[1])
   );
 
-  eu_float_long_top u_eu_float_long_top (
+  eu_3_top u_eu_3_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
     .rr_ex(rr_ex_fpu[1]),
     .br_update_ff(br_update_ff),
-    .to_wb(wb_fpu[1])
+    .to_wb(wb_fpu[1]),
+    .bypass_f(bypass_fpu_f),
+    .bypass_i(bypass_fpu_i)
   );
 
-  eu_float_very_long_top u_eu_float_very_long_top (
+  eu_4_top u_eu_4_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),

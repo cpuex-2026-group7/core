@@ -14,7 +14,7 @@ module lsu_controller
   input wire logic flush, // loadの順序違反でflush
 
   // AGUから
-  input wire ex_lsu_t lsu_ff,
+  input wire ex_lsu_t ex_lsu,
 
   // EXから
   input wire br_update_t br_update_ff,

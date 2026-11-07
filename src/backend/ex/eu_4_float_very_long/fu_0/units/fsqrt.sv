@@ -6,7 +6,7 @@ module fsqrt
 (
   input wire logic  clk,
   input wire logic  rst,
-  input wire logic  start,
+  input wire logic  issued,
   input wire logic  abort,
   input wire word_t rs1_val,
 
@@ -15,12 +15,12 @@ module fsqrt
   output word_t result
 );
 
-  logic  start_ff;
+  logic  issued_ff;
   word_t rs1_ff;
 
   always_ff @(posedge clk) begin
-    start_ff <= !rst & start;
-    rs1_ff   <= rs1_val;
+    issued_ff <= !rst & issued;
+    rs1_ff    <= rs1_val;
   end
 
 endmodule
