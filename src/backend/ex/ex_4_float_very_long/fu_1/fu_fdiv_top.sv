@@ -16,6 +16,18 @@ module fu_fdiv_top
   output word_t result
 );
 
+  fdiv u_fdiv (
+    .clk(clk),
+    .rst(rst),
+    .start(start),
+    .abort(abort),
+    .rs1_val(rs1_val),
+    .rs2_val(rs2_val),
+    .busy(busy),
+    .done(done),
+    .result(result)
+  );
+
 endmodule
 
 `default_nettype wire

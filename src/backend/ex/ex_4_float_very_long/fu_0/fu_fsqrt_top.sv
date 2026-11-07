@@ -15,6 +15,17 @@ module fu_fsqrt_top
   output word_t result
 );
 
+  fsqrt u_fsqrt (
+    .clk(clk),
+    .rst(rst),
+    .start(start),
+    .abort(abort),
+    .rs1_val(rs1_val),
+    .busy(busy),
+    .done(done),
+    .result(result)
+  );
+
 endmodule
 
 `default_nettype wire

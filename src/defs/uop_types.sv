@@ -43,6 +43,7 @@ package uop_types;
   // FUの中の演算。意味はFUごと
   // 条件分岐は[3:2]=00で[1:0]は命令のidと同じ([1]=0がeq/1がlt、[0]=1で反転)
   // [3:2]=01がjal/jalr、[3:2]=10がそれ以外
+  // 1つのunitで複数のuopをやるときは下位bitで区別する
   typedef logic [3:0] fu_op_t;
 
   // ALU
@@ -53,8 +54,9 @@ package uop_types;
   localparam fu_op_t FU_OP_JAL    = 4'b0100;
   localparam fu_op_t FU_OP_JALR   = 4'b0101;
   localparam fu_op_t FU_OP_ADD    = 4'b1000;
-  localparam fu_op_t FU_OP_SUB    = 4'b1001;
-  localparam fu_op_t FU_OP_SRA    = 4'b1010;
+  localparam fu_op_t FU_OP_ADDI   = 4'b1001;
+  localparam fu_op_t FU_OP_SUB    = 4'b1010;
+  localparam fu_op_t FU_OP_SRA    = 4'b1011;
   // MEM
   localparam fu_op_t FU_OP_AGU    = 4'b1000;
   // F短

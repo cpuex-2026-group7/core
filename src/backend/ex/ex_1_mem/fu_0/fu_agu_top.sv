@@ -8,21 +8,22 @@ module fu_agu_top
   input wire logic     clk,
   input wire word_t    rs1_val,
   input wire word_t    rs2_val,
+  input wire logic     is_store,
   input wire imm_raw_t imm,
 
   output addr_t addr,
   output word_t data
 );
 
-  word_t    rs1_ff;
-  word_t    rs2_ff;
-  imm_raw_t imm_ff;
-
-  always_ff @(posedge clk) begin
-    rs1_ff <= rs1_val;
-    rs2_ff <= rs2_val;
-    imm_ff <= imm;
-  end
+  agu u_agu (
+    .clk(clk),
+    .aux(is_store),
+    .rs1_val(rs1_val),
+    .rs2_val(rs2_val),
+    .imm(imm),
+    .addr(addr),
+    .data(data)
+  );
 
 endmodule
 

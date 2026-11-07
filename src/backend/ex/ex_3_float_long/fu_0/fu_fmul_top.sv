@@ -11,6 +11,13 @@ module fu_fmul_top
   output word_t result
 );
 
+  fmul u_fmul (
+    .clk(clk),
+    .rs1_val(rs1_val),
+    .rs2_val(rs2_val),
+    .result(result)
+  );
+
 endmodule
 
 `default_nettype wire

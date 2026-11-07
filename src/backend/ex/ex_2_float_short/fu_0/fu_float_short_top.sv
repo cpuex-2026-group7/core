@@ -19,38 +19,35 @@ module fu_float_short_top
   output logic  mispredict
 );
 
-  fu_op_t   fu_op_ff;
-  imm_raw_t imm_ff;
-  pc_t      pc_ff;
-  pc_t      predict_pc_ff;
+  // 最後のmuxの選択用
+  fu_op_t fu_op_ff;
 
   always_ff @(posedge clk) begin
-    fu_op_ff      <= fu_op;
-    imm_ff        <= imm;
-    pc_ff         <= pc;
-    predict_pc_ff <= predict_pc;
+    fu_op_ff <= fu_op;
   end
 
-  logic  eq;
-  logic  lt;
+  logic  eq_taken;
+  logic  lt_taken;
   word_t fli_result;
   word_t flhi_result;
   word_t fcsign_result;
+  logic  taken_mispredict;
+  logic  not_taken_mispredict;
 
   fcmp_eq u_fcmp_eq (
     .clk(clk),
+    .aux(fu_op[0]),
     .rs1_val(rs1_val),
     .rs2_val(rs2_val),
-    .aux(fu_op[0]),
-    .result(eq)
+    .taken(eq_taken)
   );
 
   fcmp_lt u_fcmp_lt (
     .clk(clk),
+    .aux(fu_op[0]),
     .rs1_val(rs1_val),
     .rs2_val(rs2_val),
-    .aux(fu_op[0]),
-    .result(lt)
+    .taken(lt_taken)
   );
 
   fli u_fli (
@@ -67,13 +64,31 @@ module fu_float_short_top
 
   fcsign u_fcsign (
     .clk(clk),
-    .rs1_val(rs1_val),
     .aux(imm[1:0]),
+    .rs1_val(rs1_val),
     .result(fcsign_result)
   );
 
-  // D形式のofsはimm[14:0]
-  assign target = pc_ff + pc_t'($signed(imm_ff[14:0]));
+  fbr_target u_fbr_target (
+    .clk(clk),
+    .imm(imm),
+    .pc(pc),
+    .predict_pc(predict_pc),
+    .target(target),
+    .taken_mispredict(taken_mispredict),
+    .not_taken_mispredict(not_taken_mispredict)
+  );
+
+  always_comb begin
+    case (fu_op_ff)
+      FU_OP_FLI:  result = fli_result;
+      FU_OP_FLHI: result = flhi_result;
+      default:    result = fcsign_result;  // 分岐はresultを使わない
+    endcase
+  end
+
+  assign taken = fu_op_ff[1] ? lt_taken : eq_taken;
+  assign mispredict = taken ? taken_mispredict : not_taken_mispredict;
 
 endmodule
 
