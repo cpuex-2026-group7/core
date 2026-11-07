@@ -87,7 +87,23 @@ module tb_rf_top
   logic [1:0] part_mem;
   float_payload_t pl_fpu[3];
   ex_wb_t wb[NW];
-  br_update_t br[BR_UPDATE_W];
+  // テストでは分岐の結果を1本ずつ持ち、DUTにはmaskにして渡す
+  typedef struct packed {
+    logic    valid;
+    logic    mispredict;
+    br_tag_t tag;
+  } tb_br_t;
+
+  function automatic br_update_t to_br_update(input tb_br_t b[BR_UPDATE_W]);
+    br_update_t u = '0;
+    for (int k = 0; k < BR_UPDATE_W; k++) begin
+      if (b[k].valid && b[k].mispredict) u.kill_mask[b[k].tag] = 1'b1;
+      if (b[k].valid && !b[k].mispredict) u.resolve_mask[b[k].tag] = 1'b1;
+    end
+    return u;
+  endfunction
+
+  tb_br_t br[BR_UPDATE_W];
 
   // DUT につなぐ側。initial から直接書くと組み合わせ回路が評価し直されないことがあるので、立ち下がりで写す
   logic d_rst;
@@ -102,7 +118,7 @@ module tb_rf_top
   ex_wb_t d_wb_alu[1];
   ex_wb_t d_wb_mem[1];
   ex_wb_t d_wb_fpu[3];
-  br_update_t d_br[BR_UPDATE_W];
+  br_update_t d_br;
 
   always @(negedge clk) begin
     d_rst <= rst;
@@ -121,7 +137,7 @@ module tb_rf_top
     d_wb_fpu[0] <= wb[2];
     d_wb_fpu[1] <= wb[3];
     d_wb_fpu[2] <= wb[4];
-    d_br <= br;
+    d_br <= to_br_update(br);
   end
 
   rr_ex_int_t ex_int[1];
@@ -131,8 +147,7 @@ module tb_rf_top
 
   rf_top #(
     .I_PREG_NUM(I_PREG_NUM),
-    .F_PREG_NUM(F_PREG_NUM),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .F_PREG_NUM(F_PREG_NUM)
   ) dut (
     .clk(clk),
     .rst(d_rst),
@@ -996,7 +1011,7 @@ module tb_rf_top
     for (int p2 = 0; p2 < 3; p2++) for (int b = 0; b < $bits(float_payload_t); b++) pl_fpu[p2][b] = 1'(rnd(2));
 
     for (int u = 0; u < BR_UPDATE_W; u++) begin
-      for (int b = 0; b < $bits(br_update_t); b++) br[u][b] = 1'(rnd(2));
+      for (int b = 0; b < $bits(tb_br_t); b++) br[u][b] = 1'(rnd(2));
       br[u].valid = rnd(100) < 30;
       br[u].mispredict = rnd(100) < 40;
     end

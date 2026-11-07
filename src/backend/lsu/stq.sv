@@ -10,8 +10,7 @@ module stq
   import lsu_types::*;
 #(
   parameter int DISP_W = 1,
-  parameter int COMMIT_W = 1,
-  parameter int BR_UPDATE_W = 1
+  parameter int COMMIT_W = 1
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -41,7 +40,7 @@ module stq
   output stq_entry_t stq_ff[STQ_SIZE],
 
   // EXから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  input wire br_update_t br_update,
 
   // ROB
   input wire logic commit_st[COMMIT_W],

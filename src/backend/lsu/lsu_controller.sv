@@ -8,9 +8,7 @@ module lsu_controller
   import ex_types::*;
   import rob_types::*;
   import lsu_types::*;
-#(
-  parameter int BR_UPDATE_W = 1
-) (
+(
   input wire logic clk,
   input wire logic rst,
   input wire logic flush, // loadの順序違反でflush
@@ -19,7 +17,7 @@ module lsu_controller
   input wire ex_lsu_t lsu_ff,
 
   // EXから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  input wire br_update_t br_update,
 
   // ROBから
   input wire logic rob_head_ld,

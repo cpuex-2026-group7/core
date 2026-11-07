@@ -12,17 +12,14 @@ package back_types;
     latency_t latency;  // ◯cycle後から来てもいいよ
   } wakeup_t;
 
-  // 1本ずつ見る
   // mispredictした分岐に依存していたら消す
-  function automatic logic br_killed(input brmask_t brmask, input br_update_t upd);
-    return upd.valid && upd.mispredict && brmask[upd.tag];
+  function automatic logic br_kill_check(input brmask_t brmask, input br_update_t upd);
+    return |(brmask & upd.kill_mask);
   endfunction
 
   // 当たった分岐のビットを落とす
-  function automatic brmask_t br_resolved(input brmask_t brmask, input br_update_t upd);
-    brmask_t ret = brmask;
-    if (upd.valid && !upd.mispredict) ret[upd.tag] = 1'b0;
-    return ret;
+  function automatic brmask_t apply_br_resolve(input brmask_t brmask, input br_update_t upd);
+    return brmask & ~upd.resolve_mask;
   endfunction
 
 endpackage

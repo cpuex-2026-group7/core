@@ -9,9 +9,8 @@ module lsu_top
   import rob_types::*;
   import lsu_types::*;
 #(
-  parameter int DISP_W = 2,
-  parameter int COMMIT_W = 1,
-  parameter int BR_UPDATE_W = 1
+  parameter int DISP_W   = 2,
+  parameter int COMMIT_W = 1
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -34,7 +33,7 @@ module lsu_top
   input wire ex_lsu_t lsu_ff[1],
 
   // EXから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  input wire br_update_t br_update,
 
   // ROB
   input wire logic commit_ld[COMMIT_W],  // loadをコミットしたヨ
@@ -90,23 +89,10 @@ module lsu_top
   assign dc_resp.ack = dc_resp_ack;
   assign dc_resp.rdata = dc_resp_rdata;
 
-  // br_updateからmaskを作ってFFで出す
-  logic [MAX_BR-1:0] kill_mask, resolve_mask;
-
-  always_comb begin
-    kill_mask = '0;
-    resolve_mask = '0;
-    for (int i = 0; i < BR_UPDATE_W; i++) begin
-      if (br_update[i].valid) begin
-        if (br_update[i].mispredict) kill_mask[br_update[i].tag] = 1'b1;
-        else resolve_mask[br_update[i].tag] = 1'b1;
-      end
-    end
-  end
+  assign dc_br_kill_mask = br_update.kill_mask;
+  assign dc_br_resolve_mask = br_update.resolve_mask;
 
   always_ff @(posedge clk) begin
-    dc_br_kill_mask <= rst ? '0 : kill_mask;
-    dc_br_resolve_mask <= rst ? '0 : resolve_mask;
     dc_kill_all <= !rst & flush;
   end
 
@@ -131,9 +117,8 @@ module lsu_top
   ldq_mask_t violation_mask;
 
   ldq #(
-    .DISP_W(DISP_W),
-    .COMMIT_W(COMMIT_W),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .DISP_W  (DISP_W),
+    .COMMIT_W(COMMIT_W)
   ) u_ldq (
     .clk(clk),
     .rst(rst),
@@ -157,9 +142,8 @@ module lsu_top
   );
 
   stq #(
-    .DISP_W(DISP_W),
-    .COMMIT_W(COMMIT_W),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .DISP_W  (DISP_W),
+    .COMMIT_W(COMMIT_W)
   ) u_stq (
     .clk(clk),
     .rst(rst),
@@ -183,9 +167,7 @@ module lsu_top
     .complete_st(complete_st)
   );
 
-  lsu_controller #(
-    .BR_UPDATE_W(BR_UPDATE_W)
-  ) u_lsu_controller (
+  lsu_controller u_lsu_controller (
     .clk(clk),
     .rst(rst),
     .flush(flush),

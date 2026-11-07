@@ -10,8 +10,7 @@ module ldq
   import lsu_types::*;
 #(
   parameter int DISP_W = 1,
-  parameter int COMMIT_W = 1,
-  parameter int BR_UPDATE_W = 1
+  parameter int COMMIT_W = 1
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -42,7 +41,7 @@ module ldq
   output ldq_entry_t ldq_ff[LDQ_SIZE],
 
   // EXから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  input wire br_update_t br_update,
 
   // ROB
   input wire logic commit_ld[COMMIT_W],

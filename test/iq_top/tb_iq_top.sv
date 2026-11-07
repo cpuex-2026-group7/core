@@ -138,7 +138,23 @@ module tb_iq_top
   logic tvalid[NQ][MAXDW];
   disp_uop_t tuop[NQ][MAXDW];
   wakeup_t ext_w[WAKEUP_W];
-  br_update_t br[BR_UPDATE_W];
+  // テストでは分岐の結果を1本ずつ持ち、DUTにはmaskにして渡す
+  typedef struct packed {
+    logic    valid;
+    logic    mispredict;
+    br_tag_t tag;
+  } tb_br_t;
+
+  function automatic br_update_t to_br_update(input tb_br_t b[BR_UPDATE_W]);
+    br_update_t u = '0;
+    for (int k = 0; k < BR_UPDATE_W; k++) begin
+      if (b[k].valid && b[k].mispredict) u.kill_mask[b[k].tag] = 1'b1;
+      if (b[k].valid && !b[k].mispredict) u.resolve_mask[b[k].tag] = 1'b1;
+    end
+    return u;
+  endfunction
+
+  tb_br_t br[BR_UPDATE_W];
   logic fdiv_b;
   logic fsqrt_b;
 
@@ -149,7 +165,7 @@ module tb_iq_top
   logic d_tvalid[NQ][MAXDW];
   disp_uop_t d_tuop[NQ][MAXDW];
   wakeup_t d_ext_w[WAKEUP_W];
-  br_update_t d_br[BR_UPDATE_W];
+  br_update_t d_br;
   logic d_fdiv_b;
   logic d_fsqrt_b;
 
@@ -159,7 +175,7 @@ module tb_iq_top
     d_tvalid <= tvalid;
     d_tuop <= tuop;
     d_ext_w <= ext_w;
-    d_br <= br;
+    d_br <= to_br_update(br);
     d_fdiv_b <= fdiv_b;
     d_fsqrt_b <= fsqrt_b;
   end
@@ -204,8 +220,7 @@ module tb_iq_top
     .DISPATCH_W_INT(DW_INT),
     .DISPATCH_W_MEM(DW_MEM),
     .DISPATCH_W_FPU(DW_FPU),
-    .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .WAKEUP_W(WAKEUP_W)
   ) dut (
     .clk(clk),
     .rst(d_rst),
@@ -775,9 +790,10 @@ module tb_iq_top
         fail($sformatf("MEM rr_payload=%h 期待 op=%h imm=%h rob=%h ldq=%h stq=%h（id %0d）", pl_mem[0], u.op, u.imm,
                        u.rob_idx, u.ldq_idx, u.stq_idx, e.id));
       default:
-      if (pl_fpu[p] !== float_payload_t'{op: u.op, imm: u.imm, rob_idx: u.rob_idx})
-        fail($sformatf("FP port%0d rr_payload=%h 期待 op=%h imm=%h rob=%h（id %0d）", p, pl_fpu[p], u.op, u.imm,
-                       u.rob_idx, e.id));
+      if (pl_fpu[p] !== float_payload_t'{op: u.op, imm: u.imm, pc: u.pc, predict_pc: u.predict_pc, ftq_idx: u.ftq_idx,
+                                         rob_idx: u.rob_idx, br_tag: u.br_tag})
+        fail($sformatf("FP port%0d rr_payload=%h 期待 op=%h imm=%h pc=%h predict_pc=%h ftq=%h rob=%h br_tag=%h（id %0d）",
+                       p, pl_fpu[p], u.op, u.imm, u.pc, u.predict_pc, u.ftq_idx, u.rob_idx, u.br_tag, e.id));
     endcase
   endtask
 

@@ -10,8 +10,7 @@ module iq_float
 #(
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
-  parameter int WAKEUP_W = 5,
-  parameter int BR_UPDATE_W = 1
+  parameter int WAKEUP_W = 5
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -28,8 +27,8 @@ module iq_float
   input wire wakeup_t coming_wakeup[WAKEUP_W],
   output wakeup_t sending_wakeup[3],
 
-  // ALUレーンのWBから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  // ex_topのFFから
+  input wire br_update_t br_update,
 
   // fdiv,fsqrtから
   input wire fsqrt_blocked,
@@ -82,7 +81,6 @@ module iq_float
     .SLOW_WAKEUP_FU({4'b0011, 4'b0000, 4'b0000}),  // {F超長, F長, F短}
     .BLOCKING_FU({4'b0011, 4'b0000, 4'b0000}),
     .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
   ) u_iq_core_float (
     .clk  (clk),

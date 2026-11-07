@@ -15,7 +15,6 @@ module iq_core
   parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] SLOW_WAKEUP_FU = '0,
   parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] BLOCKING_FU = '0,
   parameter int WAKEUP_W = 5,
-  parameter int BR_UPDATE_W = 1,
   parameter int PAYLOAD_W = 64,
   parameter bit ALLOW_SPLIT_ISSUE = 1'b0  // STA/STDを分けてissueできるようにする
 ) (
@@ -34,8 +33,8 @@ module iq_core
   input wire wakeup_t coming_wakeup[WAKEUP_W],
   output wakeup_t sending_wakeup[ISSUE_W],
 
-  // ALUレーンのWBから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  // ex_topのFFから
+  input wire br_update_t br_update,
 
   // FU (fdiv,fsqrtのブロック用)
   input wire logic [ISSUE_W-1:0][FU_PER_EU-1:0] dest_fu_blocked,
@@ -69,23 +68,13 @@ module iq_core
   logic [SIZE-1:0] bitmaps[ISSUE_W];
   logic [SIZE-1:0] n_bitmaps[ISSUE_W];
 
-  function automatic logic branch_kill_check(input brmask_t brmask, input br_update_t br_upd[BR_UPDATE_W]);
-    branch_kill_check = 1'b0;
-    for (int i = 0; i < BR_UPDATE_W; i++) branch_kill_check |= br_killed(brmask, br_upd[i]);
-  endfunction
-
-  function automatic brmask_t apply_br_update(input brmask_t brmask, input br_update_t br_upd[BR_UPDATE_W]);
-    apply_br_update = brmask;
-    for (int i = 0; i < BR_UPDATE_W; i++) apply_br_update = br_resolved(apply_br_update, br_upd[i]);
-  endfunction
-
   // 分岐ミスで消されたやつを抜いたbitmap
   logic [SIZE-1:0] killed_bitmaps[ISSUE_W];
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
       killed_bitmaps[i] = bitmaps[i];
       for (int j = 0; j < SIZE; j++) begin
-        killed_bitmaps[i][j] &= !branch_kill_check(iq_ff[j].brmask, br_update);
+        killed_bitmaps[i][j] &= !br_kill_check(iq_ff[j].brmask, br_update);
       end
     end
   end
@@ -114,7 +103,7 @@ module iq_core
   logic alloc_valid[DISPATCH_W];
   always_comb begin
     for (int i = 0; i < DISPATCH_W; i++) begin
-      alloc_valid[i] = disp_valid[i] && empty_found[i] && !branch_kill_check(disp_entry[i].brmask, br_update);
+      alloc_valid[i] = disp_valid[i] && empty_found[i] && !br_kill_check(disp_entry[i].brmask, br_update);
     end
   end
 
@@ -287,7 +276,7 @@ module iq_core
       if (iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt > 0) n_iq_ff[i].rs2.st.cnt = iq_ff[i].rs2.st.cnt - 1;
       n_iq_ff[i].rs1 = apply_wakeup(n_iq_ff[i].rs1, coming_wakeup);
       n_iq_ff[i].rs2 = apply_wakeup(n_iq_ff[i].rs2, coming_wakeup);
-      n_iq_ff[i].brmask = apply_br_update(iq_ff[i].brmask, br_update);
+      n_iq_ff[i].brmask = apply_br_resolve(iq_ff[i].brmask, br_update);
     end
 
     // dispatch 同じサイクルのwakeupと分岐も当てる
@@ -301,7 +290,7 @@ module iq_core
           n_iq_ff[alloc_slot[i]].rs2.st.cnt = disp_entry[i].rs2.st.cnt - 1;
         n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, coming_wakeup);
         n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, coming_wakeup);
-        n_iq_ff[alloc_slot[i]].brmask = apply_br_update(disp_entry[i].brmask, br_update);
+        n_iq_ff[alloc_slot[i]].brmask = apply_br_resolve(disp_entry[i].brmask, br_update);
       end
     end
   end
@@ -352,7 +341,7 @@ module iq_core
         rr_ff[i].rs1   <= iq_ff[issued_slot[i]].rs1.preg;
         rr_ff[i].rs2   <= iq_ff[issued_slot[i]].rs2.preg;
         rr_ff[i].dest_fu <= iq_ff[issued_slot[i]].dest_fu;
-        rr_ff[i].brmask  <= apply_br_update(iq_ff[issued_slot[i]].brmask, br_update);
+        rr_ff[i].brmask  <= apply_br_resolve(iq_ff[issued_slot[i]].brmask, br_update);
       end
     end
   end

@@ -38,9 +38,24 @@ package ooo_types;
   typedef logic [$clog2(STQ_SIZE)-1:0] stq_idx_t;
   typedef logic [FTQ_IDX_WIDTH-1:0] ftq_idx_t;
 
+  // 分岐EUが1本ずつ出す結果
   typedef struct packed {
     logic     valid;
     logic     mispredict;
+    br_tag_t  tag;
+    brmask_t  brmask;      // 自分より真に古い未解決の分岐のmask
+    logic     taken;
+    pc_t      pc;
+    pc_t      target;
+    rob_idx_t rob_idx;
+  } br_result_t;
+
+  // ex_topでFFに入れた後配られる
+  typedef struct packed {
+    brmask_t  resolve_mask;     // 予測が当たった分岐
+    brmask_t  kill_mask;        // 予測が外れた分岐
+    logic     mispredict;
+    // これ以降は復帰用の情報
     br_tag_t  tag;
     logic     taken;
     pc_t      pc;

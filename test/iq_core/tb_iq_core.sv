@@ -102,7 +102,23 @@ module tb_iq_core
   wakeup_t coming_wakeup[WAKEUP_W];
   wakeup_t sending_wakeup[ISSUE_W];
   wakeup_t ext_wakeup[EXT_W];
-  br_update_t br_update[1];
+  // テストでは分岐の結果を1本ずつ持ち、DUTにはmaskにして渡す
+  typedef struct packed {
+    logic    valid;
+    logic    mispredict;
+    br_tag_t tag;
+  } tb_br_t;
+
+  function automatic br_update_t to_br_update(input tb_br_t b[1]);
+    br_update_t u = '0;
+    for (int k = 0; k < 1; k++) begin
+      if (b[k].valid && b[k].mispredict) u.kill_mask[b[k].tag] = 1'b1;
+      if (b[k].valid && !b[k].mispredict) u.resolve_mask[b[k].tag] = 1'b1;
+    end
+    return u;
+  endfunction
+
+  tb_br_t br_update[1];
   logic [DEST_FU_NUM-1:0] dest_fu_blocked;
   iq_rr_t rr_ff[ISSUE_W];
   logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W];
@@ -117,7 +133,7 @@ module tb_iq_core
   logic [PAYLOAD_W-1:0] d_disp_payload[DISPATCH_W];
   logic [1:0] d_disp_part[DISPATCH_W];
   wakeup_t d_ext_wakeup[EXT_W];
-  br_update_t d_br_update[1];
+  br_update_t d_br_update;
   logic [DEST_FU_NUM-1:0] d_dest_fu_blocked;
   logic [ISSUE_W-1:0][FU_PER_EU-1:0] d_dut_fu_blocked;
 
@@ -129,7 +145,7 @@ module tb_iq_core
     d_disp_payload <= disp_payload;
     d_disp_part <= disp_part;
     d_ext_wakeup <= ext_wakeup;
-    d_br_update <= br_update;
+    d_br_update <= to_br_update(br_update);
     d_dest_fu_blocked <= dest_fu_blocked;
   end
 
@@ -149,7 +165,6 @@ module tb_iq_core
     .SLOW_WAKEUP_FU(DUT_SLOW),
     .BLOCKING_FU(DUT_BLOCKING),
     .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(1),
     .PAYLOAD_W(PAYLOAD_W),
     .ALLOW_SPLIT_ISSUE(ALLOW_SPLIT_ISSUE)
   ) dut (

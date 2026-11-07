@@ -10,8 +10,7 @@ module iq_int
 #(
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
-  parameter int WAKEUP_W = 5,
-  parameter int BR_UPDATE_W = 1
+  parameter int WAKEUP_W = 5
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -28,8 +27,8 @@ module iq_int
   input wire wakeup_t coming_wakeup[WAKEUP_W],
   output wakeup_t sending_wakeup[1],
 
-  // ALUレーンのWBから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  // ex_topのFFから
+  input wire br_update_t br_update,
 
   // to RR
   output iq_rr_t rr_ff[1],
@@ -75,7 +74,6 @@ module iq_int
     .SLOW_WAKEUP_FU(4'b0000),
     .BLOCKING_FU(4'b0000),
     .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
   ) u_iq_core_int (
     .clk  (clk),
