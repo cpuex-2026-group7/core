@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module ex_float_very_long
+module ex_float_very_long_top
   import types::*;
   import ooo_types::*;
   import uop_types::*;

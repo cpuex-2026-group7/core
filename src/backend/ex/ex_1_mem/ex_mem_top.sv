@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module ex_float_long
+module ex_mem_top
   import types::*;
   import ooo_types::*;
   import uop_types::*;
@@ -16,13 +16,13 @@ module ex_float_long
   input wire logic flush,  // loadの順序違反でflush
 
   // RRから
-  input wire rr_ex_float_t ex_ff,
+  input wire rr_ex_mem_t ex_ff,
 
   // EXから
   input wire br_update_t br_update[BR_UPDATE_W],
 
-  // RFへ
-  output ex_wb_t to_wb
+  // LSUへ
+  output ex_lsu_t lsu_ff
 );
 
 endmodule

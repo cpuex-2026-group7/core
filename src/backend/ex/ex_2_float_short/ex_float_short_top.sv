@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module ex_int
+module ex_float_short_top
   import types::*;
   import ooo_types::*;
   import uop_types::*;
@@ -13,10 +13,10 @@ module ex_int
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush,  // loadの順序違反でflush
+  input wire logic flush, // loadの順序違反でflush
 
   // RRから
-  input wire rr_ex_int_t ex_ff,
+  input wire rr_ex_float_t ex_ff,
 
   // EXから
   input wire br_update_t br_update[BR_UPDATE_W],

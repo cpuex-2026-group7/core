@@ -41,9 +41,9 @@ module ex_top
 
   br_update_t br_update_fpu;
 
-  ex_int #(
+  ex_int_top #(
     .BR_UPDATE_W(BR_UPDATE_W)
-  ) u_ex_int (
+  ) u_ex_int_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -53,9 +53,9 @@ module ex_top
     .br_update_out(br_update_out[0])
   );
 
-  ex_mem #(
+  ex_mem_top #(
     .BR_UPDATE_W(BR_UPDATE_W)
-  ) u_ex_mem (
+  ) u_ex_mem_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -64,9 +64,9 @@ module ex_top
     .lsu_ff(lsu_ff[0])
   );
 
-  ex_float_short #(
+  ex_float_short_top #(
     .BR_UPDATE_W(BR_UPDATE_W)
-  ) u_ex_float_short (
+  ) u_ex_float_short_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -80,9 +80,9 @@ module ex_top
     assign br_update_out[1] = br_update_fpu;
   end
 
-  ex_float_long #(
+  ex_float_long_top #(
     .BR_UPDATE_W(BR_UPDATE_W)
-  ) u_ex_float_long (
+  ) u_ex_float_long_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
@@ -91,9 +91,9 @@ module ex_top
     .to_wb(wb_fpu[1])
   );
 
-  ex_float_very_long #(
+  ex_float_very_long_top #(
     .BR_UPDATE_W(BR_UPDATE_W)
-  ) u_ex_float_very_long (
+  ) u_ex_float_very_long_top (
     .clk(clk),
     .rst(rst),
     .flush(flush),
