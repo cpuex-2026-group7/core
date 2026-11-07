@@ -11,7 +11,6 @@ module eu_4_fu_1_top
   input wire word_t rs1_val,
   input wire word_t rs2_val,
 
-  output logic  busy,
   output logic  done,
   output word_t result
 );
@@ -23,7 +22,6 @@ module eu_4_fu_1_top
     .abort(abort),
     .rs1_val(rs1_val),
     .rs2_val(rs2_val),
-    .busy(busy),
     .done(done),
     .result(result)
   );

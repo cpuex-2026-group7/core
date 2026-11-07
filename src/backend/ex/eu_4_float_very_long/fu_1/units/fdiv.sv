@@ -11,7 +11,6 @@ module fdiv
   input wire word_t rs1_val,
   input wire word_t rs2_val,
 
-  output logic  busy,
   output logic  done,
   output word_t result
 );

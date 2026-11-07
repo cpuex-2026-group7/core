@@ -23,6 +23,9 @@ module agu
     imm_ff <= imm;
   end
 
+  assign addr = rs1_ff + imm_ff;
+  assign data = rs2_ff;
+
 endmodule
 
 `default_nettype wire

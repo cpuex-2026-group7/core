@@ -10,7 +10,6 @@ module eu_4_fu_0_top
   input wire logic  abort,
   input wire word_t rs1_val,
 
-  output logic  busy,
   output logic  done,
   output word_t result
 );
@@ -21,7 +20,6 @@ module eu_4_fu_0_top
     .issued(issued),
     .abort(abort),
     .rs1_val(rs1_val),
-    .busy(busy),
     .done(done),
     .result(result)
   );

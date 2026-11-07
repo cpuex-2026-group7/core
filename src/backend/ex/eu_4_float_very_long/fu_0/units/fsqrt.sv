@@ -10,7 +10,6 @@ module fsqrt
   input wire logic  abort,
   input wire word_t rs1_val,
 
-  output logic  busy,
   output logic  done,
   output word_t result
 );

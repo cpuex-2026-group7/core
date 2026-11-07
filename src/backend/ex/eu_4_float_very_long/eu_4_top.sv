@@ -52,7 +52,6 @@ module eu_4_top
   logic abort_ff[FU_NUM];
 
   logic issued[FU_NUM];
-  logic busy[FU_NUM];
   logic fu_done[FU_NUM];
   word_t fu_result[FU_NUM];
 
@@ -68,7 +67,6 @@ module eu_4_top
     .issued(issued[FU_FSQRT]),
     .abort(abort_ff[FU_FSQRT]),
     .rs1_val(rr_ex.common.rs1_val),
-    .busy(busy[FU_FSQRT]),
     .done(fu_done[FU_FSQRT]),
     .result(fu_result[FU_FSQRT])
   );
@@ -80,7 +78,6 @@ module eu_4_top
     .abort(abort_ff[FU_FDIV]),
     .rs1_val(rr_ex.common.rs1_val),
     .rs2_val(rr_ex.common.rs2_val),
-    .busy(busy[FU_FDIV]),
     .done(fu_done[FU_FDIV]),
     .result(fu_result[FU_FDIV])
   );
