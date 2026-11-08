@@ -26,6 +26,7 @@ __pycache__/
 
 sim/sim_repository/
 src/memory/memory_repository/
+src/fpu/fpu_repository/
 sim/obj_dir/
 *.trace
 *.fst

@@ -310,6 +310,25 @@ proc fetch_memory_repo {} {
     }
 }
 
+# src/fpu/fpu_repository に cpuex-2026-group7/fpu を取ってくる。あれば最新版に更新する
+proc fetch_fpu_repo {} {
+    set url https://github.com/cpuex-2026-group7/fpu.git
+    set dir [file join $::script_dir src fpu fpu_repository]
+    section "Fetch fpu"
+    if {[file isdirectory [file join $dir .git]]} {
+        puts "updating $dir"
+        if {[catch {exec -ignorestderr git -C $dir pull --ff-only -q} err]} {
+            puts "WARNING: update failed, using the local version: $err"
+        }
+    } else {
+        puts "cloning $url into $dir"
+        file mkdir [file dirname $dir]
+        if {[catch {exec -ignorestderr git clone -q --depth 1 $url $dir} err]} {
+            die "git clone failed: $err"
+        }
+    }
+}
+
 # ---------------------------------------------------------------
 # ビルド
 # ---------------------------------------------------------------
@@ -457,6 +476,7 @@ if {$board_repo ne ""} {
 }
 if {$mode eq "all" || $mode eq "build"} {
     fetch_memory_repo
+    fetch_fpu_repo
 }
 open_project [lindex $xprs 0]
 
