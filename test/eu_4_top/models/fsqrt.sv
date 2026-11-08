@@ -3,7 +3,7 @@
 
 // テスト用の fsqrt の代わり（非パイプライン）
 // issued のサイクルから eu_4_model_pkg の lat_fsqrt サイクル後に done を 1 サイクル出す。
-// abort が来たら次のサイクルから idle（abort のサイクルに done が出ることはある）。
+// abort_ff が来たら次のサイクルから idle（abort_ff のサイクルに done が出ることはある）。
 // 演算中に issued が来たら n_protocol_error を数える（テストベンチが見る）
 module fsqrt
   import types::*;
@@ -12,7 +12,7 @@ module fsqrt
   input wire logic  clk,
   input wire logic  rst,
   input wire logic  issued,
-  input wire logic  abort,
+  input wire logic  abort_ff,
   input wire word_t rs1_val,
 
   output logic  done,
@@ -28,8 +28,8 @@ module fsqrt
     if (rst) begin
       busy_ff <= 1'b0;
     end else begin
-      if (issued && busy_ff && !abort) n_protocol_error <= n_protocol_error + 1;
-      if (abort) begin
+      if (issued && busy_ff && !abort_ff) n_protocol_error <= n_protocol_error + 1;
+      if (abort_ff) begin
         busy_ff <= 1'b0;
       end else if (issued) begin
         busy_ff   <= 1'b1;

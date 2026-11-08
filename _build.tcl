@@ -329,6 +329,53 @@ proc fetch_fpu_repo {} {
     }
 }
 
+# dir 以下の .sv を再帰的に集める（. で始まるフォルダは見ない）
+proc find_sv_files {dir} {
+    set files [glob -nocomplain -types f -directory $dir *.sv]
+    foreach d [glob -nocomplain -types d -directory $dir *] {
+        if {[string index [file tail $d] 0] eq "."} { continue }
+        lappend files {*}[find_sv_files $d]
+    }
+    return $files
+}
+
+# src/fpu/fpu_repository/src 以下の .sv をプロジェクトに合わせる
+# 増えたものは追加し、無くなったものはプロジェクトから外す
+proc sync_fpu_sources {} {
+    set dir [file normalize [file join $::script_dir src fpu fpu_repository src]]
+    section "Sync fpu sources"
+    if {![file isdirectory $dir]} {
+        puts "WARNING: $dir not found, skip"
+        return
+    }
+    set want {}
+    foreach f [find_sv_files $dir] { lappend want [file normalize $f] }
+
+    set have {}
+    foreach f [get_files -quiet -of_objects [get_filesets sources_1]] {
+        set f [file normalize $f]
+        if {[string match -nocase "$dir/*" $f]} { lappend have $f }
+    }
+
+    set added {}
+    foreach f $want {
+        if {[lsearch -exact -nocase $have $f] < 0} { lappend added $f }
+    }
+    set removed {}
+    foreach f $have {
+        if {[lsearch -exact -nocase $want $f] < 0} { lappend removed $f }
+    }
+
+    if {[llength $added] > 0} {
+        add_files -fileset sources_1 -norecurse $added
+        set_property file_type SystemVerilog [get_files $added]
+    }
+    if {[llength $removed] > 0} {
+        remove_files -fileset sources_1 $removed
+    }
+    puts "fpu sources: [llength $want] files (added [llength $added], removed [llength $removed])"
+}
+
 # ---------------------------------------------------------------
 # ビルド
 # ---------------------------------------------------------------
@@ -479,6 +526,9 @@ if {$mode eq "all" || $mode eq "build"} {
     fetch_fpu_repo
 }
 open_project [lindex $xprs 0]
+if {$mode eq "all" || $mode eq "build"} {
+    sync_fpu_sources
+}
 
 set rc 0
 switch -- $mode {

@@ -9,9 +9,9 @@ module fadd
   import eu_3_model_pkg::*;
 (
   input wire logic  clk,
-  input wire logic  aux,  // 1 で fsub
   input wire word_t rs1_val,
   input wire word_t rs2_val,
+  input wire logic  aux,  // 1 で fsub
 
   output word_t result
 );

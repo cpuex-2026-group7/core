@@ -49,8 +49,8 @@ module eu_2_fu_0_top
 
   fcsign u_fcsign (
     .clk(clk),
-    .aux(imm[1:0]),
     .rs1_val(rs1_val),
+    .aux(imm[1:0]),
     .result(fcsign_result)
   );
 

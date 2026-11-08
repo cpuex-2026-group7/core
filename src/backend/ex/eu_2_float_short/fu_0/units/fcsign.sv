@@ -5,18 +5,18 @@ module fcsign
   import types::*;
 (
   input wire logic        clk,
-  input wire logic  [1:0] aux,
   input wire word_t       rs1_val,
+  input wire logic  [1:0] aux,
 
   output word_t result
 );
 
-  logic  [1:0] aux_ff;
   word_t       rs1_ff;
+  logic  [1:0] aux_ff;
 
   always_ff @(posedge clk) begin
-    aux_ff <= aux;
     rs1_ff <= rs1_val;
+    aux_ff <= aux;
   end
 
   always_comb begin

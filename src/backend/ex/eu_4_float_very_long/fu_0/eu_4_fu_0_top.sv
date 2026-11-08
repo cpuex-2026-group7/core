@@ -7,7 +7,7 @@ module eu_4_fu_0_top
   input wire logic  clk,
   input wire logic  rst,
   input wire logic  issued,
-  input wire logic  abort,
+  input wire logic  abort_ff,
   input wire word_t rs1_val,
 
   output logic  done,
@@ -18,7 +18,7 @@ module eu_4_fu_0_top
     .clk(clk),
     .rst(rst),
     .issued(issued),
-    .abort(abort),
+    .abort_ff(abort_ff),
     .rs1_val(rs1_val),
     .done(done),
     .result(result)

@@ -65,7 +65,7 @@ module eu_4_top
     .clk(clk),
     .rst(rst),
     .issued(issued[FU_FSQRT]),
-    .abort(abort_ff[FU_FSQRT]),
+    .abort_ff(abort_ff[FU_FSQRT]),
     .rs1_val(rr_ex.common.rs1_val),
     .done(fu_done[FU_FSQRT]),
     .result(fu_result[FU_FSQRT])
@@ -75,7 +75,7 @@ module eu_4_top
     .clk(clk),
     .rst(rst),
     .issued(issued[FU_FDIV]),
-    .abort(abort_ff[FU_FDIV]),
+    .abort_ff(abort_ff[FU_FDIV]),
     .rs1_val(rr_ex.common.rs1_val),
     .rs2_val(rr_ex.common.rs2_val),
     .done(fu_done[FU_FDIV]),

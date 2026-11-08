@@ -15,9 +15,9 @@ module eu_3_fu_2_top
 
   fadd u_fadd (
     .clk(clk),
-    .aux(fu_op[0]),
     .rs1_val(rs1_val),
     .rs2_val(rs2_val),
+    .aux(fu_op[0]),
     .result(result)
   );
 
