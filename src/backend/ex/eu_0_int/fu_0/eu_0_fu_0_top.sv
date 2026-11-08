@@ -30,7 +30,7 @@ module eu_0_fu_0_top
   word_t add_result;
   word_t sub_result;
   word_t sra_result;
-  word_t pc_plus_1;
+  pc_t   pc_plus_1;
   logic  eq_taken;
   logic  lt_taken;
   pc_t   br_target_pc;
@@ -94,7 +94,7 @@ module eu_0_fu_0_top
       FU_OP_ADD, FU_OP_ADDI: result = add_result;
       FU_OP_SUB:             result = sub_result;
       FU_OP_SRA:             result = sra_result;
-      default:               result = pc_plus_1;
+      default:               result = word_t'(pc_plus_1);
     endcase
   end
 
@@ -106,8 +106,8 @@ module eu_0_fu_0_top
     endcase
   end
 
-  assign target = taken ? br_target_pc : pc_t'(pc_plus_1);
-  assign mispredict = taken ? (target != predict_pc_ff) : (pc_t'(pc_plus_1) != predict_pc_ff);
+  assign target = taken ? br_target_pc : pc_plus_1;
+  assign mispredict = taken ? (target != predict_pc_ff) : (pc_plus_1 != predict_pc_ff);
 
 endmodule
 

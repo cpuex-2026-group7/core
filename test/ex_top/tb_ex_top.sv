@@ -477,7 +477,7 @@ module tb_ex_top
       FU_OP_ADDI: e.value = r.common.rs1_val + im;
       FU_OP_SUB:  e.value = r.common.rs1_val - r.common.rs2_val;
       FU_OP_SRA:  e.value = ref_sra(r.common.rs1_val, im[5:0]);
-      default:    e.value = 32'(r.payload.pc) + 32'd1;
+      default:    e.value = 32'(pc_t'(r.payload.pc + 16'd1));
     endcase
     e.taken = alu_taken(op, r.common.rs1_val, r.common.rs2_val);
     if (!e.taken) e.target = r.payload.pc + 16'd1;

@@ -15,7 +15,7 @@
 //   - valid = 前のサイクルの rr_ex.valid && !前の rst && !前の flush && !今の flush
 //             && 前の brmask が今の kill_mask に当たらない
 //   - to_wb.rd / rob_idx は前の rr_ex のもの。value は uop ごと（分岐は rd が NONE なので見ない）
-//       ADD: rs1+rs2、ADDI: rs1+imm、SUB: rs1-rs2、JAL / JALR: pc+1（32bit）
+//       ADD: rs1+rs2、ADDI: rs1+imm、SUB: rs1-rs2、JAL / JALR: pc+1（16bit で計算してゼロ拡張）
 //       SRA: imm[5:0] を符号付きで見て、0 以上なら算術右シフト、負なら左シフト（-32 は 0）
 //   - br_result.valid = valid && (条件分岐か JALR)。JAL は出さない
 //       taken：BEQ / BNE / BLT / BGE は符号付き比較、JALR は 1
@@ -143,7 +143,7 @@ module tb_eu_0_top
       FU_OP_ADDI: return r.common.rs1_val + im;
       FU_OP_SUB:  return r.common.rs1_val - r.common.rs2_val;
       FU_OP_SRA:  return ref_sra(r.common.rs1_val, im[5:0]);
-      default:    return 32'(r.payload.pc) + 32'd1;  // JAL / JALR
+      default:    return 32'(pc_t'(r.payload.pc + 16'd1));  // JAL / JALR
     endcase
   endfunction
 

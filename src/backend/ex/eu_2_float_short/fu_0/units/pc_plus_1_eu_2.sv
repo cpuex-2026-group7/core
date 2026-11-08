@@ -7,7 +7,7 @@ module pc_plus_1_eu_2
   input wire logic clk,
   input wire pc_t  pc,
 
-  output word_t result  // pc+1
+  output pc_t result  // pc+1
 );
 
   pc_t pc_ff;
@@ -16,7 +16,7 @@ module pc_plus_1_eu_2
     pc_ff <= pc;
   end
 
-  assign result = pc_ff + 1;
+  assign result = pc_ff + 16'd1;
 
 endmodule
 
