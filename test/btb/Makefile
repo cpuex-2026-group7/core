@@ -5,7 +5,7 @@ VERILATOR ?= verilator
 
 SOURCES := $(ROOT_DIR)/src/defs/types.sv \
            $(ROOT_DIR)/src/defs/frontend_defs.sv \
-           $(ROOT_DIR)/src/core/btb.sv \
+           $(ROOT_DIR)/src/frontend/btb.sv \
            $(TEST_DIR)/test_btb.sv
 EXE := $(TEST_DIR)/obj_dir/Vtest_btb
 

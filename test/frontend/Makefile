@@ -7,13 +7,13 @@ BUILD_DIR ?= $(TEST_DIR)/obj_dir
 RTL := $(ROOT_DIR)/src/defs/types.sv \
        $(ROOT_DIR)/src/defs/isa.sv \
        $(ROOT_DIR)/src/defs/frontend_defs.sv \
-       $(ROOT_DIR)/src/core/frontend.sv \
-       $(ROOT_DIR)/src/core/br_checker.sv \
-       $(ROOT_DIR)/src/core/br_decoder.sv \
-       $(ROOT_DIR)/src/core/btb.sv \
-       $(ROOT_DIR)/src/core/bpd.sv \
-       $(ROOT_DIR)/src/core/fetchq.sv \
-       $(ROOT_DIR)/src/core/ftq.sv \
+       $(ROOT_DIR)/src/frontend/frontend.sv \
+       $(ROOT_DIR)/src/frontend/br_checker.sv \
+       $(ROOT_DIR)/src/frontend/br_decoder.sv \
+       $(ROOT_DIR)/src/frontend/btb.sv \
+       $(ROOT_DIR)/src/frontend/bpd.sv \
+       $(ROOT_DIR)/src/frontend/fetchq.sv \
+       $(ROOT_DIR)/src/frontend/ftq.sv \
        $(ROOT_DIR)/src/memory/i_mem.sv
 SOURCES := $(RTL) $(TEST_DIR)/test_frontend.sv
 EXE := $(BUILD_DIR)/Vtest_frontend

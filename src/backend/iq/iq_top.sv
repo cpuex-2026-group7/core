@@ -16,8 +16,7 @@ module iq_top
   parameter int DISPATCH_W_INT = 1,
   parameter int DISPATCH_W_MEM = 1,
   parameter int DISPATCH_W_FPU = 1,
-  parameter int WAKEUP_W = 2,
-  parameter int BR_UPDATE_W = 1
+  parameter int WAKEUP_W = 2
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -39,22 +38,23 @@ module iq_top
   // wakeup bus
   input wire wakeup_t coming_wakeup[WAKEUP_W],
 
-  // ALUレーンのWBから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  // ex_topのFFから
+  input wire br_update_t br_update_ff,
 
   // fdiv,fsqrtから
   input wire fdiv_blocked,
   input wire fsqrt_blocked,
 
   // to RR
-  output iq_rr_t rr_ff_int[1],
-  output int_payload_t rr_payload_int[1],
+  output iq_rr_t rr_int_ff[1],
+  output int_payload_t rr_payload_int_ff[1],
 
-  output iq_rr_t rr_ff_mem[1],
-  output mem_payload_t rr_payload_mem[1],
+  output iq_rr_t rr_mem_ff[1],
+  output mem_payload_t rr_payload_mem_ff[1],
+  output logic [1:0] rr_issue_part_mem_ff[1],
 
-  output iq_rr_t rr_ff_fpu[3],
-  output float_payload_t rr_payload_fpu[3]
+  output iq_rr_t rr_fpu_ff[3],
+  output float_payload_t rr_payload_fpu_ff[3]
 );
 
   localparam int ALL_WAKEUP_W = WAKEUP_W + 5;
@@ -204,8 +204,7 @@ module iq_top
   iq_int #(
     .SIZE(SIZE_INT),
     .DISPATCH_W(DISPATCH_W_INT),
-    .WAKEUP_W(ALL_WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .WAKEUP_W(ALL_WAKEUP_W)
   ) u_iq_int (
     .clk  (clk),
     .rst  (rst),
@@ -222,19 +221,18 @@ module iq_top
     .coming_wakeup (all_wakeup),
     .sending_wakeup(all_wakeup[WAKEUP_W+:1]),
 
-    // ALUレーンのWBから
-    .br_update(br_update),
+    // ex_topのFFから
+    .br_update_ff(br_update_ff),
 
     // to RR
-    .rr_ff(rr_ff_int),
-    .rr_payload(rr_payload_int)
+    .rr_ff(rr_int_ff),
+    .rr_payload_ff(rr_payload_int_ff)
   );
 
   iq_mem #(
     .SIZE(SIZE_MEM),
     .DISPATCH_W(DISPATCH_W_MEM),
-    .WAKEUP_W(ALL_WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .WAKEUP_W(ALL_WAKEUP_W)
   ) u_iq_mem (
     .clk  (clk),
     .rst  (rst),
@@ -251,19 +249,19 @@ module iq_top
     .coming_wakeup (all_wakeup),
     .sending_wakeup(all_wakeup[WAKEUP_W+1+:1]),
 
-    // ALUレーンのWBから
-    .br_update(br_update),
+    // ex_topのFFから
+    .br_update_ff(br_update_ff),
 
     // to RR
-    .rr_ff(rr_ff_mem),
-    .rr_payload(rr_payload_mem)
+    .rr_ff(rr_mem_ff),
+    .rr_payload_ff(rr_payload_mem_ff),
+    .rr_issue_part_ff(rr_issue_part_mem_ff)
   );
 
   iq_float #(
     .SIZE(SIZE_FPU),
     .DISPATCH_W(DISPATCH_W_FPU),
-    .WAKEUP_W(ALL_WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W)
+    .WAKEUP_W(ALL_WAKEUP_W)
   ) u_iq_float (
     .clk  (clk),
     .rst  (rst),
@@ -280,16 +278,16 @@ module iq_top
     .coming_wakeup (all_wakeup),
     .sending_wakeup(all_wakeup[WAKEUP_W+2+:3]),
 
-    // ALUレーンのWBから
-    .br_update(br_update),
+    // ex_topのFFから
+    .br_update_ff(br_update_ff),
 
     // fdiv,fsqrtから
     .fdiv_blocked (fdiv_blocked),
     .fsqrt_blocked(fsqrt_blocked),
 
     // to RR
-    .rr_ff(rr_ff_fpu),
-    .rr_payload(rr_payload_fpu)
+    .rr_ff(rr_fpu_ff),
+    .rr_payload_ff(rr_payload_fpu_ff)
   );
 
 endmodule

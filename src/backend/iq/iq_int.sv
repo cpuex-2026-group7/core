@@ -10,8 +10,7 @@ module iq_int
 #(
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
-  parameter int WAKEUP_W = 5,
-  parameter int BR_UPDATE_W = 1
+  parameter int WAKEUP_W = 5
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -28,12 +27,12 @@ module iq_int
   input wire wakeup_t coming_wakeup[WAKEUP_W],
   output wakeup_t sending_wakeup[1],
 
-  // ALUレーンのWBから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  // ex_topのFFから
+  input wire br_update_t br_update_ff,
 
   // to RR
   output iq_rr_t rr_ff[1],
-  output int_payload_t rr_payload[1]
+  output int_payload_t rr_payload_ff[1]
 );
 
   localparam int PAYLOAD_W = $bits(int_payload_t);
@@ -48,11 +47,13 @@ module iq_int
       disp_entry[i].rs2.preg = disp_uop[i].rs2;
       disp_entry[i].rs2.st = disp_rs2_st[i];
       disp_entry[i].lat = disp_uop[i].lat;
+      disp_entry[i].dest_eu = disp_uop[i].dest_eu;
       disp_entry[i].dest_fu = disp_uop[i].dest_fu;
       disp_entry[i].brmask = disp_uop[i].brmask;
 
       disp_payload[i] = int_payload_t'{
-        op: disp_uop[i].op,
+        imm_type: disp_uop[i].imm_type,
+        fu_op: disp_uop[i].fu_op,
         imm: disp_uop[i].imm,
         pc: disp_uop[i].pc,
         predict_pc: disp_uop[i].predict_pc,
@@ -64,18 +65,16 @@ module iq_int
   end
 
   logic [PAYLOAD_W-1:0] rr_payload_raw[1];
-  assign rr_payload[0] = int_payload_t'(rr_payload_raw[0]);
+  assign rr_payload_ff[0] = int_payload_t'(rr_payload_raw[0]);
 
   iq_core #(
     .SIZE(SIZE),
     .DISPATCH_W(DISPATCH_W),
     .ISSUE_W(1),
-    .DEST_FU_NUM(1),
-    .FU_LISTEN_PORT({1'b1}),
-    .SLOW_WAKEUP_FU(1'b0),
-    .BLOCKING_FU(1'b0),
+    .EU_BASE(EU_ALU),
+    .SLOW_WAKEUP_FU(4'b0000),
+    .BLOCKING_FU(4'b0000),
     .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
   ) u_iq_core_int (
     .clk  (clk),
@@ -85,15 +84,17 @@ module iq_int
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
+    .to_issue_part('{default: 2'b11}),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
-    .br_update(br_update),
-    .dest_fu_blocked({1'b0}),
+    .br_update_ff(br_update_ff),
+    .dest_fu_blocked(4'b0000),
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw)
+    .rr_payload_ff(rr_payload_raw),
+    .rr_issue_part_ff()  // 不要
   );
 
 endmodule

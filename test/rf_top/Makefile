@@ -17,14 +17,13 @@ CYCLES ?= 200000
 SEED   ?= 1
 CXXOPT ?= -Os
 
-# 構成: I_PREG_NUM F_PREG_NUM BYPASS_W BR_UPDATE_W
-CFG_base  := 64 64 6 1
-CFG_br2   := 64 64 6 2
-CFG_byp1  := 64 64 1 1
-CFG_wide  := 64 64 9 3
-CFG_small := 8 4 2 2
-CFG_mix   := 32 64 6 1
-CONFIGS := base br2 byp1 wide small mix
+# 構成: I_PREG_NUM F_PREG_NUM BR_UPDATE_W
+CFG_base  := 64 64 1
+CFG_br2   := 64 64 2
+CFG_wide  := 64 64 3
+CFG_small := 8 4 2
+CFG_mix   := 32 64 1
+CONFIGS := base br2 wide small mix
 
 TEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 RTL_DIR  := $(abspath $(TEST_DIR)/../../src)
@@ -53,7 +52,7 @@ VFLAGS := --binary --timing --build-jobs 0 --verilate-jobs 1 --top-module tb_rf_
           -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND \
           -MAKEFLAGS OPT_FAST=$(CXXOPT) -MAKEFLAGS OPT_SLOW=$(CXXOPT) -MAKEFLAGS OPT_GLOBAL=$(CXXOPT)
 
-gparams = -GI_PREG_NUM=$(word 1,$(1)) -GF_PREG_NUM=$(word 2,$(1)) -GBYPASS_W=$(word 3,$(1)) -GBR_UPDATE_W=$(word 4,$(1))
+gparams = -GI_PREG_NUM=$(word 1,$(1)) -GF_PREG_NUM=$(word 2,$(1)) -GBR_UPDATE_W=$(word 3,$(1))
 
 .DEFAULT_GOAL := all
 # 1 構成のビルドで CPU を使い切る（--build-jobs 0）ので、構成は 1 つずつ回す。

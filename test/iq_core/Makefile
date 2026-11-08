@@ -19,17 +19,22 @@ CYCLES ?= 200000
 SEED   ?= 1
 CXXOPT ?= -Os
 
-# 構成: SIZE DISPATCH_W ISSUE_W DEST_FU_NUM FU_LISTEN_PORT SLOW_WAKEUP_FU BLOCKING_FU（ビット列は 10 進で書く）
+# 構成: SIZE DISPATCH_W ISSUE_W DEST_FU_NUM FU_LISTEN_PORT SLOW_WAKEUP_FU BLOCKING_FU EU_BASE ALLOW_SPLIT_ISSUE（ビット列は 10 進で書く）
 #   fp の FU_LISTEN_PORT = 0x911: FU0(F短)->port0, FU1(F長)->port1, FU2(fdiv)/FU3(fsqrt)->port2
 #   fp の SLOW / BLOCKING = 0b1100: fdiv と fsqrt
-CFG_int    := 16 1 1 1 1 0 0
-CFG_mem    := 16 1 1 1 1 1 0
-CFG_fp     := 16 1 3 4 2321 12 12
-CFG_int_d2 := 16 2 1 1 1 0 0
-CFG_fp_d2  := 16 2 3 4 2321 12 12
-CFG_fp_s4  := 4 2 3 4 2321 12 12
-CFG_int_s2 := 2 1 1 1 1 0 0
-CONFIGS := int mem fp int_d2 fp_d2 fp_s4 int_s2
+#   FU 番号はテストの中の通し番号。DUT には (EU_BASE+port, port の中で何番目か) にして渡す
+#   mem_split* は STA/STD を別々に出す MEM 用の構成
+CFG_int    := 16 1 1 1 1 0 0 0 0
+CFG_mem    := 16 1 1 1 1 1 0 1 0
+CFG_fp     := 16 1 3 4 2321 12 12 2 0
+CFG_int_d2 := 16 2 1 1 1 0 0 0 0
+CFG_fp_d2  := 16 2 3 4 2321 12 12 2 0
+CFG_fp_s4  := 4 2 3 4 2321 12 12 2 0
+CFG_int_s2 := 2 1 1 1 1 0 0 0 0
+CFG_mem_split    := 16 1 1 1 1 1 0 1 1
+CFG_mem_split_d2 := 16 2 1 1 1 1 0 1 1
+CFG_mem_split_s4 := 4 2 1 1 1 1 0 1 1
+CONFIGS := int mem fp int_d2 fp_d2 fp_s4 int_s2 mem_split mem_split_d2 mem_split_s4
 
 TEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 RTL_DIR  := $(abspath $(TEST_DIR)/../../src)
@@ -60,7 +65,8 @@ VFLAGS := --binary --timing --build-jobs 0 --verilate-jobs 1 --top-module tb_iq_
           -MAKEFLAGS OPT_FAST=$(CXXOPT) -MAKEFLAGS OPT_SLOW=$(CXXOPT) -MAKEFLAGS OPT_GLOBAL=$(CXXOPT)
 
 gparams = -GSIZE=$(word 1,$(1)) -GDISPATCH_W=$(word 2,$(1)) -GISSUE_W=$(word 3,$(1)) -GDEST_FU_NUM=$(word 4,$(1)) \
-          -GFU_LISTEN_PORT=$(word 5,$(1)) -GSLOW_WAKEUP_FU=$(word 6,$(1)) -GBLOCKING_FU=$(word 7,$(1))
+          -GFU_LISTEN_PORT=$(word 5,$(1)) -GSLOW_WAKEUP_FU=$(word 6,$(1)) -GBLOCKING_FU=$(word 7,$(1)) \
+          -GEU_BASE=$(word 8,$(1)) -GALLOW_SPLIT_ISSUE=$(word 9,$(1))
 
 .DEFAULT_GOAL := all
 # 1 構成のビルドで CPU を使い切る（--build-jobs 0）ので、構成は 1 つずつ回す。

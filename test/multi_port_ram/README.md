@@ -7,7 +7,7 @@ WSL2 の Ubuntu で実行する想定。`verilator` と `g++` が必要。
 
 ```sh
 cd test/multi_port_ram
-make                        # I 側（4W5R）と F 側（4W7R）をビルドして実行
+make                        # I 側（3W5R）と F 側（4W7R）をビルドして実行
 make int                    # I 側だけ
 make fp                     # F 側だけ
 make custom W=2 R=3         # 任意の構成（SIZE=128 でエントリ数、WIDTH=6 でエントリ幅も変えられる）
@@ -20,7 +20,6 @@ make clean
 Windows 側からは `wsl make -C test/multi_port_ram int` のように実行する。
 
 `multi_port_ram` は `src/` 以下のどのファイルにあってもよい（`module multi_port_ram` を含む `.sv` を探す）。
-ビルドは `sim/Makefile` と同じく `src/` 以下の `.sv` をまとめて渡し、`--top-module multi_port_ram` で必要なものだけを使う。
 
 ## 前提にしている multi_port_ram のインターフェース
 

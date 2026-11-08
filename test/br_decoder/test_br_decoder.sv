@@ -47,9 +47,9 @@ module test_br_decoder;
     // Only id=00 is JALR; ADDI and LW share the upper five opcode bits.
     for (int id = 0; id < 4; id++)
       check_decode({5'b00110, 2'(id), 25'h1ff_ffff}, 32'h1000,
-                   id == 0 ? frontend_pkg::BR_JALR : frontend_pkg::BR_NONE, '0);
-    check_decode('0, 32'h1000, frontend_pkg::BR_NONE, '0);
-    check_decode({5'b10011, 27'b0}, 32'h1000, frontend_pkg::BR_NONE, '0);
+                   id == 0 ? frontend_pkg::BR_JALR : frontend_pkg::BR_NONE, 32'h1001);
+    check_decode('0, 32'h1000, frontend_pkg::BR_NONE, 32'h1001);
+    check_decode({5'b10011, 27'b0}, 32'h1000, frontend_pkg::BR_NONE, 32'h1001);
 
     $display("PASS: %0d branch decoder checks", checks);
     $finish;

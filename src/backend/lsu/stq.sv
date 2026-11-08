@@ -1,0 +1,55 @@
+`timescale 1ns / 1ps
+`default_nettype none
+
+module stq
+  import types::*;
+  import ooo_types::*;
+  import back_types::*;
+  import ex_types::*;
+  import rob_types::*;
+  import lsu_types::*;
+#(
+  parameter int DISP_W = 1,
+  parameter int COMMIT_W = 1
+) (
+  input wire logic clk,
+  input wire logic rst,
+  input wire logic flush,  // loadの順序違反でflush
+
+  // dispatch
+  input wire disp_lsu_t disp_st[DISP_W],
+  output stq_idx_t disp_stq_idx[DISP_W],
+  output logic disp_full[DISP_W],
+  // dispatch(branch)
+  input wire logic disp_br_valid[DISP_W],
+  input wire br_tag_t disp_br_tag[DISP_W],
+
+  // LDQへ
+  output st_dep_t st_dep[DISP_W],
+
+  // controller
+  input wire st_addr_t st_addr,
+  input wire st_data_t st_data,
+  input wire logic st_requested,  // exec_headを進める
+  input wire stq_idx_with_valid_t st_ack,
+  input wire stq_idx_with_valid_t st_nack,  // exec_headをそこまで戻す
+  output stq_idx_t stq_head,
+  output stq_idx_t exec_head,
+
+  // controller、searcherへ
+  output stq_entry_t stq_ff[STQ_SIZE],
+
+  // EXから
+  input wire br_update_t br_update_ff,
+
+  // ROB
+  input wire logic commit_st[COMMIT_W],
+  output complete_t complete_st
+);
+
+  stq_idx_t commit_head, tail;
+  stq_idx_t tail_snapshot[MAX_BR];
+
+endmodule
+
+`default_nettype wire

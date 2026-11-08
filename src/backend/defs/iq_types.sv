@@ -30,12 +30,14 @@ package iq_types;
     src_reg_t rs1;
     src_reg_t rs2;
     latency_t lat;
+    dest_eu_t dest_eu;
     dest_fu_t dest_fu;
     brmask_t  brmask;
   } wrapper_ff_t;
 
   typedef struct packed {
-    opcode_t  op;
+    imm_t     imm_type;
+    fu_op_t   fu_op;
     imm_raw_t imm;
     pc_t      pc;
     pc_t      predict_pc;
@@ -45,7 +47,8 @@ package iq_types;
   } int_payload_t;
 
   typedef struct packed {
-    opcode_t  op;
+    imm_t     imm_type;
+    logic     is_store;
     imm_raw_t imm;
     rob_idx_t rob_idx;
     ldq_idx_t ldq_idx;
@@ -53,9 +56,14 @@ package iq_types;
   } mem_payload_t;
 
   typedef struct packed {
-    opcode_t  op;
+    imm_t     imm_type;
+    fu_op_t   fu_op;
     imm_raw_t imm;
+    pc_t      pc;
+    pc_t      predict_pc;
+    ftq_idx_t ftq_idx;
     rob_idx_t rob_idx;
+    br_tag_t  br_tag;
   } float_payload_t;
 
   // IQとRRの間のFF

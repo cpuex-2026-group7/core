@@ -10,8 +10,7 @@ module iq_float
 #(
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
-  parameter int WAKEUP_W = 5,
-  parameter int BR_UPDATE_W = 1
+  parameter int WAKEUP_W = 5
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -28,8 +27,8 @@ module iq_float
   input wire wakeup_t coming_wakeup[WAKEUP_W],
   output wakeup_t sending_wakeup[3],
 
-  // ALUレーンのWBから
-  input wire br_update_t br_update[BR_UPDATE_W],
+  // ex_topのFFから
+  input wire br_update_t br_update_ff,
 
   // fdiv,fsqrtから
   input wire fsqrt_blocked,
@@ -37,7 +36,7 @@ module iq_float
 
   // to RR
   output iq_rr_t rr_ff[3],
-  output float_payload_t rr_payload[3]
+  output float_payload_t rr_payload_ff[3]
 );
 
   localparam int PAYLOAD_W = $bits(float_payload_t);
@@ -52,36 +51,39 @@ module iq_float
       disp_entry[i].rs2.preg = disp_uop[i].rs2;
       disp_entry[i].rs2.st = disp_rs2_st[i];
       disp_entry[i].lat = disp_uop[i].lat;
+      disp_entry[i].dest_eu = disp_uop[i].dest_eu;
       disp_entry[i].dest_fu = disp_uop[i].dest_fu;
       disp_entry[i].brmask = disp_uop[i].brmask;
 
-      disp_payload[i] = float_payload_t'{op: disp_uop[i].op, imm: disp_uop[i].imm, rob_idx: disp_uop[i].rob_idx};
+      disp_payload[i] = float_payload_t'{
+        imm_type: disp_uop[i].imm_type,
+        fu_op: disp_uop[i].fu_op,
+        imm: disp_uop[i].imm,
+        pc: disp_uop[i].pc,
+        predict_pc: disp_uop[i].predict_pc,
+        ftq_idx: disp_uop[i].ftq_idx,
+        rob_idx: disp_uop[i].rob_idx,
+        br_tag: disp_uop[i].br_tag
+      };
     end
   end
 
   logic [PAYLOAD_W-1:0] rr_payload_raw[3];
 
-  assign rr_payload[0] = float_payload_t'(rr_payload_raw[0]);
-  assign rr_payload[1] = float_payload_t'(rr_payload_raw[1]);
-  assign rr_payload[2] = float_payload_t'(rr_payload_raw[2]);
+  assign rr_payload_ff[0] = float_payload_t'(rr_payload_raw[0]);
+  assign rr_payload_ff[1] = float_payload_t'(rr_payload_raw[1]);
+  assign rr_payload_ff[2] = float_payload_t'(rr_payload_raw[2]);
 
   iq_core #(
     .SIZE(SIZE),
     .DISPATCH_W(DISPATCH_W),
     .ISSUE_W(3),
-    .DEST_FU_NUM(4),
-    .FU_LISTEN_PORT({
-      3'b100,  // FU_F_SQRT
-      3'b100,  // FU_F_DIV
-      3'b010,  // FU_F_LONG
-      3'b001  // FU_F_SHORT
-    }),
-    .SLOW_WAKEUP_FU(4'b1100),
-    .BLOCKING_FU(4'b1100),
+    .EU_BASE(EU_F_SHORT),
+    .SLOW_WAKEUP_FU({4'b0011, 4'b0000, 4'b0000}),  // {F超長, F長, F短}
+    .BLOCKING_FU({4'b0011, 4'b0000, 4'b0000}),
     .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(BR_UPDATE_W),
     .PAYLOAD_W(PAYLOAD_W)
-  ) u_iq_core_int (
+  ) u_iq_core_float (
     .clk  (clk),
     .rst  (rst),
     .flush(flush),
@@ -89,15 +91,17 @@ module iq_float
     .disp_valid(disp_valid),
     .disp_entry(disp_entry),
     .disp_payload(disp_payload),
+    .to_issue_part('{default: 2'b11}),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
-    .br_update(br_update),
-    .dest_fu_blocked({fsqrt_blocked, fdiv_blocked, 1'b0, 1'b0}),
+    .br_update_ff(br_update_ff),
+    .dest_fu_blocked({{2'b00, fdiv_blocked, fsqrt_blocked}, 4'b0000, 4'b0000}),
 
     // to RR
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload_raw)
+    .rr_payload_ff(rr_payload_raw),
+    .rr_issue_part_ff()  // 不要
   );
 
 endmodule

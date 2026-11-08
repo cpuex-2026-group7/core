@@ -6,7 +6,7 @@ VERILATOR ?= verilator
 SOURCES := $(ROOT_DIR)/src/defs/types.sv \
            $(ROOT_DIR)/src/defs/isa.sv \
            $(ROOT_DIR)/src/defs/frontend_defs.sv \
-           $(ROOT_DIR)/src/core/br_decoder.sv \
+           $(ROOT_DIR)/src/frontend/br_decoder.sv \
            $(TEST_DIR)/test_br_decoder.sv
 EXE := $(TEST_DIR)/obj_dir/Vtest_br_decoder
 

@@ -288,6 +288,95 @@ proc fix_ips {} {
 }
 
 # ---------------------------------------------------------------
+# memory リポジトリの取得
+# ---------------------------------------------------------------
+
+# src/memory/memory_repository に cpuex-2026-group7/memory を取ってくる。あれば最新版に更新する
+proc fetch_memory_repo {} {
+    set url https://github.com/cpuex-2026-group7/memory.git
+    set dir [file join $::script_dir src memory memory_repository]
+    section "Fetch memory"
+    if {[file isdirectory [file join $dir .git]]} {
+        puts "updating $dir"
+        if {[catch {exec -ignorestderr git -C $dir pull --ff-only -q} err]} {
+            puts "WARNING: update failed, using the local version: $err"
+        }
+    } else {
+        puts "cloning $url into $dir"
+        file mkdir [file dirname $dir]
+        if {[catch {exec -ignorestderr git clone -q --depth 1 $url $dir} err]} {
+            die "git clone failed: $err"
+        }
+    }
+}
+
+# src/fpu/fpu_repository に cpuex-2026-group7/fpu を取ってくる。あれば最新版に更新する
+proc fetch_fpu_repo {} {
+    set url https://github.com/cpuex-2026-group7/fpu.git
+    set dir [file join $::script_dir src fpu fpu_repository]
+    section "Fetch fpu"
+    if {[file isdirectory [file join $dir .git]]} {
+        puts "updating $dir"
+        if {[catch {exec -ignorestderr git -C $dir pull --ff-only -q} err]} {
+            puts "WARNING: update failed, using the local version: $err"
+        }
+    } else {
+        puts "cloning $url into $dir"
+        file mkdir [file dirname $dir]
+        if {[catch {exec -ignorestderr git clone -q --depth 1 $url $dir} err]} {
+            die "git clone failed: $err"
+        }
+    }
+}
+
+# dir 以下の .sv を再帰的に集める（. で始まるフォルダは見ない）
+proc find_sv_files {dir} {
+    set files [glob -nocomplain -types f -directory $dir *.sv]
+    foreach d [glob -nocomplain -types d -directory $dir *] {
+        if {[string index [file tail $d] 0] eq "."} { continue }
+        lappend files {*}[find_sv_files $d]
+    }
+    return $files
+}
+
+# src/fpu/fpu_repository/src 以下の .sv をプロジェクトに合わせる
+# 増えたものは追加し、無くなったものはプロジェクトから外す
+proc sync_fpu_sources {} {
+    set dir [file normalize [file join $::script_dir src fpu fpu_repository src]]
+    section "Sync fpu sources"
+    if {![file isdirectory $dir]} {
+        puts "WARNING: $dir not found, skip"
+        return
+    }
+    set want {}
+    foreach f [find_sv_files $dir] { lappend want [file normalize $f] }
+
+    set have {}
+    foreach f [get_files -quiet -of_objects [get_filesets sources_1]] {
+        set f [file normalize $f]
+        if {[string match -nocase "$dir/*" $f]} { lappend have $f }
+    }
+
+    set added {}
+    foreach f $want {
+        if {[lsearch -exact -nocase $have $f] < 0} { lappend added $f }
+    }
+    set removed {}
+    foreach f $have {
+        if {[lsearch -exact -nocase $want $f] < 0} { lappend removed $f }
+    }
+
+    if {[llength $added] > 0} {
+        add_files -fileset sources_1 -norecurse $added
+        set_property file_type SystemVerilog [get_files $added]
+    }
+    if {[llength $removed] > 0} {
+        remove_files -fileset sources_1 $removed
+    }
+    puts "fpu sources: [llength $want] files (added [llength $added], removed [llength $removed])"
+}
+
+# ---------------------------------------------------------------
 # ビルド
 # ---------------------------------------------------------------
 proc build_bitstream {force} {
@@ -432,7 +521,14 @@ if {$board_repo ne ""} {
 } else {
     puts "WARNING: board files not found in: [join $board_repo_candidates {, }]"
 }
+if {$mode eq "all" || $mode eq "build"} {
+    fetch_memory_repo
+    fetch_fpu_repo
+}
 open_project [lindex $xprs 0]
+if {$mode eq "all" || $mode eq "build"} {
+    sync_fpu_sources
+}
 
 set rc 0
 switch -- $mode {

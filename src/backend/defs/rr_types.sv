@@ -27,6 +27,7 @@ package rr_types;
   typedef struct packed {
     rr_ex_t       common;
     mem_payload_t payload;
+    logic [1:0]   issue_part;
   } rr_ex_mem_t;
 
   typedef struct packed {

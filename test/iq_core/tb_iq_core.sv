@@ -12,7 +12,10 @@
 // 参照モデルは RTL のカウンタを写さず、各ソースが「何サイクル目から使えるか」を絶対時刻で持つ。
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
 //   - sending_wakeup / disp_full（組み合わせ出力）、内部の dut.issued / dut.issued_dest_fu
-//   - 次のサイクルの rr_ff / rr_payload
+//   - 次のサイクルの rr_ff / rr_payload / rr_issue_part
+//
+// FU はテストの中では通し番号 f（0〜DEST_FU_NUM-1、FU_LISTEN_PORT で port を 1 つ持つ）で扱う。
+// DUT には dest_eu = EU_BASE + port、dest_fu = その port の中で何番目か、に直して渡す
 //
 // テストの前提にしている仕様
 //   - サイクル t に latency=L の wakeup が来たら、t+1+L から issue できる（L は「レイテンシ-1」）
@@ -27,6 +30,9 @@
 //   - レーン i の dispatch は、サイクル頭の空きが i+1 個以上のときだけ入る。入らなかったものは捨てられる
 //   - flush のサイクルは issue せず、中身も同じサイクルの dispatch も全部消える
 //   - rst は最初にしか使わない（rst 中の issued は見ない）
+//   - ALLOW_SPLIT_ISSUE=1 のとき、エントリは to_issue_part（[0]: rs1 側、[1]: rs2 側）のうちまだ出していない側を持つ。
+//     出していない側のどれかが ready なら issue でき、ready な側をまとめて出す（rr_issue_part）。全部出したら抜ける
+//     決め打ちのテストは split 用のものだけ回す（他のテストは split でない構成で見る）
 
 module tb_iq_core
   import types::*;
@@ -41,7 +47,9 @@ module tb_iq_core
   parameter int DEST_FU_NUM = 1,
   parameter logic [DEST_FU_NUM-1:0][ISSUE_W-1:0] FU_LISTEN_PORT = '1,
   parameter logic [DEST_FU_NUM-1:0] SLOW_WAKEUP_FU = '0,
-  parameter logic [DEST_FU_NUM-1:0] BLOCKING_FU = '0
+  parameter logic [DEST_FU_NUM-1:0] BLOCKING_FU = '0,
+  parameter int EU_BASE = 0,
+  parameter bit ALLOW_SPLIT_ISSUE = 1'b0
 );
 
   localparam int EXT_W = 3;  // テストから流す wakeup のレーン数
@@ -52,6 +60,35 @@ module tb_iq_core
 
   typedef logic [63:0] cyc_t;
 
+  // 通し番号の FU f が載る port
+  function automatic int port_of(int f);
+    for (int p = 0; p < ISSUE_W; p++) if (FU_LISTEN_PORT[f][p]) return p;
+    return -1;
+  endfunction
+
+  // f がその port の中で何番目の FU か（DUT の dest_fu）
+  function automatic int local_fu(int f);
+    int n = 0;
+    for (int g = 0; g < f; g++) if (port_of(g) == port_of(f)) n++;
+    return n;
+  endfunction
+
+  // DUT の (dest_eu, dest_fu) から通し番号に戻す
+  function automatic int glob_fu(dest_eu_t eu, dest_fu_t lf);
+    for (int f = 0; f < DEST_FU_NUM; f++)
+      if (port_of(f) == int'(eu) - EU_BASE && local_fu(f) == int'(lf)) return f;
+    return -1;
+  endfunction
+
+  function automatic logic [ISSUE_W-1:0][FU_PER_EU-1:0] to_port_fu(logic [DEST_FU_NUM-1:0] v);
+    logic [ISSUE_W-1:0][FU_PER_EU-1:0] r = '0;
+    for (int f = 0; f < DEST_FU_NUM; f++) r[port_of(f)][local_fu(f)] = v[f];
+    return r;
+  endfunction
+
+  localparam logic [ISSUE_W-1:0][FU_PER_EU-1:0] DUT_SLOW = to_port_fu(SLOW_WAKEUP_FU);
+  localparam logic [ISSUE_W-1:0][FU_PER_EU-1:0] DUT_BLOCKING = to_port_fu(BLOCKING_FU);
+
   logic clk = 1'b0;
   always #5 clk = ~clk;
 
@@ -60,14 +97,32 @@ module tb_iq_core
   logic disp_valid[DISPATCH_W];
   wrapper_ff_t disp_entry[DISPATCH_W];
   logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W];
+  logic [1:0] disp_part[DISPATCH_W];
   logic disp_full;
   wakeup_t coming_wakeup[WAKEUP_W];
   wakeup_t sending_wakeup[ISSUE_W];
   wakeup_t ext_wakeup[EXT_W];
-  br_update_t br_update[1];
+  // テストでは分岐の結果を1本ずつ持ち、DUTにはmaskにして渡す
+  typedef struct packed {
+    logic    valid;
+    logic    mispredict;
+    br_tag_t tag;
+  } tb_br_t;
+
+  function automatic br_update_t to_br_update(input tb_br_t b[1]);
+    br_update_t u = '0;
+    for (int k = 0; k < 1; k++) begin
+      if (b[k].valid && b[k].mispredict) u.kill_mask[b[k].tag] = 1'b1;
+      if (b[k].valid && !b[k].mispredict) u.resolve_mask[b[k].tag] = 1'b1;
+    end
+    return u;
+  endfunction
+
+  tb_br_t br_update[1];
   logic [DEST_FU_NUM-1:0] dest_fu_blocked;
   iq_rr_t rr_ff[ISSUE_W];
   logic [PAYLOAD_W-1:0] rr_payload[ISSUE_W];
+  logic [1:0] rr_issue_part[ISSUE_W];
 
   // DUT につなぐ側。initial の中から直接書くと Verilator 5.020 の --timing で
   // DUT の組み合わせ回路が評価し直されないことがあるので、立ち下がりで写す
@@ -76,9 +131,11 @@ module tb_iq_core
   logic d_disp_valid[DISPATCH_W];
   wrapper_ff_t d_disp_entry[DISPATCH_W];
   logic [PAYLOAD_W-1:0] d_disp_payload[DISPATCH_W];
+  logic [1:0] d_disp_part[DISPATCH_W];
   wakeup_t d_ext_wakeup[EXT_W];
-  br_update_t d_br_update[1];
+  br_update_t d_br_update;
   logic [DEST_FU_NUM-1:0] d_dest_fu_blocked;
+  logic [ISSUE_W-1:0][FU_PER_EU-1:0] d_dut_fu_blocked;
 
   always @(negedge clk) begin
     d_rst <= rst;
@@ -86,8 +143,9 @@ module tb_iq_core
     d_disp_valid <= disp_valid;
     d_disp_entry <= disp_entry;
     d_disp_payload <= disp_payload;
+    d_disp_part <= disp_part;
     d_ext_wakeup <= ext_wakeup;
-    d_br_update <= br_update;
+    d_br_update <= to_br_update(br_update);
     d_dest_fu_blocked <= dest_fu_blocked;
   end
 
@@ -97,17 +155,18 @@ module tb_iq_core
     for (int x = 0; x < EXT_W; x++) coming_wakeup[ISSUE_W+x] = d_ext_wakeup[x];
   end
 
+  assign d_dut_fu_blocked = to_port_fu(d_dest_fu_blocked);
+
   iq_core #(
     .SIZE(SIZE),
     .DISPATCH_W(DISPATCH_W),
     .ISSUE_W(ISSUE_W),
-    .DEST_FU_NUM(DEST_FU_NUM),
-    .FU_LISTEN_PORT(FU_LISTEN_PORT),
-    .SLOW_WAKEUP_FU(SLOW_WAKEUP_FU),
-    .BLOCKING_FU(BLOCKING_FU),
+    .EU_BASE(dest_eu_t'(EU_BASE)),
+    .SLOW_WAKEUP_FU(DUT_SLOW),
+    .BLOCKING_FU(DUT_BLOCKING),
     .WAKEUP_W(WAKEUP_W),
-    .BR_UPDATE_W(1),
-    .PAYLOAD_W(PAYLOAD_W)
+    .PAYLOAD_W(PAYLOAD_W),
+    .ALLOW_SPLIT_ISSUE(ALLOW_SPLIT_ISSUE)
   ) dut (
     .clk(clk),
     .rst(d_rst),
@@ -115,13 +174,15 @@ module tb_iq_core
     .disp_valid(d_disp_valid),
     .disp_entry(d_disp_entry),
     .disp_payload(d_disp_payload),
+    .to_issue_part(d_disp_part),
     .disp_full(disp_full),
     .coming_wakeup(coming_wakeup),
     .sending_wakeup(sending_wakeup),
-    .br_update(d_br_update),
-    .dest_fu_blocked(d_dest_fu_blocked),
+    .br_update_ff(d_br_update),
+    .dest_fu_blocked(d_dut_fu_blocked),
     .rr_ff(rr_ff),
-    .rr_payload(rr_payload)
+    .rr_payload_ff(rr_payload),
+    .rr_issue_part_ff(rr_issue_part)
   );
 
   // ---------------- 乱数（xorshift64） ----------------
@@ -183,15 +244,22 @@ module tb_iq_core
     return s;
   endfunction
 
+  // 通し番号の FU を DUT の (dest_eu, dest_fu) にして入れる
+  function automatic wrapper_ff_t with_fu(wrapper_ff_t e, int fu);
+    e.dest_eu = dest_eu_t'(EU_BASE + port_of(fu));
+    e.dest_fu = dest_fu_t'(local_fu(fu));
+    return e;
+  endfunction
+
   function automatic wrapper_ff_t ent(preg_t rd, src_reg_t a, src_reg_t b, int lat, int fu, brmask_t bm);
     wrapper_ff_t e;
+    e = '0;
     e.rd = rd;
     e.rs1 = a;
     e.rs2 = b;
     e.lat = latency_t'(lat);
-    e.dest_fu = dest_fu_t'(fu);
     e.brmask = bm;
-    return e;
+    return with_fu(e, fu);
   endfunction
 
   function automatic brmask_t bit_of(int b);
@@ -214,8 +282,9 @@ module tb_iq_core
     cyc_t r1;  // このサイクルから使える
     cyc_t r2;
     latency_t lat;
-    dest_fu_t fu;
+    dest_fu_t fu;  // 通し番号（DUT の dest_fu とは別物）
     brmask_t brmask;
+    logic [1:0] pend;  // まだ出していない側（split でなければ 2'b11 のまま）
     logic [PAYLOAD_W-1:0] payload;
   } ment_t;
 
@@ -226,9 +295,19 @@ module tb_iq_core
 
   cyc_t cyc;
   int exp_idx[ISSUE_W];
+  logic [1:0] exp_part[ISSUE_W];
   logic exp_rr_valid[ISSUE_W];
   ment_t exp_rr[ISSUE_W];
-  cyc_t issued_at[int];
+  logic [1:0] exp_rr_part[ISSUE_W];
+  cyc_t issued_at[int];  // 最後に issue したサイクル（split なら全部出し終えたサイクル）
+
+  // split のときの issue の記録
+  typedef struct {
+    int id;
+    cyc_t at;
+    logic [1:0] part;
+  } fire_t;
+  fire_t fires[$];
 
   int errors;
   longint checks;
@@ -248,6 +327,8 @@ module tb_iq_core
   longint st_input_block;
   longint st_flush;
   longint st_resolve;
+  longint st_partial;  // split で片側だけ出した
+  longint st_both;  // split で両側を 1 回で出した
 
   task automatic fail(string msg);
     errors++;
@@ -278,20 +359,25 @@ module tb_iq_core
     return n;
   endfunction
 
-  function automatic int port_of(int f);
-    for (int p = 0; p < ISSUE_W; p++) if (FU_LISTEN_PORT[f][p]) return p;
-    return -1;
+  // このサイクルに出せる側（split でなければ両方 ready のとき 2'b11）
+  function automatic logic [1:0] ready_part(ment_t x);
+    logic r1, r2;
+    r1 = x.w1 && cyc >= x.r1;
+    r2 = x.w2 && cyc >= x.r2;
+    if (ALLOW_SPLIT_ISSUE) return {x.pend[1] && r2, x.pend[0] && r1};
+    return (r1 && r2) ? 2'b11 : 2'b00;
   endfunction
 
   // サイクル頭の状態と入力から、このサイクルに各ポートが出すエントリを決める
   task automatic compute_expect();
     for (int p = 0; p < ISSUE_W; p++) begin
       exp_idx[p] = -1;
+      exp_part[p] = 2'b00;
       if (flush || rst) continue;
       for (int e = 0; e < SIZE; e++) begin
         if (!m[e].valid || killed_by(m[e].brmask)) continue;
         if (!FU_LISTEN_PORT[m[e].fu][p]) continue;
-        if (!(m[e].w1 && cyc >= m[e].r1 && m[e].w2 && cyc >= m[e].r2)) continue;
+        if (ready_part(m[e]) == 2'b00) continue;
         if (dest_fu_blocked[m[e].fu]) begin
           st_input_block++;
           continue;
@@ -302,6 +388,7 @@ module tb_iq_core
         end
         if (exp_idx[p] < 0 || m[e].seq < m[exp_idx[p]].seq) exp_idx[p] = e;
       end
+      if (exp_idx[p] >= 0) exp_part[p] = ready_part(m[exp_idx[p]]);
     end
   endtask
 
@@ -328,8 +415,8 @@ module tb_iq_core
         fail($sformatf("port%0d が issue しない（期待は id %0d）", p, e.id));
         continue;
       end
-      if (dut.issued_dest_fu[p] !== e.fu)
-        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d", p, dut.issued_dest_fu[p], e.fu));
+      if (dut.issued_dest_fu[p] !== dest_fu_t'(local_fu(int'(e.fu))))
+        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d（FU%0d）", p, dut.issued_dest_fu[p], local_fu(int'(e.fu)), e.fu));
       exp_wv = !SLOW_WAKEUP_FU[e.fu] && e.rd.typ != PREG_TYPE_NONE;
       if (sending_wakeup[p].valid !== exp_wv)
         fail($sformatf(
@@ -377,6 +464,7 @@ module tb_iq_core
     int idx;
     int j;
     logic hit;
+    fire_t fr;
 
     free_slots = SIZE - occupancy();
     for (int p = 0; p < ISSUE_W; p++) begin
@@ -386,6 +474,7 @@ module tb_iq_core
       wl[p] = '0;
       exp_rr_valid[p] = idx >= 0;
       exp_rr[p] = '0;
+      exp_rr_part[p] = exp_part[p];
       if (idx >= 0) begin
         exp_rr[p] = m[idx];
         exp_rr[p].brmask = resolve_mask(m[idx].brmask);
@@ -416,12 +505,23 @@ module tb_iq_core
       idx = exp_idx[p];
       if (idx < 0) continue;
       issued_at[int'(m[idx].id)] = cyc;
+      fr.id = int'(m[idx].id);
+      fr.at = cyc;
+      fr.part = exp_part[p];
+      fires.push_back(fr);
       st_issue[p]++;
       if (BLOCKING_FU[m[idx].fu]) begin
         memo_v[m[idx].fu]  = 1'b1;
         memo_at[m[idx].fu] = cyc;
       end
-      m[idx].valid = 1'b0;
+      if (ALLOW_SPLIT_ISSUE) begin
+        if (exp_part[p] == 2'b11) st_both++;
+        else st_partial++;
+        m[idx].pend &= ~exp_part[p];
+        if (m[idx].pend == 2'b00) m[idx].valid = 1'b0;
+      end else begin
+        m[idx].valid = 1'b0;
+      end
     end
 
     // mispredict で消える
@@ -473,8 +573,9 @@ module tb_iq_core
       m[j].r1 = disp_ready_at(disp_entry[i].rs1.st.cnt);
       m[j].r2 = disp_ready_at(disp_entry[i].rs2.st.cnt);
       m[j].lat = disp_entry[i].lat;
-      m[j].fu = disp_entry[i].dest_fu;
+      m[j].fu = dest_fu_t'(glob_fu(disp_entry[i].dest_eu, disp_entry[i].dest_fu));
       m[j].brmask = resolve_mask(disp_entry[i].brmask);
+      m[j].pend = ALLOW_SPLIT_ISSUE ? disp_part[i] : 2'b11;
       m[j].payload = disp_payload[i];
       hit = wake_src(m[j].w1, m[j].r1, m[j].rs1, wv, wp, wl);
       if (hit) st_alloc_wake++;
@@ -503,9 +604,13 @@ module tb_iq_core
              exp_rr[p].rs2,
              exp_rr[p].id
              ));
-      if (rr_ff[p].dest_fu !== exp_rr[p].fu)
+      if (rr_ff[p].dest_fu !== dest_fu_t'(local_fu(int'(exp_rr[p].fu))))
         fail($sformatf(
-             "port%0d rr_ff.dest_fu=%0d 期待=%0d（id %0d）", p, rr_ff[p].dest_fu, exp_rr[p].fu, exp_rr[p].id));
+             "port%0d rr_ff.dest_fu=%0d 期待=%0d（FU%0d、id %0d）", p, rr_ff[p].dest_fu, local_fu(int'(exp_rr[p].fu)),
+             exp_rr[p].fu, exp_rr[p].id));
+      if (rr_issue_part[p] !== exp_rr_part[p])
+        fail($sformatf(
+             "port%0d rr_issue_part=%b 期待=%b（id %0d）", p, rr_issue_part[p], exp_rr_part[p], exp_rr[p].id));
       if (rr_ff[p].brmask !== exp_rr[p].brmask)
         fail($sformatf(
              "port%0d rr_ff.brmask=%b 期待=%b（id %0d）", p, rr_ff[p].brmask, exp_rr[p].brmask, exp_rr[p].id));
@@ -543,6 +648,7 @@ module tb_iq_core
       disp_valid[i]   = 1'b0;
       disp_entry[i]   = '0;
       disp_payload[i] = '0;
+      disp_part[i]    = 2'b11;
     end
     for (int x = 0; x < EXT_W; x++) ext_wakeup[x] = '0;
     br_update[0] = '0;
@@ -553,6 +659,13 @@ module tb_iq_core
     disp_valid[lane]   = 1'b1;
     disp_entry[lane]   = e;
     disp_payload[lane] = {rng_state[63:32], 32'(id)};
+    disp_part[lane]    = 2'b11;
+  endtask
+
+  // split 用。part は to_issue_part（load なら 2'b01、store なら 2'b11）
+  task automatic put_part(int lane, wrapper_ff_t e, int id, logic [1:0] part);
+    put(lane, e, id);
+    disp_part[lane] = part;
   endtask
 
   task automatic ext(int lane, preg_t p, int lat);
@@ -613,8 +726,33 @@ module tb_iq_core
     flush = 1'b1;
     cycle();
     run_idle(3);
+    fires.delete();
     test_name = name;
     err_base  = errors;
+  endtask
+
+  // id の k 回目（0 始まり）の issue が at に part で出たか
+  task automatic expect_fire(int id, int k, cyc_t at, logic [1:0] part);
+    int n = 0;
+    checks++;
+    foreach (fires[i]) begin
+      if (fires[i].id != id) continue;
+      if (n == k) begin
+        if (fires[i].at != at || fires[i].part != part)
+          fail($sformatf("id %0d の %0d 回目の issue が cycle %0d part %b（期待 cycle %0d part %b）", id, k,
+                         fires[i].at, fires[i].part, at, part));
+        return;
+      end
+      n++;
+    end
+    fail($sformatf("id %0d の %0d 回目の issue が無い（期待 cycle %0d part %b）", id, k, at, part));
+  endtask
+
+  task automatic expect_n_fires(int id, int n);
+    int c = 0;
+    checks++;
+    foreach (fires[i]) if (fires[i].id == id) c++;
+    if (c != n) fail($sformatf("id %0d の issue が %0d 回（期待 %0d 回）", id, c, n));
   endtask
 
   task automatic end_test();
@@ -1320,6 +1458,104 @@ module tb_iq_core
     end_test();
   endtask
 
+  task automatic t_split();
+    int a, b, c, d, e;
+    int fill[$];
+    int x;
+    cyc_t t0, t1, t2, t3, t4, tw;
+    begin_test("split: rs1 側と rs2 側を ready になった方から別々に出す");
+    // store で rs2 待ち：STA だけ先に出て、エントリは残る
+    a  = nid();
+    t0 = cyc;
+    clear_inputs();
+    put_part(0, ent(pn(), s_none(), s_wait(pi(20)), 0, fu_any, '0), a, 2'b11);
+    cycle();
+    run_idle(3);
+    expect_fire(a, 0, t0 + 1, 2'b01);
+    expect_n_fires(a, 1);
+    tw = cyc;
+    clear_inputs();
+    ext(0, pi(20), 0);
+    cycle();
+    run_idle(2);
+    expect_fire(a, 1, tw + 1, 2'b10);
+    expect_n_fires(a, 2);
+
+    // 両方 ready なら 1 回で出る
+    b  = nid();
+    t1 = cyc;
+    clear_inputs();
+    put_part(0, ent(pn(), s_none(), s_none(), 0, fu_any, '0), b, 2'b11);
+    cycle();
+    run_idle(2);
+    expect_fire(b, 0, t1 + 1, 2'b11);
+    expect_n_fires(b, 1);
+
+    // load は rs2 を待たない
+    c  = nid();
+    t2 = cyc;
+    clear_inputs();
+    put_part(0, ent(pi(41), s_none(), s_wait(pi(21)), 0, fu_any, '0), c, 2'b01);
+    cycle();
+    run_idle(2);
+    expect_fire(c, 0, t2 + 1, 2'b01);
+    expect_n_fires(c, 1);
+
+    // STD が先で STA が後
+    d  = nid();
+    t3 = cyc;
+    clear_inputs();
+    put_part(0, ent(pn(), s_wait(pi(22)), s_none(), 0, fu_any, '0), d, 2'b11);
+    cycle();
+    run_idle(2);
+    expect_fire(d, 0, t3 + 1, 2'b10);
+    tw = cyc;
+    clear_inputs();
+    ext(0, pi(22), 0);
+    cycle();
+    run_idle(2);
+    expect_fire(d, 1, tw + 1, 2'b01);
+    expect_n_fires(d, 2);
+
+    // STA を出した後に mispredict で消える
+    e  = nid();
+    t4 = cyc;
+    clear_inputs();
+    put_part(0, ent(pn(), s_none(), s_wait(pi(23)), 0, fu_any, bit_of(2)), e, 2'b11);
+    cycle();
+    run_idle(1);
+    clear_inputs();
+    mispredict(2);
+    cycle();
+    clear_inputs();
+    ext(0, pi(23), 0);
+    cycle();
+    run_idle(2);
+    expect_fire(e, 0, t4 + 1, 2'b01);
+    expect_n_fires(e, 1);
+
+    // 片側だけ出したエントリは空きにならない
+    for (int k = 0; k < SIZE; k++) begin
+      fill.push_back(nid());
+      clear_inputs();
+      put_part(0, ent(pn(), s_none(), s_wait(pi(24)), 0, fu_any, '0), fill[k], 2'b11);
+      cycle();
+    end
+    run_idle(2);
+    expect_true(disp_full === 1'b1, "STA だけ出したエントリで埋まっているのに disp_full が立たない");
+    x = nid();
+    clear_inputs();
+    put_part(0, ent(pn(), s_none(), s_none(), 0, fu_any, '0), x, 2'b11);
+    cycle();
+    clear_inputs();
+    ext(0, pi(24), 0);
+    cycle();
+    run_idle(SIZE + 2);
+    foreach (fill[k]) expect_n_fires(fill[k], 2);
+    expect_n_fires(x, 0);
+    end_test();
+  endtask
+
   // ---------------- ランダムテスト ----------------
 
   typedef struct packed {
@@ -1424,9 +1660,17 @@ module tb_iq_core
       e.rs1 = s1;
       e.rs2 = s2;
       e.lat = latency_t'(rnd(4));
-      e.dest_fu = dest_fu_t'(rnd(DEST_FU_NUM));
+      e = with_fu(e, rnd(DEST_FU_NUM));
       e.brmask = bm;
-      put(lane, e, nid());
+      if (ALLOW_SPLIT_ISSUE && rnd(2) == 0) begin
+        // store は rd を持たない
+        e.rd = pn();
+        put_part(lane, e, nid(), 2'b11);
+      end else if (ALLOW_SPLIT_ISSUE) begin
+        put_part(lane, e, nid(), 2'b01);
+      end else begin
+        put(lane, e, nid());
+      end
     end
   endtask
 
@@ -1473,6 +1717,8 @@ module tb_iq_core
     st_input_block = 0;
     st_flush = 0;
     st_resolve = 0;
+    st_partial = 0;
+    st_both = 0;
     for (int p = 0; p < ISSUE_W; p++) st_issue[p] = 0;
 
     for (int k = 0; k < n; k++) begin
@@ -1489,6 +1735,7 @@ module tb_iq_core
       "  dispatch と同時の wakeup %0d, 二重 wakeup %0d, ISSUE_TO_FU で止めた %0d, dest_fu_blocked で止めた %0d",
       st_alloc_wake, st_rewake, st_memo_block, st_input_block);
     $display("  flush %0d, resolve %0d", st_flush, st_resolve);
+    if (ALLOW_SPLIT_ISSUE) $display("  split: 片側だけ %0d, 両側まとめて %0d", st_partial, st_both);
     for (int p = 0; p < ISSUE_W; p++) $display("  port%0d issue %0d", p, st_issue[p]);
 
     // 狙った状況が起きていなければテストとして意味が無いので落とす
@@ -1502,6 +1749,10 @@ module tb_iq_core
     expect_true(st_flush > 0, "flush が起きていない");
     expect_true(st_resolve > 0, "resolve が起きていない");
     if (BLOCKING_FU != '0) expect_true(st_memo_block > 0, "ISSUE_TO_FU で止める状況が起きていない");
+    if (ALLOW_SPLIT_ISSUE) begin
+      expect_true(st_partial > 0, "split で片側だけ出す状況が起きていない");
+      expect_true(st_both > 0, "split で両側をまとめて出す状況が起きていない");
+    end
     end_test();
   endtask
 
@@ -1545,8 +1796,9 @@ module tb_iq_core
     fu_any = (fu_fast >= 0) ? fu_fast : 0;
 
     $display(
-      "iq_core: SIZE=%0d DISPATCH_W=%0d ISSUE_W=%0d DEST_FU_NUM=%0d FU_LISTEN_PORT=%b SLOW=%b BLOCKING=%b seed=%0d",
-      SIZE, DISPATCH_W, ISSUE_W, DEST_FU_NUM, FU_LISTEN_PORT, SLOW_WAKEUP_FU, BLOCKING_FU, seed);
+      "iq_core: SIZE=%0d DISPATCH_W=%0d ISSUE_W=%0d DEST_FU_NUM=%0d FU_LISTEN_PORT=%b SLOW=%b BLOCKING=%b EU_BASE=%0d SPLIT=%0d seed=%0d",
+      SIZE, DISPATCH_W, ISSUE_W, DEST_FU_NUM, FU_LISTEN_PORT, SLOW_WAKEUP_FU, BLOCKING_FU, EU_BASE, ALLOW_SPLIT_ISSUE,
+      seed);
 
     clear_inputs();
     rst = 1'b1;
@@ -1554,22 +1806,26 @@ module tb_iq_core
     rst = 1'b1;
     cycle();
 
-    t_basic();
-    t_back_to_back();
-    t_latency();
-    t_init_cnt();
-    t_age();
-    t_slow();
-    t_blocking();
-    t_fu_blocked_input();
-    t_kill();
-    t_resolve();
-    t_full();
-    t_flush();
-    t_wakeup_match();
-    t_none_rd();
-    t_parallel();
-    t_dual_dispatch();
+    if (ALLOW_SPLIT_ISSUE) begin
+      t_split();
+    end else begin
+      t_basic();
+      t_back_to_back();
+      t_latency();
+      t_init_cnt();
+      t_age();
+      t_slow();
+      t_blocking();
+      t_fu_blocked_input();
+      t_kill();
+      t_resolve();
+      t_full();
+      t_flush();
+      t_wakeup_match();
+      t_none_rd();
+      t_parallel();
+      t_dual_dispatch();
+    end
     random_test(ncycles);
 
     $display("テスト %0d 個中 %0d 個 NG、チェック %0d 回、エラー %0d 個", n_tests, n_fail, checks,
