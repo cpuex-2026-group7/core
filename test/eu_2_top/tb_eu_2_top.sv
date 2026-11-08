@@ -18,7 +18,7 @@
 //   - to_wb.rd / rob_idx は前の rr_ex のもの。value は uop ごと（分岐は rd が NONE なので見ない）
 //       FLI：imm（A 形式で拡張済みの {instr[19:0], 12'b0}）
 //       FCSIGN：imm の下位 2bit で 00 そのまま / 01 符号反転 / 10 符号を 0 / 11 符号を 1
-//       FLHI：定数表がまだ決まっていないので value は見ない（valid / rd / rob_idx だけ見る）
+//       FLHI：imm の下位 5bit を index にした定数表（.claude/isa.md の表）。14〜31 は 0
 //   - br_result.valid = valid && 分岐（fu_op[3:2] == 00）
 //       taken：IEEE の比較。+0 と -0 は等しい。NaN は入れない（扱いが決まっていないので）
 //         FBEQ: a == b、FBNE: !(a == b)、FBLT: a < b、FBGE: !(a < b)
@@ -165,11 +165,47 @@ module tb_eu_2_top
     return pc_t'(32'(r.payload.pc) + im);
   endfunction
 
+  // real（倍精度）を binary32 に最近接偶数丸めで直す。正規化数の範囲だけ考える
+  // shortreal は Verilator で使えないので自分でやる
+  function automatic word_t to_f32(real v);
+    logic [63:0] d;
+    logic [7:0]  e;
+    logic [28:0] rest;
+    logic        up;
+    d = $realtobits(v);
+    e = 8'(int'(d[62:52]) - 1023 + 127);
+    rest = d[28:0];
+    up = rest > 29'h1000_0000 || (rest == 29'h1000_0000 && d[29]);
+    return {d[63], e, d[51:29]} + 32'(up);
+  endfunction
+
+  // flhi の定数表（10 進の値から binary32 を作る）
+  function automatic word_t ref_flhi(logic [4:0] ind);
+    case (ind)
+      5'd0: return to_f32(-0.2);
+      5'd1: return to_f32(-0.1);
+      5'd2: return to_f32(1.0e-4);
+      5'd3: return to_f32(0.01);
+      5'd4: return to_f32(0.017453293);
+      5'd5: return to_f32(0.05);
+      5'd6: return to_f32(0.1);
+      5'd7: return to_f32(0.15);
+      5'd8: return to_f32(0.2);
+      5'd9: return to_f32(0.3);
+      5'd10: return to_f32(0.9);
+      5'd11: return to_f32(3.1415927);
+      5'd12: return to_f32(1.0e8);
+      5'd13: return to_f32(1.0e9);
+      default: return 32'h0;
+    endcase
+  endfunction
+
   function automatic word_t ref_value(rr_ex_float_t r, word_t im);
     word_t a;
     a = r.common.rs1_val;
     case (r.payload.fu_op)
       FU_OP_FLI: return im;
+      FU_OP_FLHI: return ref_flhi(im[4:0]);
       default: begin  // FCSIGN
         case (im[1:0])
           2'b00:   return a;
@@ -238,6 +274,8 @@ module tb_eu_2_top
       end
       FU_OP_FLHI: begin
         x.rr.payload.imm_type = IMM_B;
+        // 表の中（0〜13）を多めにする
+        if (rnd(4) != 0) r20 = 20'(rnd(14));
         x.imm = {{12{r20[19]}}, r20};
       end
       FU_OP_FCSIGN: begin
@@ -313,7 +351,7 @@ module tb_eu_2_top
     if (to_wb.rd !== p.common.rd) fail($sformatf("to_wb.rd=%h 期待 %h（%s）", to_wb.rd, p.common.rd, tag));
     if (to_wb.rob_idx !== p.payload.rob_idx)
       fail($sformatf("to_wb.rob_idx=%0d 期待 %0d（%s）", to_wb.rob_idx, p.payload.rob_idx, tag));
-    if (p.payload.fu_op == FU_OP_FLI || p.payload.fu_op == FU_OP_FCSIGN) begin
+    if (!is_br(p.payload.fu_op)) begin
       exp_value = ref_value(p, prev.imm);
       if (to_wb.value !== exp_value) fail($sformatf("to_wb.value=%h 期待 %h（%s）", to_wb.value, exp_value, tag));
     end
@@ -374,7 +412,7 @@ module tb_eu_2_top
     have_prev = 1'b1;
     cyc++;
     if (cyc >= cycles) begin
-      $display("確かめた命令 %0d（FLHI は value を見ていない）", n_check);
+      $display("確かめた命令 %0d", n_check);
       for (int i = 0; i < NOPS; i++) $display("  %-6s %0d", op_name(ops[i]), n_op[i]);
       $display("  taken %0d / not taken %0d", n_taken[1], n_taken[0]);
       $display("  mispredict あり %0d / なし %0d", n_mispredict[1], n_mispredict[0]);

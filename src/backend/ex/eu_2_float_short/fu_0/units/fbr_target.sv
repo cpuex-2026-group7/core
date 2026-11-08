@@ -19,6 +19,8 @@ module fbr_target
     ofs_ff <= ofs;
   end
 
+  assign target = pc_ff + ofs_ff;
+
 endmodule
 
 `default_nettype wire

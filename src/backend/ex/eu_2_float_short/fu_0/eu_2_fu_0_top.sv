@@ -37,7 +37,7 @@ module eu_2_fu_0_top
 
   fli u_fli (
     .clk(clk),
-    .aux(imm[31:12]),
+    .imm(imm),
     .result(fli_result)
   );
 

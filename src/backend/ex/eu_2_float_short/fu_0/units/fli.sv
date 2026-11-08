@@ -4,17 +4,19 @@
 module fli
   import types::*;
 (
-  input wire logic        clk,
-  input wire logic [19:0] aux,
+  input wire logic  clk,
+  input wire word_t imm,
 
   output word_t result
 );
 
-  logic [19:0] aux_ff;
+  word_t imm_ff;
 
   always_ff @(posedge clk) begin
-    aux_ff <= aux;
+    imm_ff <= imm;
   end
+
+  assign result = imm_ff;
 
 endmodule
 
