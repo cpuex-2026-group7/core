@@ -8,13 +8,24 @@ package lsu_types;
   typedef logic [STQ_SIZE-1:0] stq_mask_t;
   typedef logic [LDQ_SIZE-1:0] ldq_mask_t;
 
-  // dispatchからLSUへ
+  // MMIO(とりあえず)
+  localparam addr_t MMIO_RX_ADDR = 32'hffff_ffff;  // read
+  localparam addr_t MMIO_TX_ADDR = 32'hffff_fffe;  // write
+
+  // dispatchからLDQへ
   typedef struct packed {
     logic     valid;
     preg_t    rd;
     rob_idx_t rob_idx;
     brmask_t  brmask;
-  } disp_lsu_t;
+  } disp_ldq_t;
+
+  // dispatchからSTQへ
+  // killはtail snapshotでやるのでbrmaskはいらない
+  typedef struct packed {
+    logic     valid;
+    rob_idx_t rob_idx;
+  } disp_stq_t;
 
   // STQからLDQへ
   typedef struct packed {
@@ -50,7 +61,6 @@ package lsu_types;
     logic     committed;
     logic     stored;      // D$がACKした
     rob_idx_t rob_idx;
-    brmask_t  brmask;
   } stq_entry_t;
 
   // controllerからLDQへ

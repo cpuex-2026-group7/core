@@ -11,13 +11,6 @@ package rob_types;
     rob_idx_t rob_idx;
   } complete_t;
 
-  // LSUからROBへ
-  // 一番古いviolationを通知
-  typedef struct packed {
-    logic     valid;
-    rob_idx_t rob_idx;
-  } load_violation_t;
-
 endpackage
 
 `default_nettype wire

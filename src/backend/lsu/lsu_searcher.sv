@@ -6,6 +6,8 @@ module lsu_searcher
   import ooo_types::*;
   import lsu_types::*;
 (
+  // bypassとかload違反を探す
+
   // LDQ
   input wire ldq_entry_t ldq[LDQ_SIZE],
   output ldq_mask_t violation_mask,

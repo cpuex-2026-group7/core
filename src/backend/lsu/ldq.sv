@@ -14,10 +14,10 @@ module ldq
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush, // loadの順序違反でflush
+  input wire logic flush, // loadの順序違反でflush(ROBのFF)
 
   // dispatch
-  input wire disp_lsu_t disp_ld[DISP_W],
+  input wire disp_ldq_t disp_ld[DISP_W],
   output ldq_idx_t disp_ldq_idx[DISP_W],
   output logic disp_full[DISP_W],
   // dispatch(branch)
@@ -25,7 +25,8 @@ module ldq
   input wire br_tag_t disp_br_tag[DISP_W],
 
   // STQから
-  input wire st_dep_t st_dep[DISP_W],  // live_mask = st_dep[0].st_dep_mask
+  input wire st_dep_t st_dep[DISP_W],
+  input wire stq_mask_t stq_release_mask,  // このサイクルに解放したSTQのエントリ。st_dep_maskから落とす
 
   // controller
   input wire ld_addr_t ld_addr,
@@ -45,7 +46,7 @@ module ldq
 
   // ROB
   input wire logic commit_ld[COMMIT_W],
-  output load_violation_t load_violation
+  output logic head_load_violation  // LDQの先頭のloadが順序違反
 );
 
   ldq_idx_t tail;

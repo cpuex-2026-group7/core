@@ -14,15 +14,15 @@ module lsu_top
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush, // loadの順序違反でflush
+  input wire logic flush, // loadの順序違反でflush(ROBのFF)
 
   // dispatch(スロットが小さい方が古い)
   // load
-  input wire disp_lsu_t disp_ld[DISP_W],
+  input wire disp_ldq_t disp_ld[DISP_W],
   output ldq_idx_t disp_ldq_idx[DISP_W],
   output logic disp_ld_full[DISP_W],
   // store
-  input wire disp_lsu_t disp_st[DISP_W],
+  input wire disp_stq_t disp_st[DISP_W],
   output stq_idx_t disp_stq_idx[DISP_W],
   output logic disp_st_full[DISP_W],
   // branch(tail snapshotをLSU内で取らせる)
@@ -40,7 +40,8 @@ module lsu_top
   input wire logic commit_st[COMMIT_W],  // storeをコミットしたヨ
   input wire logic rob_head_ld,  // MMIOのloadは取り消されるとまずいのでROBの先頭しか無理
   output complete_t complete_st,  // addressとdata揃ったらcomplete出す
-  output load_violation_t load_violation,  // load順序違反
+  output logic stq_empty,  // commit済みのstoreも全部D$に書き終わった(halt用)
+  output logic head_load_violation,  // LDQの先頭のloadが順序違反
 
   // RFへ
   output ex_wb_t wb_mem[1],  // loadをRFへ
@@ -52,6 +53,7 @@ module lsu_top
   // killされたloadは次のサイクル以降validなrespを返さない
   // killが届くまでに出したrespはcore側の責任で無視する
   // 生きている要求にはackかnackをちょうど1回返す
+  // MMIOはacceptしたらnackしない
   // パラメータとして DC_TAG_WとMAX_BRを渡す
   // clk(coreと同じ)、rst(coreと同じ)D$に渡す
   // 下は全部core側のFF
@@ -92,11 +94,10 @@ module lsu_top
   assign dc_br_kill_mask_ff = br_update_ff.kill_mask;
   assign dc_br_resolve_mask_ff = br_update_ff.resolve_mask;
 
-  always_ff @(posedge clk) begin
-    dc_kill_all_ff <= !rst & flush;
-  end
+  assign dc_kill_all_ff = flush;
 
   st_dep_t st_dep[DISP_W];
+  stq_mask_t stq_release_mask;
 
   ldq_entry_t ldq[LDQ_SIZE];
   ldq_idx_t ldq_head;
@@ -127,6 +128,7 @@ module lsu_top
     .disp_ldq_idx(disp_ldq_idx),
     .disp_full(disp_ld_full),
     .st_dep(st_dep),
+    .stq_release_mask(stq_release_mask),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),
     .ld_addr(ld_addr),
@@ -138,7 +140,7 @@ module lsu_top
     .commit_ld(commit_ld),
     .ldq_ff(ldq),
     .ldq_head(ldq_head),
-    .load_violation(load_violation)
+    .head_load_violation(head_load_violation)
   );
 
   stq #(
@@ -152,6 +154,7 @@ module lsu_top
     .disp_stq_idx(disp_stq_idx),
     .disp_full(disp_st_full),
     .st_dep(st_dep),
+    .stq_release_mask(stq_release_mask),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),
     .st_addr(st_addr),
@@ -164,7 +167,8 @@ module lsu_top
     .stq_ff(stq),
     .stq_head(stq_head),
     .exec_head(stq_exec_head),
-    .complete_st(complete_st)
+    .complete_st(complete_st),
+    .stq_empty(stq_empty)
   );
 
   lsu_controller u_lsu_controller (

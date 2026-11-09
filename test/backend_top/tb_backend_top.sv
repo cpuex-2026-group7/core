@@ -156,10 +156,10 @@ module tb_backend_top
   assign disp_uop_mem[0]   = in_uop_mem;
   assign disp_uop_fpu[0]   = in_uop_fpu;
 
-  disp_lsu_t disp_ld[LSU_DISP_W];
+  disp_ldq_t disp_ld[LSU_DISP_W];
   ldq_idx_t  disp_ldq_idx[LSU_DISP_W];
   logic      disp_ld_full[LSU_DISP_W];
-  disp_lsu_t disp_st[LSU_DISP_W];
+  disp_stq_t disp_st[LSU_DISP_W];
   stq_idx_t  disp_stq_idx[LSU_DISP_W];
   logic      disp_st_full[LSU_DISP_W];
   logic      disp_br_valid[LSU_DISP_W];
@@ -174,7 +174,8 @@ module tb_backend_top
   br_update_t      br_update_ff;
   complete_t       complete_idx[5];
   complete_t       complete_st;
-  load_violation_t load_violation;
+  logic            stq_empty;
+  logic            head_load_violation;
   logic            commit_ld[COMMIT_W];
   logic            commit_st[COMMIT_W];
   for (genvar g = 0; g < COMMIT_W; g++) begin : g_commit
@@ -219,7 +220,8 @@ module tb_backend_top
     .br_update_ff(br_update_ff),
     .complete_idx(complete_idx),
     .complete_st(complete_st),
-    .load_violation(load_violation),
+    .stq_empty(stq_empty),
+    .head_load_violation(head_load_violation),
     .commit_ld(commit_ld),
     .commit_st(commit_st),
     .rob_head_ld(1'b0),
@@ -939,9 +941,9 @@ module tb_backend_top
     // 割り当てる
     if (e.rs1.typ != PREG_TYPE_NONE) begin
       preaders[typ_i(e.rs1)][e.rs1.idx]++;
-      if (pst[typ_i(e.rs1)][e.rs1.idx] == P_PEND && tbl.exists(pwriter[typ_i(e.rs1)][e.rs1.idx])
-          && tbl[pwriter[typ_i(e.rs1)][e.rs1.idx]].t_disp == cyc)
-        n_same_cycle++;
+      // && の右でも連想配列を読むとエントリを作るので if を分ける
+      if (pst[typ_i(e.rs1)][e.rs1.idx] == P_PEND && tbl.exists(pwriter[typ_i(e.rs1)][e.rs1.idx]))
+        if (tbl[pwriter[typ_i(e.rs1)][e.rs1.idx]].t_disp == cyc) n_same_cycle++;
     end
     if (e.rs2.typ != PREG_TYPE_NONE) preaders[typ_i(e.rs2)][e.rs2.idx]++;
     if (e.rd.typ != PREG_TYPE_NONE) begin

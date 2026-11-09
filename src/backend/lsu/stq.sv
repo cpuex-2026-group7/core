@@ -14,10 +14,10 @@ module stq
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush,  // loadの順序違反でflush
+  input wire logic flush,  // loadの順序違反でflush(ROBのFF)。commit済みは残す
 
   // dispatch
-  input wire disp_lsu_t disp_st[DISP_W],
+  input wire disp_stq_t disp_st[DISP_W],
   output stq_idx_t disp_stq_idx[DISP_W],
   output logic disp_full[DISP_W],
   // dispatch(branch)
@@ -26,6 +26,7 @@ module stq
 
   // LDQへ
   output st_dep_t st_dep[DISP_W],
+  output stq_mask_t stq_release_mask,  // このサイクルに解放したエントリ
 
   // controller
   input wire st_addr_t st_addr,
@@ -44,7 +45,8 @@ module stq
 
   // ROB
   input wire logic commit_st[COMMIT_W],
-  output complete_t complete_st
+  output complete_t complete_st,
+  output logic stq_empty  // commit済みのstoreも全部D$に書き終わった(halt用)
 );
 
   stq_idx_t commit_head, tail;
