@@ -49,8 +49,9 @@ module ldq
   output logic head_load_violation  // LDQの先頭のloadが順序違反
 );
 
-  ldq_idx_t tail;
-  ldq_idx_t tail_snapshot[MAX_BR];
+  ldq_idx_t ldq_tail;
+  logic ldq_full;  // ldq_head == ldq_tailのとき空か満杯かを区別する
+  ldq_idx_t ldq_tail_snapshot[MAX_BR];
 
 endmodule
 

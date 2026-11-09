@@ -45,7 +45,7 @@ module lsu_controller
   input wire forward_result_t forward_result,
 
   // RFへ
-  output ex_wb_t wb_mem,
+  output lsu_wb_t wb_mem,
 
   // IQへ
   output wakeup_t slow_wakeup_mem,

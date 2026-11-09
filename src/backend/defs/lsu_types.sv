@@ -8,6 +8,9 @@ package lsu_types;
   typedef logic [STQ_SIZE-1:0] stq_mask_t;
   typedef logic [LDQ_SIZE-1:0] ldq_mask_t;
 
+  // LSUからWBへ(中身はex_wb_tと同じ)
+  typedef ex_types::ex_wb_t lsu_wb_t;
+
   // MMIO(とりあえず)
   localparam addr_t MMIO_RX_ADDR = 32'hffff_ffff;  // read
   localparam addr_t MMIO_TX_ADDR = 32'hffff_fffe;  // write

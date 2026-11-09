@@ -31,11 +31,11 @@ module stq
   // controller
   input wire st_addr_t st_addr,
   input wire st_data_t st_data,
-  input wire logic st_requested,  // exec_headを進める
+  input wire logic st_requested,  // stq_exec_headを進める
   input wire stq_idx_with_valid_t st_ack,
-  input wire stq_idx_with_valid_t st_nack,  // exec_headをそこまで戻す
+  input wire stq_idx_with_valid_t st_nack,  // stq_exec_headをそこまで戻す
   output stq_idx_t stq_head,
-  output stq_idx_t exec_head,
+  output stq_idx_t stq_exec_head,
 
   // controller、searcherへ
   output stq_entry_t stq_ff[STQ_SIZE],
@@ -49,8 +49,9 @@ module stq
   output logic stq_empty  // commit済みのstoreも全部D$に書き終わった(halt用)
 );
 
-  stq_idx_t commit_head, tail;
-  stq_idx_t tail_snapshot[MAX_BR];
+  stq_idx_t stq_commit_head, stq_tail;
+  logic stq_full;  // stq_head == stq_tailのとき空か満杯かを区別する
+  stq_idx_t stq_tail_snapshot[MAX_BR];
 
 endmodule
 

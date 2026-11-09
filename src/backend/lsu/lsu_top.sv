@@ -44,7 +44,7 @@ module lsu_top
   output logic head_load_violation,  // LDQの先頭のloadが順序違反
 
   // RFへ
-  output ex_wb_t wb_mem[1],  // loadをRFへ
+  output lsu_wb_t wb_mem[1],  // loadをRFへ
 
   // IQへ
   output wakeup_t slow_wakeup_mem,
@@ -166,7 +166,7 @@ module lsu_top
     .commit_st(commit_st),
     .stq_ff(stq),
     .stq_head(stq_head),
-    .exec_head(stq_exec_head),
+    .stq_exec_head(stq_exec_head),
     .complete_st(complete_st),
     .stq_empty(stq_empty)
   );
