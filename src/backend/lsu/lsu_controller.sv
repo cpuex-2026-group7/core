@@ -26,7 +26,7 @@ module lsu_controller
   input wire ldq_controller_t ldq[LDQ_SIZE],
   input wire ldq_idx_t ldq_head,  // loadの先頭(MMIO用)
   output ld_addr_t ld_addr,
-  output ldq_idx_with_valid_t ld_requested,
+  output ld_requested_t ld_requested,
   output ldq_idx_with_valid_t ld_nack,
   output ld_wb_notice_t ld_gone_to_wb,
 
@@ -41,6 +41,7 @@ module lsu_controller
   // searcher
   output forward_search_t forward_search,
   input wire forward_result_t forward_result,
+  input wire ldq_mask_t violation_mask,  // respのloadが当たっていたらWBに出さずに出し直す
 
   // RFへ
   output lsu_wb_t wb_mem,

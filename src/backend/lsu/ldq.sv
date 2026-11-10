@@ -9,7 +9,7 @@ module ldq
   import rob_types::*;
   import lsu_types::*;
 #(
-  parameter int DISP_W = 1,
+  parameter int DISP_W   = 1,
   parameter int COMMIT_W = 1
 ) (
   input wire logic clk,
@@ -30,7 +30,7 @@ module ldq
 
   // controller
   input wire ld_addr_t ld_addr,
-  input wire ldq_idx_with_valid_t ld_requested,
+  input wire ld_requested_t ld_requested,
   input wire ldq_idx_with_valid_t ld_nack,
   input wire ld_wb_notice_t ld_gone_to_wb,
   output ldq_idx_t ldq_head,
@@ -40,7 +40,7 @@ module ldq
 
   // controller、searcherへ
   output ldq_controller_t ldq_controller_ff[LDQ_SIZE],
-  output ldq_searcher_t ldq_searcher_ff[LDQ_SIZE],
+  output ldq_searcher_t   ldq_searcher_ff  [LDQ_SIZE],
 
   // EXから
   input wire br_update_t br_update_ff,
@@ -62,6 +62,7 @@ module ldq
       ldq_controller_ff[i].addr = ldq_ff[i].addr;
       ldq_controller_ff[i].mmio = ldq_ff[i].mmio;
       ldq_controller_ff[i].cache_requested = ldq_ff[i].cache_requested;
+      ldq_controller_ff[i].stale = ldq_ff[i].stale;
       ldq_controller_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
       ldq_controller_ff[i].rd = ldq_ff[i].rd;
       ldq_controller_ff[i].rob_idx = ldq_ff[i].rob_idx;

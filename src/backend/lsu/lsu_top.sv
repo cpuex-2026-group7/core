@@ -106,7 +106,8 @@ module lsu_top
   stq_searcher_t stq_searcher[STQ_SIZE];
 
   ld_addr_t ld_addr;
-  ldq_idx_with_valid_t ld_requested, ld_nack;
+  ld_requested_t ld_requested;
+  ldq_idx_with_valid_t ld_nack;
   ld_wb_notice_t ld_gone_to_wb;
   st_addr_t st_addr;
   st_data_t st_data;
@@ -192,6 +193,7 @@ module lsu_top
     .st_nack(st_nack),
     .forward_search(forward_search),
     .forward_result(forward_result),
+    .violation_mask(violation_mask),
     .wb_mem(wb_mem[0]),
     .slow_wakeup_mem(slow_wakeup_mem),
     .dc_req_ff(dc_req_ff),

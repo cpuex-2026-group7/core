@@ -43,6 +43,7 @@ package lsu_types;
     addr_t     addr;
     logic      mmio;             // MMIOのloadはROBの先頭に来るまで待つ
     logic      cache_requested;  // NACK来たら落とす
+    logic      stale;            // D$に出した後に古いstoreとアドレスが一致した。respを捨てて出し直す
     stq_mask_t st_dep_mask;      // 自分より古いstoreのmask
     stq_idx_t  tail_stq_idx;     // dispatch時のSTQのtail
     logic      violated;         // load順序違反
@@ -73,6 +74,7 @@ package lsu_types;
     addr_t    addr;
     logic     mmio;
     logic     cache_requested;
+    logic     stale;
     logic     gone_to_wb;
     preg_t    rd;
     rob_idx_t rob_idx;
@@ -113,6 +115,13 @@ package lsu_types;
     logic     valid;
     ldq_idx_t idx;
   } ldq_idx_with_valid_t;
+
+  // controllerからLDQへ
+  typedef struct packed {
+    logic     valid;
+    ldq_idx_t idx;
+    logic     stale;  // 出すサイクルに古いstoreのアドレスが来て一致した
+  } ld_requested_t;
 
   // controllerからSTQへ
   typedef struct packed {
