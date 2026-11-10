@@ -96,7 +96,7 @@ module lsu_top
 
   assign dc_kill_all_ff = flush;
 
-  st_dep_t st_dep[DISP_W];
+  older_st_t older_st[DISP_W];
   stq_mask_t stq_release_mask;
 
   ldq_controller_t ldq_controller[LDQ_SIZE];
@@ -128,7 +128,7 @@ module lsu_top
     .disp_ld(disp_ld),
     .disp_ldq_idx(disp_ldq_idx),
     .disp_full(disp_ld_full),
-    .st_dep(st_dep),
+    .older_st(older_st),
     .stq_release_mask(stq_release_mask),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),
@@ -155,7 +155,7 @@ module lsu_top
     .disp_st(disp_st),
     .disp_stq_idx(disp_stq_idx),
     .disp_full(disp_st_full),
-    .st_dep(st_dep),
+    .older_st(older_st),
     .stq_release_mask(stq_release_mask),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),

@@ -25,8 +25,8 @@ module ldq
   input wire br_tag_t disp_br_tag[DISP_W],
 
   // STQから
-  input wire st_dep_t st_dep[DISP_W],
-  input wire stq_mask_t stq_release_mask,  // このサイクルに解放したSTQのエントリ。st_dep_maskから落とす
+  input wire older_st_t older_st[DISP_W],
+  input wire stq_mask_t stq_release_mask,  // このサイクルに解放したSTQのエントリ。older_st_maskから落とす
 
   // controller
   input wire ld_addr_t ld_addr,
@@ -73,7 +73,7 @@ module ldq
       ldq_searcher_ff[i].addr = ldq_ff[i].addr;
       ldq_searcher_ff[i].cache_requested = ldq_ff[i].cache_requested;
       ldq_searcher_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
-      ldq_searcher_ff[i].st_dep_mask = ldq_ff[i].st_dep_mask;
+      ldq_searcher_ff[i].older_st_mask = ldq_ff[i].older_st_mask;
       ldq_searcher_ff[i].tail_stq_idx = ldq_ff[i].tail_stq_idx;
       ldq_searcher_ff[i].forwarded = ldq_ff[i].forwarded;
       ldq_searcher_ff[i].forward_stq_idx = ldq_ff[i].forward_stq_idx;

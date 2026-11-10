@@ -9,12 +9,12 @@ module stq
   import rob_types::*;
   import lsu_types::*;
 #(
-  parameter int DISP_W = 1,
+  parameter int DISP_W   = 1,
   parameter int COMMIT_W = 1
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush,  // loadの順序違反でflush(ROBのFF)。commit済みは残す
+  input wire logic flush, // loadの順序違反でflush(ROBのFF)。commit済みは残す
 
   // dispatch
   input wire disp_stq_t disp_st[DISP_W],
@@ -25,7 +25,7 @@ module stq
   input wire br_tag_t disp_br_tag[DISP_W],
 
   // LDQへ
-  output st_dep_t st_dep[DISP_W],
+  output older_st_t older_st[DISP_W],
   output stq_mask_t stq_release_mask,  // このサイクルに解放したエントリ
 
   // controller
@@ -48,9 +48,50 @@ module stq
   output logic stq_empty  // commit済みのstoreも全部D$に書き終わった(halt用)
 );
 
-  stq_idx_t stq_head, stq_commit_head, stq_exec_head, stq_tail;
-  logic stq_full;  // stq_head == stq_tailのとき空か満杯かを区別する
-  stq_idx_t stq_tail_snapshot[MAX_BR];
+  localparam int STQ_CNT_W = $clog2(STQ_SIZE + 1);
+  typedef logic [STQ_CNT_W-1:0] stq_cnt_t;
+
+  typedef struct packed {
+    logic     wrap;
+    stq_idx_t idx;
+  } stq_ptr_t;
+
+  function automatic stq_ptr_t ptr_inc(input stq_ptr_t p);
+    if (p.idx == stq_idx_t'(STQ_SIZE - 1)) begin
+      ptr_inc.wrap = ~p.wrap;
+      ptr_inc.idx  = '0;
+    end else begin
+      ptr_inc.wrap = p.wrap;
+      ptr_inc.idx  = p.idx + 1'b1;
+    end
+  endfunction
+
+  // fromからtoまでの個数
+  function automatic stq_cnt_t ptr_dist(input stq_ptr_t from, input stq_ptr_t to);
+    if (from.wrap == to.wrap) begin
+      ptr_dist = stq_cnt_t'(to.idx) - stq_cnt_t'(from.idx);
+    end else begin
+      ptr_dist = stq_cnt_t'(to.idx) + stq_cnt_t'(STQ_SIZE) - stq_cnt_t'(from.idx);
+    end
+  endfunction
+
+  // エントリiがfromからtoまでに入っているか
+  function automatic logic in_range(input int i, input stq_ptr_t from, input stq_ptr_t to);
+    stq_cnt_t off;
+    if (stq_idx_t'(i) >= from.idx) begin
+      off = stq_cnt_t'(i) - stq_cnt_t'(from.idx);
+    end else begin
+      off = stq_cnt_t'(i) + stq_cnt_t'(STQ_SIZE) - stq_cnt_t'(from.idx);
+    end
+    in_range = off < ptr_dist(from, to);
+  endfunction
+
+  function automatic logic ptr_full(input stq_ptr_t head, input stq_ptr_t tail);
+    ptr_full = head.idx == tail.idx && head.wrap != tail.wrap;
+  endfunction
+
+  stq_ptr_t stq_head, stq_commit_head, stq_exec_head, stq_tail;
+  stq_ptr_t stq_tail_snapshot[MAX_BR];
   stq_entry_t stq_ff[STQ_SIZE];
 
   always_comb begin
@@ -59,6 +100,121 @@ module stq
       stq_searcher_ff[i].addr = stq_ff[i].addr;
       stq_searcher_ff[i].data_valid = stq_ff[i].data_valid;
       stq_searcher_ff[i].data = stq_ff[i].data;
+    end
+  end
+
+  assign stq_controller.valid = stq_exec_head != stq_commit_head;  // commit済みあるか?
+  assign stq_controller.idx = stq_exec_head.idx;
+  assign stq_controller.addr = stq_ff[stq_exec_head.idx].addr;
+  assign stq_controller.data = stq_ff[stq_exec_head.idx].data;
+
+  assign stq_empty = stq_head == stq_tail;
+
+
+  // disp_tailとtail_snapshot
+  stq_ptr_t disp_tail[DISP_W+1];
+  stq_ptr_t n_stq_tail_snapshot[MAX_BR];
+  always_comb begin
+    for (int i = 0; i < MAX_BR; i++) begin
+      n_stq_tail_snapshot[i] = stq_tail_snapshot[i];
+    end
+    disp_tail[0] = stq_tail;
+    for (int i = 0; i < DISP_W; i++) begin
+      disp_stq_idx[i] = disp_tail[i].idx;
+      disp_full[i] = ptr_full(stq_head, disp_tail[i]);
+
+      // olderを詰める
+      older_st[i].tail_stq_idx = disp_tail[i].idx;
+      for (int j = 0; j < STQ_SIZE; j++) begin
+        older_st[i].older_st_mask[j] = in_range(j, stq_head, disp_tail[i]);
+      end
+
+      // snapshotを詰める
+      if (disp_br_valid[i]) begin
+        n_stq_tail_snapshot[disp_br_tag[i]] = disp_tail[i];
+      end
+
+      // 詰めた場合disp_tailを進める
+      if (disp_st[i].valid && !disp_full[i]) begin
+        disp_tail[i+1] = ptr_inc(disp_tail[i]);
+      end else begin
+        disp_tail[i+1] = disp_tail[i];
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < MAX_BR; i++) begin
+        stq_tail_snapshot[i] <= '0;
+      end
+    end else begin
+      for (int i = 0; i < MAX_BR; i++) begin
+        stq_tail_snapshot[i] <= n_stq_tail_snapshot[i];
+      end
+    end
+  end
+
+  // stq_ffとhead,tail
+  stq_ptr_t n_stq_head, n_stq_commit_head, n_stq_exec_head, n_stq_tail;
+  stq_entry_t n_stq_ff[STQ_SIZE];
+  always_comb begin
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      n_stq_ff[i] = stq_ff[i];
+    end
+    n_stq_head = stq_head;
+    n_stq_commit_head = stq_commit_head;
+    n_stq_exec_head = stq_exec_head;
+    n_stq_tail = disp_tail[DISP_W];
+
+    if (!br_update_ff.mispredict && !flush) begin
+      for (int i = 0; i < DISP_W; i++) begin
+        if (disp_st[i].valid && !disp_full[i]) begin
+          n_stq_ff[disp_stq_idx[i]].valid = 1'b1;
+          n_stq_ff[disp_stq_idx[i]].addr_valid = 1'b0;
+          n_stq_ff[disp_stq_idx[i]].data_valid = 1'b0;
+          n_stq_ff[disp_stq_idx[i]].committed = 1'b0;
+          n_stq_ff[disp_stq_idx[i]].stored = 1'b0;
+          n_stq_ff[disp_stq_idx[i]].rob_idx = disp_st[i].rob_idx;
+        end
+      end
+    end
+
+    for (int i = 0; i < COMMIT_W; i++) begin
+      if (commit_st[i]) begin
+        n_stq_ff[n_stq_commit_head.idx].committed = 1'b1;
+        n_stq_commit_head = ptr_inc(n_stq_commit_head);
+      end
+    end
+
+    if (st_requested) begin
+      n_stq_exec_head = ptr_inc(n_stq_exec_head);
+    end
+
+    if (flush) begin
+      n_stq_tail = n_stq_commit_head;
+    end else if (br_update_ff.mispredict) begin
+      n_stq_tail = stq_tail_snapshot[br_update_ff.tag];
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < STQ_SIZE; i++) begin
+        stq_ff[i] <= '0;
+      end
+      stq_head <= '0;
+      stq_commit_head <= '0;
+      stq_exec_head <= '0;
+      stq_tail <= '0;
+    end else begin
+      for (int i = 0; i < STQ_SIZE; i++) begin
+        stq_ff[i] <= n_stq_ff[i];
+      end
+      stq_head <= n_stq_head;
+      stq_commit_head <= n_stq_commit_head;
+      stq_exec_head <= n_stq_exec_head;
+      stq_tail <= n_stq_tail;
     end
   end
 
