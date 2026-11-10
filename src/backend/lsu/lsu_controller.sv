@@ -25,15 +25,12 @@ module lsu_controller
   // LDQ
   input wire ldq_controller_t ldq[LDQ_SIZE],
   input wire ldq_idx_t ldq_head,  // loadの先頭(MMIO用)
-  output ld_addr_t ld_addr,
   output ld_requested_t ld_requested,
   output ldq_idx_with_valid_t ld_nack,
   output ld_wb_notice_t ld_gone_to_wb,
 
   // STQ
   input wire stq_controller_t stq,  // 次にD$に送るstore
-  output st_addr_t st_addr,
-  output st_data_t st_data,
   output logic st_requested,
   output stq_idx_with_valid_t st_ack,
   output stq_idx_with_valid_t st_nack,

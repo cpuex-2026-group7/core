@@ -4,6 +4,7 @@
 module lsu_searcher
   import types::*;
   import ooo_types::*;
+  import ex_types::*;
   import lsu_types::*;
 (
   // bypassとかload違反を探す
@@ -18,7 +19,9 @@ module lsu_searcher
   // controller
   input wire forward_search_t forward_search,  // forward元のstoreを探す
   output forward_result_t forward_result,
-  input wire st_addr_t violation_search  // 順序違反のloadを探す
+
+  // AGUから(順序違反探す用)
+  input wire ex_lsu_t ex_lsu
 );
 
 endmodule

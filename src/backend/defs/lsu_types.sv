@@ -133,31 +133,9 @@ package lsu_types;
   typedef struct packed {
     logic     valid;
     ldq_idx_t idx;
-    addr_t    addr;
-    logic     mmio;
-  } ld_addr_t;
-
-  // controllerからLDQへ
-  typedef struct packed {
-    logic     valid;
-    ldq_idx_t idx;
     logic     forwarded;
     stq_idx_t forward_stq_idx;
   } ld_wb_notice_t;
-
-  // controllerからSTQ、searcherへ
-  typedef struct packed {
-    logic     valid;
-    stq_idx_t idx;
-    addr_t    addr;
-  } st_addr_t;
-
-  // controllerからSTQへ
-  typedef struct packed {
-    logic     valid;
-    stq_idx_t idx;
-    word_t    data;
-  } st_data_t;
 
   // controllerからsearcherへ
   typedef struct packed {

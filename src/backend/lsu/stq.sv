@@ -28,9 +28,10 @@ module stq
   output older_st_t older_st[DISP_W],
   output stq_mask_t stq_release_mask,  // このサイクルに解放したエントリ
 
+  // AGUから
+  input wire ex_lsu_t ex_lsu,
+
   // controller
-  input wire st_addr_t st_addr,
-  input wire st_data_t st_data,
   input wire logic st_requested,  // stq_exec_headを進める
   input wire stq_idx_with_valid_t st_ack,
   input wire stq_idx_with_valid_t st_nack,  // stq_exec_headをそこまで戻す
@@ -187,8 +188,23 @@ module stq
       end
     end
 
+    // nackとack
+    if (st_nack.valid) begin
+      n_stq_exec_head = st_nack.idx;
+    end else if (st_ack.valid) begin
+      n_stq_ff[st_ack.idx].stored = 1'b1;
+    end
+    // exec_headを進める
     if (st_requested) begin
       n_stq_exec_head = ptr_inc(n_stq_exec_head);
+    end
+
+    // headを進める
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      if (n_stq_ff[i].valid && n_stq_ff[i].stored && i == n_stq_head.idx) begin
+        n_stq_ff[i].valid = 1'b0;
+        n_stq_head = ptr_inc(n_stq_head);
+      end
     end
 
     if (flush) begin
@@ -218,6 +234,27 @@ module stq
     end
   end
 
+
+  // AGUからの入力
+  logic ex_st_addr_valid, ex_st_data_valid;
+  assign ex_st_addr_valid = ex_lsu.is_store && ex_lsu.addr_valid;
+  assign ex_st_data_valid = ex_lsu.is_store && ex_lsu.data_valid;
+
+  assign complete_st.valid = (ex_st_addr_valid || ex_st_data_valid)
+      && (ex_st_addr_valid || stq_ff[ex_lsu.stq_idx].addr_valid)
+      && (ex_st_data_valid || stq_ff[ex_lsu.stq_idx].data_valid);
+  assign complete_st.rob_idx = stq_ff[ex_lsu.stq_idx].rob_idx;
+
+  always_comb begin
+    if (ex_st_addr_valid) begin
+      n_stq_ff[ex_lsu.stq_idx].addr_valid = 1'b1;
+      n_stq_ff[ex_lsu.stq_idx].addr = ex_lsu.addr;
+    end
+    if (ex_st_data_valid) begin
+      n_stq_ff[ex_lsu.stq_idx].data_valid = 1'b1;
+      n_stq_ff[ex_lsu.stq_idx].data = ex_lsu.data;
+    end
+  end
 endmodule
 
 `default_nettype wire

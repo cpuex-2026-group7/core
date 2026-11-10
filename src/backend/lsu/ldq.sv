@@ -28,8 +28,10 @@ module ldq
   input wire older_st_t older_st[DISP_W],
   input wire stq_mask_t stq_release_mask,  // このサイクルに解放したSTQのエントリ。older_st_maskから落とす
 
+  // AGUから
+  input wire ex_lsu_t ex_lsu,
+
   // controller
-  input wire ld_addr_t ld_addr,
   input wire ld_requested_t ld_requested,
   input wire ldq_idx_with_valid_t ld_nack,
   input wire ld_wb_notice_t ld_gone_to_wb,
