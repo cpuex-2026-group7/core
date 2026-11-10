@@ -34,11 +34,10 @@ module stq
   input wire logic st_requested,  // stq_exec_headを進める
   input wire stq_idx_with_valid_t st_ack,
   input wire stq_idx_with_valid_t st_nack,  // stq_exec_headをそこまで戻す
-  output stq_idx_t stq_head,
-  output stq_idx_t stq_exec_head,
+  output stq_controller_t stq_controller,  // stq_exec_headのstore
 
-  // controller、searcherへ
-  output stq_entry_t stq_ff[STQ_SIZE],
+  // searcherへ
+  output stq_searcher_t stq_searcher_ff[STQ_SIZE],
 
   // EXから
   input wire br_update_t br_update_ff,
@@ -49,9 +48,19 @@ module stq
   output logic stq_empty  // commit済みのstoreも全部D$に書き終わった(halt用)
 );
 
-  stq_idx_t stq_commit_head, stq_tail;
+  stq_idx_t stq_head, stq_commit_head, stq_exec_head, stq_tail;
   logic stq_full;  // stq_head == stq_tailのとき空か満杯かを区別する
   stq_idx_t stq_tail_snapshot[MAX_BR];
+  stq_entry_t stq_ff[STQ_SIZE];
+
+  always_comb begin
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      stq_searcher_ff[i].addr_valid = stq_ff[i].addr_valid;
+      stq_searcher_ff[i].addr = stq_ff[i].addr;
+      stq_searcher_ff[i].data_valid = stq_ff[i].data_valid;
+      stq_searcher_ff[i].data = stq_ff[i].data;
+    end
+  end
 
 endmodule
 

@@ -9,11 +9,11 @@ module lsu_searcher
   // bypassとかload違反を探す
 
   // LDQ
-  input wire ldq_entry_t ldq[LDQ_SIZE],
+  input wire ldq_searcher_t ldq[LDQ_SIZE],
   output ldq_mask_t violation_mask,
 
   // STQから
-  input wire stq_entry_t stq[STQ_SIZE],
+  input wire stq_searcher_t stq[STQ_SIZE],
 
   // controller
   input wire forward_search_t forward_search,  // forward元のstoreを探す

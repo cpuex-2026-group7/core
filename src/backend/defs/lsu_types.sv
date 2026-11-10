@@ -66,6 +66,48 @@ package lsu_types;
     rob_idx_t rob_idx;
   } stq_entry_t;
 
+  // LDQからcontrollerへ
+  typedef struct packed {
+    logic     valid;
+    logic     addr_valid;
+    addr_t    addr;
+    logic     mmio;
+    logic     cache_requested;
+    logic     gone_to_wb;
+    preg_t    rd;
+    rob_idx_t rob_idx;
+    brmask_t  brmask;
+  } ldq_controller_t;
+
+  // LDQからsearcherへ
+  typedef struct packed {
+    logic      valid;
+    logic      addr_valid;
+    addr_t     addr;
+    logic      cache_requested;
+    logic      gone_to_wb;
+    stq_mask_t st_dep_mask;
+    stq_idx_t  tail_stq_idx;
+    logic      forwarded;
+    stq_idx_t  forward_stq_idx;
+  } ldq_searcher_t;
+
+  // STQからcontrollerへ
+  typedef struct packed {
+    logic     valid;  // commit済みでまだD$に出していない
+    stq_idx_t idx;
+    addr_t    addr;
+    word_t    data;
+  } stq_controller_t;
+
+  // STQからsearcherへ
+  typedef struct packed {
+    logic  addr_valid;
+    addr_t addr;
+    logic  data_valid;
+    word_t data;
+  } stq_searcher_t;
+
   // controllerからLDQへ
   typedef struct packed {
     logic     valid;
@@ -135,10 +177,10 @@ package lsu_types;
 
   // controllerからD$へ
   typedef struct packed {
-    logic     valid;
-    logic     we;
-    addr_t    addr;
-    word_t    wdata;
+    logic valid;
+    logic we;
+    addr_t addr;
+    word_t wdata;
     lsu_tag_t tag;
     brmask_t  brmask;  // このサイクルのbr_update_ffを当てた後。このサイクルにkillされるものは出さない
   } dc_req_t;

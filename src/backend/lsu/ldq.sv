@@ -39,7 +39,8 @@ module ldq
   input wire ldq_mask_t violation_mask,
 
   // controller、searcherへ
-  output ldq_entry_t ldq_ff[LDQ_SIZE],
+  output ldq_controller_t ldq_controller_ff[LDQ_SIZE],
+  output ldq_searcher_t ldq_searcher_ff[LDQ_SIZE],
 
   // EXから
   input wire br_update_t br_update_ff,
@@ -52,6 +53,31 @@ module ldq
   ldq_idx_t ldq_tail;
   logic ldq_full;  // ldq_head == ldq_tailのとき空か満杯かを区別する
   ldq_idx_t ldq_tail_snapshot[MAX_BR];
+  ldq_entry_t ldq_ff[LDQ_SIZE];
+
+  always_comb begin
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      ldq_controller_ff[i].valid = ldq_ff[i].valid;
+      ldq_controller_ff[i].addr_valid = ldq_ff[i].addr_valid;
+      ldq_controller_ff[i].addr = ldq_ff[i].addr;
+      ldq_controller_ff[i].mmio = ldq_ff[i].mmio;
+      ldq_controller_ff[i].cache_requested = ldq_ff[i].cache_requested;
+      ldq_controller_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
+      ldq_controller_ff[i].rd = ldq_ff[i].rd;
+      ldq_controller_ff[i].rob_idx = ldq_ff[i].rob_idx;
+      ldq_controller_ff[i].brmask = ldq_ff[i].brmask;
+
+      ldq_searcher_ff[i].valid = ldq_ff[i].valid;
+      ldq_searcher_ff[i].addr_valid = ldq_ff[i].addr_valid;
+      ldq_searcher_ff[i].addr = ldq_ff[i].addr;
+      ldq_searcher_ff[i].cache_requested = ldq_ff[i].cache_requested;
+      ldq_searcher_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
+      ldq_searcher_ff[i].st_dep_mask = ldq_ff[i].st_dep_mask;
+      ldq_searcher_ff[i].tail_stq_idx = ldq_ff[i].tail_stq_idx;
+      ldq_searcher_ff[i].forwarded = ldq_ff[i].forwarded;
+      ldq_searcher_ff[i].forward_stq_idx = ldq_ff[i].forward_stq_idx;
+    end
+  end
 
 endmodule
 

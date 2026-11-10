@@ -99,11 +99,11 @@ module lsu_top
   st_dep_t st_dep[DISP_W];
   stq_mask_t stq_release_mask;
 
-  ldq_entry_t ldq[LDQ_SIZE];
+  ldq_controller_t ldq_controller[LDQ_SIZE];
+  ldq_searcher_t ldq_searcher[LDQ_SIZE];
   ldq_idx_t ldq_head;
-  stq_entry_t stq[STQ_SIZE];
-  stq_idx_t stq_head;
-  stq_idx_t stq_exec_head;
+  stq_controller_t stq_controller;
+  stq_searcher_t stq_searcher[STQ_SIZE];
 
   ld_addr_t ld_addr;
   ldq_idx_with_valid_t ld_requested, ld_nack;
@@ -138,7 +138,8 @@ module lsu_top
     .violation_mask(violation_mask),
     .br_update_ff(br_update_ff),
     .commit_ld(commit_ld),
-    .ldq_ff(ldq),
+    .ldq_controller_ff(ldq_controller),
+    .ldq_searcher_ff(ldq_searcher),
     .ldq_head(ldq_head),
     .head_load_violation(head_load_violation)
   );
@@ -164,9 +165,8 @@ module lsu_top
     .st_nack(st_nack),
     .br_update_ff(br_update_ff),
     .commit_st(commit_st),
-    .stq_ff(stq),
-    .stq_head(stq_head),
-    .stq_exec_head(stq_exec_head),
+    .stq_controller(stq_controller),
+    .stq_searcher_ff(stq_searcher),
     .complete_st(complete_st),
     .stq_empty(stq_empty)
   );
@@ -178,11 +178,9 @@ module lsu_top
     .ex_lsu(ex_lsu[0]),
     .br_update_ff(br_update_ff),
     .rob_head_ld(rob_head_ld),
-    .ldq(ldq),
+    .ldq(ldq_controller),
     .ldq_head(ldq_head),
-    .stq(stq),
-    .stq_head(stq_head),
-    .stq_exec_head(stq_exec_head),
+    .stq(stq_controller),
     .ld_addr(ld_addr),
     .ld_requested(ld_requested),
     .ld_nack(ld_nack),
@@ -202,8 +200,8 @@ module lsu_top
   );
 
   lsu_searcher u_lsu_searcher (
-    .ldq(ldq),
-    .stq(stq),
+    .ldq(ldq_searcher),
+    .stq(stq_searcher),
     .forward_search(forward_search),
     .forward_result(forward_result),
     .violation_search(st_addr),
