@@ -33,26 +33,26 @@ package lsu_types;
   // STQからLDQへ
   typedef struct packed {
     stq_idx_t  tail_stq_idx;
-    stq_mask_t older_st_mask;   // 同じサイクルの前のスロットのstoreも含む
+    stq_mask_t older_st_mask;  // 同じサイクルの前のスロットのstoreも含む
   } older_st_t;
 
   // LDQのエントリ
   typedef struct packed {
-    logic      valid;
-    logic      addr_valid;
-    addr_t     addr;
-    logic      mmio;             // MMIOのloadはROBの先頭に来るまで待つ
-    logic      cache_requested;  // NACK来たら落とす
-    logic      stale;            // D$に出した後に古いstoreとアドレスが一致した。respを捨てて出し直す
-    stq_mask_t older_st_mask;      // 自分より古いstoreのmask
-    stq_idx_t  tail_stq_idx;     // dispatch時のSTQのtail
-    logic      violated;         // load順序違反
-    logic      forwarded;        // forwardされた
-    stq_idx_t  forward_stq_idx;  // forward元
-    logic      gone_to_wb;       // WBに進んだ
-    preg_t     rd;
-    rob_idx_t  rob_idx;
-    brmask_t   brmask;
+    logic valid;
+    logic addr_valid;
+    addr_t addr;
+    logic mmio;  // MMIOのloadはROBの先頭に来るまで待つ
+    logic ld_requested;  // NACK来たら落とす
+    logic stale;  // D$に出した後に古いstoreとアドレスが一致した。respを捨てて出し直す
+    stq_mask_t older_st_mask;  // 自分より古いstoreのmask
+    stq_idx_t tail_stq_idx;  // dispatch時のSTQのtail
+    logic violated;  // load順序違反
+    logic forwarded;  // forwardされた
+    stq_idx_t forward_stq_idx;  // forward元
+    logic gone_to_wb;  // WBに進んだ
+    preg_t rd;
+    rob_idx_t rob_idx;
+    brmask_t brmask;
   } ldq_entry_t;
 
   // STQのエントリ
@@ -63,6 +63,8 @@ package lsu_types;
     logic     data_valid;
     word_t    data;
     logic     committed;
+    logic     st_requested;  // D$に出した(返事はまだ)
+    logic     stale;       // nackでなかったことになった
     logic     stored;      // D$がACKした
     rob_idx_t rob_idx;
   } stq_entry_t;
@@ -73,7 +75,7 @@ package lsu_types;
     logic     addr_valid;
     addr_t    addr;
     logic     mmio;
-    logic     cache_requested;
+    logic     ld_requested;
     logic     stale;
     logic     gone_to_wb;
     preg_t    rd;
@@ -86,7 +88,7 @@ package lsu_types;
     logic      valid;
     logic      addr_valid;
     addr_t     addr;
-    logic      cache_requested;
+    logic      ld_requested;
     logic      gone_to_wb;
     stq_mask_t older_st_mask;
     stq_idx_t  tail_stq_idx;

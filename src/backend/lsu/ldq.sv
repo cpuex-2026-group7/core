@@ -63,7 +63,7 @@ module ldq
       ldq_controller_ff[i].addr_valid = ldq_ff[i].addr_valid;
       ldq_controller_ff[i].addr = ldq_ff[i].addr;
       ldq_controller_ff[i].mmio = ldq_ff[i].mmio;
-      ldq_controller_ff[i].cache_requested = ldq_ff[i].cache_requested;
+      ldq_controller_ff[i].ld_requested = ldq_ff[i].ld_requested;
       ldq_controller_ff[i].stale = ldq_ff[i].stale;
       ldq_controller_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
       ldq_controller_ff[i].rd = ldq_ff[i].rd;
@@ -73,7 +73,7 @@ module ldq
       ldq_searcher_ff[i].valid = ldq_ff[i].valid;
       ldq_searcher_ff[i].addr_valid = ldq_ff[i].addr_valid;
       ldq_searcher_ff[i].addr = ldq_ff[i].addr;
-      ldq_searcher_ff[i].cache_requested = ldq_ff[i].cache_requested;
+      ldq_searcher_ff[i].ld_requested = ldq_ff[i].ld_requested;
       ldq_searcher_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
       ldq_searcher_ff[i].older_st_mask = ldq_ff[i].older_st_mask;
       ldq_searcher_ff[i].tail_stq_idx = ldq_ff[i].tail_stq_idx;

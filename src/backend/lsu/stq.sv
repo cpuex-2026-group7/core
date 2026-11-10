@@ -104,13 +104,19 @@ module stq
     end
   end
 
-  assign stq_controller.valid = stq_exec_head != stq_commit_head;  // commit済みあるか?
+  // commit済みでまだ要求していないものがある
+  assign stq_controller.valid = stq_exec_head != stq_commit_head && !stq_ff[stq_exec_head.idx].st_requested;
   assign stq_controller.idx = stq_exec_head.idx;
   assign stq_controller.addr = stq_ff[stq_exec_head.idx].addr;
   assign stq_controller.data = stq_ff[stq_exec_head.idx].data;
 
   assign stq_empty = stq_head == stq_tail;
 
+  // headがstoredなら解放
+  always_comb begin
+    stq_release_mask = '0;
+    stq_release_mask[stq_head.idx] = stq_ff[stq_head.idx].stored;
+  end
 
   // disp_tailとtail_snapshot
   stq_ptr_t disp_tail[DISP_W+1];
@@ -127,7 +133,7 @@ module stq
       // olderを詰める
       older_st[i].tail_stq_idx = disp_tail[i].idx;
       for (int j = 0; j < STQ_SIZE; j++) begin
-        older_st[i].older_st_mask[j] = in_range(j, stq_head, disp_tail[i]);
+        older_st[i].older_st_mask[j] = in_range(j, stq_head, disp_tail[i]) && !stq_release_mask[j];
       end
 
       // snapshotを詰める
@@ -156,6 +162,25 @@ module stq
     end
   end
 
+  // AGUからの入力
+  logic ex_st_addr_valid, ex_st_data_valid;
+  assign ex_st_addr_valid = ex_lsu.is_store && ex_lsu.addr_valid;
+  assign ex_st_data_valid = ex_lsu.is_store && ex_lsu.data_valid;
+
+  assign complete_st.valid = (ex_st_addr_valid || ex_st_data_valid)
+      && (ex_st_addr_valid || stq_ff[ex_lsu.stq_idx].addr_valid)
+      && (ex_st_data_valid || stq_ff[ex_lsu.stq_idx].data_valid);
+  assign complete_st.rob_idx = stq_ff[ex_lsu.stq_idx].rob_idx;
+
+  // D$の返事
+  logic st_resp_idx_stale;
+  stq_idx_t st_resp_idx;
+  stq_ptr_t st_nack_ptr;
+  assign st_resp_idx = st_nack.valid ? st_nack.idx : st_ack.idx;
+  assign st_resp_idx_stale = (st_ack.valid || st_nack.valid) && stq_ff[st_resp_idx].stale;
+  assign st_nack_ptr.wrap = st_nack.idx >= stq_head.idx ? stq_head.wrap : ~stq_head.wrap;
+  assign st_nack_ptr.idx = st_nack.idx;
+
   // stq_ffとhead,tail
   stq_ptr_t n_stq_head, n_stq_commit_head, n_stq_exec_head, n_stq_tail;
   stq_entry_t n_stq_ff[STQ_SIZE];
@@ -175,10 +200,21 @@ module stq
           n_stq_ff[disp_stq_idx[i]].addr_valid = 1'b0;
           n_stq_ff[disp_stq_idx[i]].data_valid = 1'b0;
           n_stq_ff[disp_stq_idx[i]].committed = 1'b0;
+          n_stq_ff[disp_stq_idx[i]].st_requested = 1'b0;
+          n_stq_ff[disp_stq_idx[i]].stale = 1'b0;
           n_stq_ff[disp_stq_idx[i]].stored = 1'b0;
           n_stq_ff[disp_stq_idx[i]].rob_idx = disp_st[i].rob_idx;
         end
       end
+    end
+
+    if (ex_st_addr_valid) begin
+      n_stq_ff[ex_lsu.stq_idx].addr_valid = 1'b1;
+      n_stq_ff[ex_lsu.stq_idx].addr = ex_lsu.addr;
+    end
+    if (ex_st_data_valid) begin
+      n_stq_ff[ex_lsu.stq_idx].data_valid = 1'b1;
+      n_stq_ff[ex_lsu.stq_idx].data = ex_lsu.data;
     end
 
     for (int i = 0; i < COMMIT_W; i++) begin
@@ -188,23 +224,39 @@ module stq
       end
     end
 
-    // nackとack
-    if (st_nack.valid) begin
-      n_stq_exec_head = st_nack.idx;
-    end else if (st_ack.valid) begin
-      n_stq_ff[st_ack.idx].stored = 1'b1;
-    end
     // exec_headを進める
     if (st_requested) begin
-      n_stq_exec_head = ptr_inc(n_stq_exec_head);
+      n_stq_ff[stq_exec_head.idx].st_requested = 1'b1;
+      n_stq_exec_head = ptr_inc(stq_exec_head);
+    end
+
+    // ackとnack
+    if (st_resp_idx_stale) begin
+      // staleにしてたやつが帰ってきた
+      n_stq_ff[st_resp_idx].st_requested = 1'b0;
+      n_stq_ff[st_resp_idx].stale = 1'b0;
+    end else if (st_ack.valid) begin
+      // ackされたstoreはstoredにする
+      n_stq_ff[st_ack.idx].st_requested = 1'b0;
+      n_stq_ff[st_ack.idx].stored = 1'b1;
+    end else if (st_nack.valid) begin
+      // nackされたstoreからやりなおし
+      for (int i = 0; i < STQ_SIZE; i++) begin
+        if (in_range(i, st_nack_ptr, n_stq_exec_head)) begin
+          n_stq_ff[i].stored = 1'b0;
+          n_stq_ff[i].stale  = n_stq_ff[i].st_requested;
+        end
+      end
+      n_stq_ff[st_nack.idx].st_requested = 1'b0;
+      n_stq_ff[st_nack.idx].stale = 1'b0;
+      n_stq_exec_head = st_nack_ptr;
     end
 
     // headを進める
-    for (int i = 0; i < STQ_SIZE; i++) begin
-      if (n_stq_ff[i].valid && n_stq_ff[i].stored && i == n_stq_head.idx) begin
-        n_stq_ff[i].valid = 1'b0;
-        n_stq_head = ptr_inc(n_stq_head);
-      end
+    if (stq_ff[stq_head.idx].stored) begin
+      n_stq_ff[stq_head.idx].valid = 1'b0;
+      n_stq_ff[stq_head.idx].stored = 1'b0;
+      n_stq_head = ptr_inc(stq_head);
     end
 
     if (flush) begin
@@ -234,27 +286,6 @@ module stq
     end
   end
 
-
-  // AGUからの入力
-  logic ex_st_addr_valid, ex_st_data_valid;
-  assign ex_st_addr_valid = ex_lsu.is_store && ex_lsu.addr_valid;
-  assign ex_st_data_valid = ex_lsu.is_store && ex_lsu.data_valid;
-
-  assign complete_st.valid = (ex_st_addr_valid || ex_st_data_valid)
-      && (ex_st_addr_valid || stq_ff[ex_lsu.stq_idx].addr_valid)
-      && (ex_st_data_valid || stq_ff[ex_lsu.stq_idx].data_valid);
-  assign complete_st.rob_idx = stq_ff[ex_lsu.stq_idx].rob_idx;
-
-  always_comb begin
-    if (ex_st_addr_valid) begin
-      n_stq_ff[ex_lsu.stq_idx].addr_valid = 1'b1;
-      n_stq_ff[ex_lsu.stq_idx].addr = ex_lsu.addr;
-    end
-    if (ex_st_data_valid) begin
-      n_stq_ff[ex_lsu.stq_idx].data_valid = 1'b1;
-      n_stq_ff[ex_lsu.stq_idx].data = ex_lsu.data;
-    end
-  end
 endmodule
 
 `default_nettype wire
