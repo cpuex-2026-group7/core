@@ -1,6 +1,9 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
+// TODO
+// br_tag management
+
 module frontend #(
     parameter int BTB_TAG_WIDTH = 9,
     parameter int BTB_IDX_WIDTH = 7,
