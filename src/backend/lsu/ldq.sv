@@ -49,7 +49,7 @@ module ldq
 
   // ROB
   input wire logic commit_ld[COMMIT_W],
-  output logic head_load_violation  // LDQの先頭のloadが順序違反
+  output load_violation_t load_violation[COMMIT_W]  // headからk番目のloadまでについて情報提供
 );
 
   typedef struct packed {
@@ -151,6 +151,7 @@ module ldq
     n_ldq_head = ldq_head;
     n_ldq_tail = disp_tail[DISP_W];
 
+    // dispatch
     if (!br_update_ff.mispredict && !flush) begin
       for (int i = 0; i < DISP_W; i++) begin
         if (disp_ld[i].valid && !disp_full[i]) begin

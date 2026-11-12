@@ -193,6 +193,7 @@ module stq
     n_stq_exec_head = stq_exec_head;
     n_stq_tail = disp_tail[DISP_W];
 
+    // dispatch
     if (!br_update_ff.mispredict && !flush) begin
       for (int i = 0; i < DISP_W; i++) begin
         if (disp_st[i].valid && !disp_full[i]) begin
@@ -208,6 +209,7 @@ module stq
       end
     end
 
+    // AGUから
     if (ex_st_addr_valid) begin
       n_stq_ff[ex_lsu.stq_idx].addr_valid = 1'b1;
       n_stq_ff[ex_lsu.stq_idx].addr = ex_lsu.addr;
@@ -217,6 +219,7 @@ module stq
       n_stq_ff[ex_lsu.stq_idx].data = ex_lsu.data;
     end
 
+    // commitでcommit_headを進める
     for (int i = 0; i < COMMIT_W; i++) begin
       if (commit_st[i]) begin
         n_stq_ff[n_stq_commit_head.idx].committed = 1'b1;

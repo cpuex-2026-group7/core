@@ -41,7 +41,7 @@ module lsu_top
   input wire logic rob_head_ld,  // MMIOのloadは取り消されるとまずいのでROBの先頭しか無理
   output complete_t complete_st,  // addressとdata揃ったらcomplete出す
   output logic stq_empty,  // commit済みのstoreも全部D$に書き終わった(halt用)
-  output logic head_load_violation,  // LDQの先頭のloadが順序違反
+  output load_violation_t load_violation[COMMIT_W],  // headからk番目のloadまでについて情報提供
 
   // RFへ
   output lsu_wb_t wb_mem[1],  // loadをRFへ
@@ -139,7 +139,7 @@ module lsu_top
     .ldq_controller_ff(ldq_controller),
     .ldq_searcher_ff(ldq_searcher),
     .ldq_head_idx(ldq_head_idx),
-    .head_load_violation(head_load_violation)
+    .load_violation(load_violation)
   );
 
   stq #(
