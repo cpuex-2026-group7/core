@@ -21,7 +21,7 @@
 //     mmio はアドレスが MMIO_RX_ADDR のときだけ
 //   - commit は古い分岐が全部解決した後
 //   - controller からの ld_requested / ld_gone_to_wb / ld_nack は同じサイクルに別のエントリに来る
-//     ld_requested：ld_requested=1、stale |= ld_requested.stale
+//     ld_requested：ld_requested=1
 //     ld_gone_to_wb：ld_requested=0、gone_to_wb=1、forwarded / forward_stq_idx を入れる
 //     violation_mask：violated を立てる
 //     stale_mask：上の更新の後で ld_requested なら stale を立てる
@@ -55,7 +55,7 @@ module tb_ldq
   older_st_t           older_st         [  DISP_W];
   stq_mask_t           stq_release_mask;
   ex_lsu_t             ex_lsu;
-  ld_requested_t       ld_requested;
+  ldq_idx_with_valid_t ld_requested;
   ldq_idx_with_valid_t ld_nack;
   ld_wb_notice_t       ld_gone_to_wb;
   ldq_idx_t            ldq_head_idx;
@@ -83,7 +83,7 @@ module tb_ldq
   older_st_t           t_older_st       [  DISP_W];
   stq_mask_t           t_stq_release_mask;
   ex_lsu_t             t_ex_lsu;
-  ld_requested_t       t_ld_requested;
+  ldq_idx_with_valid_t t_ld_requested;
   ldq_idx_with_valid_t t_ld_nack;
   ld_wb_notice_t       t_ld_gone_to_wb;
   ldq_mask_t           t_violation_mask;
@@ -174,7 +174,7 @@ module tb_ldq
   int errors;
 
   int n_disp, n_full, n_kill_disp, n_wrap, n_commit, n_mispredict, n_flush;
-  int n_agu, n_mmio, n_req, n_req_stale, n_gone, n_nack, n_stale_set, n_viol_out, n_kill_entry;
+  int n_agu, n_mmio, n_req, n_gone, n_nack, n_stale_set, n_viol_out, n_kill_entry;
 
   task automatic err(string msg);
     errors++;
@@ -286,7 +286,7 @@ module tb_ldq
     br_tag_t d_br_tag[DISP_W];
     older_st_t d_older[DISP_W];
     logic d_commit[COMMIT_W];
-    ld_requested_t lr;
+    ldq_idx_with_valid_t lr;
     ldq_idx_with_valid_t ln;
     ld_wb_notice_t lg;
     ldq_mask_t vm, sm;
@@ -395,7 +395,6 @@ module tb_ldq
         r_idx = cand[rnd(cand.size())];
         lr.valid = 1'b1;
         lr.ldq_idx = ldq_idx_t'(r_idx);
-        lr.stale = rnd(8) == 0;
       end
       cand.delete();
     end
@@ -524,9 +523,7 @@ module tb_ldq
 
     if (r_idx >= 0) begin
       m_req[r_idx] = 1'b1;
-      m_stale[r_idx] |= lr.stale;
       n_req++;
-      if (lr.stale) n_req_stale++;
     end
     if (g_idx >= 0) begin
       m_req[g_idx] = 1'b0;
@@ -679,8 +676,8 @@ module tb_ldq
              n_kill_disp, n_wrap);
     $display("commit %0d、mispredict %0d、flush %0d、kill したエントリ %0d", n_commit, n_mispredict, n_flush,
              n_kill_entry);
-    $display("AGU %0d（mmio %0d）、requested %0d（stale 付き %0d）、gone_to_wb %0d、nack %0d", n_agu, n_mmio, n_req,
-             n_req_stale, n_gone, n_nack);
+    $display("AGU %0d（mmio %0d）、requested %0d、gone_to_wb %0d、nack %0d", n_agu, n_mmio, n_req,
+             n_gone, n_nack);
     $display("stale_mask で stale になった %0d、load_violation を出した %0d", n_stale_set, n_viol_out);
     if (errors == 0) $display("PASS");
     else $display("FAIL（%0d 件）", errors);

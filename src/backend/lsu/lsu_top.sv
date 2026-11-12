@@ -103,10 +103,10 @@ module lsu_top
   ldq_searcher_t ldq_searcher[LDQ_SIZE];
   ldq_idx_t ldq_head_idx;
   stq_controller_t stq_controller;
+  stq_cnt_t stq_cnt;
   stq_searcher_t stq_searcher[STQ_SIZE];
 
-  ld_requested_t ld_requested;
-  ldq_idx_with_valid_t ld_nack;
+  ldq_idx_with_valid_t ld_requested, ld_nack;
   ld_wb_notice_t ld_gone_to_wb;
   logic st_requested;
   stq_idx_with_valid_t st_ack, st_nack;
@@ -164,6 +164,7 @@ module lsu_top
     .br_update_ff(br_update_ff),
     .commit_st(commit_st),
     .stq_controller(stq_controller),
+    .stq_cnt(stq_cnt),
     .stq_searcher_ff(stq_searcher),
     .complete_st(complete_st),
     .stq_empty(stq_empty)
@@ -173,12 +174,12 @@ module lsu_top
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_lsu(ex_lsu[0]),
     .br_update_ff(br_update_ff),
     .rob_head_ld(rob_head_ld),
     .ldq(ldq_controller),
     .ldq_head_idx(ldq_head_idx),
-    .stq(stq_controller),
+    .head_store(stq_controller),
+    .stq_cnt(stq_cnt),
     .ld_requested(ld_requested),
     .ld_nack(ld_nack),
     .ld_gone_to_wb(ld_gone_to_wb),

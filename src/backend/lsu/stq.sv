@@ -36,6 +36,7 @@ module stq
   input wire stq_idx_with_valid_t st_ack,
   input wire stq_idx_with_valid_t st_nack,  // stq_exec_headをそこまで戻す
   output stq_controller_t stq_controller,  // stq_exec_headのstore
+  output stq_cnt_t stq_cnt,  // STQの中身の数
 
   // searcherへ
   output stq_searcher_t stq_searcher_ff[STQ_SIZE],
@@ -67,6 +68,8 @@ module stq
   assign stq_controller.stq_idx = stq_exec_head.stq_idx;
   assign stq_controller.addr = stq_ff[stq_exec_head.stq_idx].addr;
   assign stq_controller.data = stq_ff[stq_exec_head.stq_idx].data;
+
+  assign stq_cnt = stq_ptr_dist(stq_head, stq_tail);
 
   assign stq_empty = stq_head == stq_tail;
 

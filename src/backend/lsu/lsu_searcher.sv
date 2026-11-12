@@ -52,7 +52,7 @@ module lsu_searcher
             stale_mask[i] = 1'b0;
           end else begin
             violation_mask[i] = 1'b0;
-            stale_mask[i] = ldq[i].ld_requested;
+            stale_mask[i] = 1'b1;
           end
         end
       end
@@ -60,8 +60,8 @@ module lsu_searcher
   end
 
   // loadより古いstoreのうち一番新しいものからfoward
-  stq_ptr_t p;
   always_comb begin
+    stq_ptr_t p;
     forward_result = '0;
     p.wrap = 1'b0;
     p.stq_idx = ldq[forward_ldq_idx].tail_stq_idx;

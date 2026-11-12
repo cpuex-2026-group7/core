@@ -57,6 +57,7 @@ module tb_stq
   stq_idx_with_valid_t st_ack;
   stq_idx_with_valid_t st_nack;
   stq_controller_t     stq_controller;
+  stq_cnt_t            stq_cnt;
   stq_searcher_t       stq_searcher_ff [STQ_SIZE];
   br_update_t          br_update_ff;
   logic                commit_st       [COMMIT_W];
@@ -394,6 +395,8 @@ module tb_stq
 
     if (stq_empty != (head_pos == tail_pos))
       err($sformatf("stq_empty = %0b、期待値 %0b", stq_empty, head_pos == tail_pos));
+    if (int'(stq_cnt) != tail_pos - head_pos)
+      err($sformatf("stq_cnt = %0d、期待値 %0d", stq_cnt, tail_pos - head_pos));
 
     if (stq_controller.valid != exp_ctrl_valid)
       err($sformatf("stq_controller.valid = %0b、期待値 %0b", stq_controller.valid, exp_ctrl_valid));

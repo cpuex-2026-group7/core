@@ -22,7 +22,7 @@
 //   forward：load より古い store（seq が [H, T)）で addr_valid かつアドレスが同じもののうち seq が最大のもの
 //   違反：AGU の store より新しい（S < T）、valid かつ addr_valid でアドレスが同じ load について
 //     gone_to_wb なら violation（ただし forward 元の seq が S より大きければ違反にしない）
-//     そうでなければ stale = ld_requested
+//     そうでなければ stale（ld_requested では絞らない。絞るのは LDQ）
 
 module tb_lsu_searcher
   import types::*;
@@ -227,7 +227,7 @@ module tb_lsu_searcher
               if (F[i] >= 0) n_viol_by_old_fw++;
             end
           end else begin
-            exp_stale[i] = l[i].ld_requested;
+            exp_stale[i] = 1'b1;
           end
         end
       end

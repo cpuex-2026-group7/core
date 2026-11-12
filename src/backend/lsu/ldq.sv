@@ -32,14 +32,14 @@ module ldq
   input wire ex_lsu_t ex_lsu,
 
   // controller
-  input wire ld_requested_t ld_requested,
+  input wire ldq_idx_with_valid_t ld_requested,
   input wire ldq_idx_with_valid_t ld_nack,
   input wire ld_wb_notice_t ld_gone_to_wb,
   output ldq_idx_t ldq_head_idx,
 
   // searcher
   input wire ldq_mask_t violation_mask,  // WBに出た後のloadが違反
-  input wire ldq_mask_t stale_mask,  // WBに出る前のloadが当たった
+  input wire ldq_mask_t stale_mask,  // WBに出る前のloadでアドレス一致したもの
 
   // controller、searcherへ
   output ldq_controller_t ldq_controller_ff[LDQ_SIZE],
@@ -153,7 +153,6 @@ module ldq
     // requested
     if (ld_requested.valid) begin
       n_ldq_ff[ld_requested.ldq_idx].ld_requested = 1'b1;
-      n_ldq_ff[ld_requested.ldq_idx].stale |= ld_requested.stale;
     end
     // gone_to_wb
     if (ld_gone_to_wb.valid) begin

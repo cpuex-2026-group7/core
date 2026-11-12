@@ -28,6 +28,16 @@ package lsu_types;
     end
   endfunction
 
+  function automatic ldq_ptr_t ldq_ptr_dec(input ldq_ptr_t p);
+    if (p.ldq_idx == ldq_idx_t'(0)) begin
+      ldq_ptr_dec.wrap = ~p.wrap;
+      ldq_ptr_dec.ldq_idx = ldq_idx_t'(LDQ_SIZE - 1);
+    end else begin
+      ldq_ptr_dec.wrap = p.wrap;
+      ldq_ptr_dec.ldq_idx = p.ldq_idx - 1'b1;
+    end
+  endfunction
+
   function automatic logic ldq_ptr_full(input ldq_ptr_t head, input ldq_ptr_t tail);
     ldq_ptr_full = head.ldq_idx == tail.ldq_idx && head.wrap != tail.wrap;
   endfunction
@@ -186,13 +196,6 @@ package lsu_types;
     logic     valid;
     ldq_idx_t ldq_idx;
   } ldq_idx_with_valid_t;
-
-  // controllerからLDQへ
-  typedef struct packed {
-    logic     valid;
-    ldq_idx_t ldq_idx;
-    logic     stale;    // 出すサイクルに古いstoreのアドレスが来て一致した
-  } ld_requested_t;
 
   // controllerからSTQへ
   typedef struct packed {
