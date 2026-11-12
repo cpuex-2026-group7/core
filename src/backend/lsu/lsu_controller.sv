@@ -24,7 +24,7 @@ module lsu_controller
 
   // LDQ
   input wire ldq_controller_t ldq[LDQ_SIZE],
-  input wire ldq_idx_t ldq_head,  // loadの先頭(MMIO用)
+  input wire ldq_idx_t ldq_head_idx,  // loadの先頭(MMIO用)
   output ld_requested_t ld_requested,
   output ldq_idx_with_valid_t ld_nack,
   output ld_wb_notice_t ld_gone_to_wb,

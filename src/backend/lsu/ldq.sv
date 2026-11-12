@@ -35,7 +35,7 @@ module ldq
   input wire ld_requested_t ld_requested,
   input wire ldq_idx_with_valid_t ld_nack,
   input wire ld_wb_notice_t ld_gone_to_wb,
-  output ldq_idx_t ldq_head,
+  output ldq_idx_t ldq_head_idx,
 
   // searcher
   input wire ldq_mask_t violation_mask,
@@ -52,11 +52,32 @@ module ldq
   output logic head_load_violation  // LDQの先頭のloadが順序違反
 );
 
-  ldq_idx_t ldq_tail;
-  logic ldq_full;  // ldq_head == ldq_tailのとき空か満杯かを区別する
-  ldq_idx_t ldq_tail_snapshot[MAX_BR];
+  typedef struct packed {
+    logic     wrap;
+    ldq_idx_t idx;
+  } ldq_ptr_t;
+
+  function automatic ldq_ptr_t ptr_inc(input ldq_ptr_t p);
+    if (p.idx == ldq_idx_t'(LDQ_SIZE - 1)) begin
+      ptr_inc.wrap = ~p.wrap;
+      ptr_inc.idx  = '0;
+    end else begin
+      ptr_inc.wrap = p.wrap;
+      ptr_inc.idx  = p.idx + 1'b1;
+    end
+  endfunction
+
+  function automatic logic ptr_full(input ldq_ptr_t head, input ldq_ptr_t tail);
+    ptr_full = head.idx == tail.idx && head.wrap != tail.wrap;
+  endfunction
+
+  ldq_ptr_t ldq_head, ldq_tail;
+  ldq_ptr_t ldq_tail_snapshot[MAX_BR];
   ldq_entry_t ldq_ff[LDQ_SIZE];
 
+  assign ldq_head_idx = ldq_head.idx;
+
+  // ldq_ffからcontroller,searcherへ
   always_comb begin
     for (int i = 0; i < LDQ_SIZE; i++) begin
       ldq_controller_ff[i].valid = ldq_ff[i].valid;
@@ -79,6 +100,109 @@ module ldq
       ldq_searcher_ff[i].tail_stq_idx = ldq_ff[i].tail_stq_idx;
       ldq_searcher_ff[i].forwarded = ldq_ff[i].forwarded;
       ldq_searcher_ff[i].forward_stq_idx = ldq_ff[i].forward_stq_idx;
+    end
+  end
+
+  // disp_tailとtail_snapshot
+  ldq_ptr_t disp_tail[DISP_W+1];
+  ldq_ptr_t n_ldq_tail_snapshot[MAX_BR];
+  always_comb begin
+    for (int i = 0; i < MAX_BR; i++) begin
+      n_ldq_tail_snapshot[i] = ldq_tail_snapshot[i];
+    end
+    disp_tail[0] = ldq_tail;
+    for (int i = 0; i < DISP_W; i++) begin
+      disp_ldq_idx[i] = disp_tail[i].idx;
+      disp_full[i] = ptr_full(ldq_head, disp_tail[i]);
+
+      // snapshotを詰める
+      if (disp_br_valid[i]) begin
+        n_ldq_tail_snapshot[disp_br_tag[i]] = disp_tail[i];
+      end
+
+      // 命令が入った場合disp_tailを進める
+      if (disp_ld[i].valid && !disp_full[i]) begin
+        disp_tail[i+1] = ptr_inc(disp_tail[i]);
+      end else begin
+        disp_tail[i+1] = disp_tail[i];
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < MAX_BR; i++) begin
+        ldq_tail_snapshot[i] <= '0;
+      end
+    end else begin
+      for (int i = 0; i < MAX_BR; i++) begin
+        ldq_tail_snapshot[i] <= n_ldq_tail_snapshot[i];
+      end
+    end
+  end
+
+  // ldq_ffとhead,tail
+  ldq_ptr_t n_ldq_head, n_ldq_tail;
+  ldq_entry_t n_ldq_ff[LDQ_SIZE];
+  always_comb begin
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      n_ldq_ff[i] = ldq_ff[i];
+    end
+    n_ldq_head = ldq_head;
+    n_ldq_tail = disp_tail[DISP_W];
+
+    if (!br_update_ff.mispredict && !flush) begin
+      for (int i = 0; i < DISP_W; i++) begin
+        if (disp_ld[i].valid && !disp_full[i]) begin
+          n_ldq_ff[disp_ldq_idx[i]].valid = 1'b1;
+          n_ldq_ff[disp_ldq_idx[i]].addr_valid = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].mmio = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].ld_requested = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].stale = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].older_st_mask = older_st[i].older_st_mask;
+          n_ldq_ff[disp_ldq_idx[i]].tail_stq_idx = older_st[i].tail_stq_idx;
+          n_ldq_ff[disp_ldq_idx[i]].violated = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].forwarded = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].gone_to_wb = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].rd = disp_ld[i].rd;
+          n_ldq_ff[disp_ldq_idx[i]].rob_idx = disp_ld[i].rob_idx;
+          n_ldq_ff[disp_ldq_idx[i]].brmask = disp_ld[i].brmask;
+        end
+      end
+    end
+
+    // commitで解放
+    for (int i = 0; i < COMMIT_W; i++) begin
+      if (commit_ld[i]) begin
+        n_ldq_ff[n_ldq_head.idx].valid = 1'b0;
+        n_ldq_head = ptr_inc(n_ldq_head);
+      end
+    end
+
+    // 最後にflush確認
+    if (flush) begin
+      n_ldq_tail = n_ldq_head;
+      for (int i = 0; i < LDQ_SIZE; i++) begin
+        n_ldq_ff[i].valid = 1'b0;
+      end
+    end else if (br_update_ff.mispredict) begin
+      n_ldq_tail = ldq_tail_snapshot[br_update_ff.tag];
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < LDQ_SIZE; i++) begin
+        ldq_ff[i] <= '0;
+      end
+      ldq_head <= '0;
+      ldq_tail <= '0;
+    end else begin
+      for (int i = 0; i < LDQ_SIZE; i++) begin
+        ldq_ff[i] <= n_ldq_ff[i];
+      end
+      ldq_head <= n_ldq_head;
+      ldq_tail <= n_ldq_tail;
     end
   end
 

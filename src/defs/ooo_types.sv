@@ -31,7 +31,12 @@ package ooo_types;
     MEM_TYPE_ST = 1'b1
   } ls_type_t;
 
-  typedef logic [$clog2(ROB_SIZE)-1:0] rob_idx_t;
+  typedef logic [$clog2(ROB_SIZE)-1:0] rob_row_t;
+  typedef struct packed {
+    rob_row_t row;
+    logic [$clog2(DISPATCH_W)-1:0] bank;
+  } rob_idx_t;
+
   typedef logic [MAX_BR-1:0] brmask_t;
   typedef logic [BR_TAG_W-1:0] br_tag_t;
   typedef logic [$clog2(LDQ_SIZE)-1:0] ldq_idx_t;
@@ -52,8 +57,8 @@ package ooo_types;
 
   // ex_topでFFに入れた後配られる
   typedef struct packed {
-    brmask_t  resolve_mask;     // 予測が当たった分岐
-    brmask_t  kill_mask;        // 予測が外れた分岐
+    brmask_t  resolve_mask;  // 予測が当たった分岐
+    brmask_t  kill_mask;     // 予測が外れた分岐
     logic     mispredict;
     // これ以降は復帰用の情報
     br_tag_t  tag;

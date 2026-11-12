@@ -101,7 +101,7 @@ module lsu_top
 
   ldq_controller_t ldq_controller[LDQ_SIZE];
   ldq_searcher_t ldq_searcher[LDQ_SIZE];
-  ldq_idx_t ldq_head;
+  ldq_idx_t ldq_head_idx;
   stq_controller_t stq_controller;
   stq_searcher_t stq_searcher[STQ_SIZE];
 
@@ -138,7 +138,7 @@ module lsu_top
     .commit_ld(commit_ld),
     .ldq_controller_ff(ldq_controller),
     .ldq_searcher_ff(ldq_searcher),
-    .ldq_head(ldq_head),
+    .ldq_head_idx(ldq_head_idx),
     .head_load_violation(head_load_violation)
   );
 
@@ -176,7 +176,7 @@ module lsu_top
     .br_update_ff(br_update_ff),
     .rob_head_ld(rob_head_ld),
     .ldq(ldq_controller),
-    .ldq_head(ldq_head),
+    .ldq_head_idx(ldq_head_idx),
     .stq(stq_controller),
     .ld_requested(ld_requested),
     .ld_nack(ld_nack),

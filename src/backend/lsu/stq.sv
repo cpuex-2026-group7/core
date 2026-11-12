@@ -141,7 +141,7 @@ module stq
         n_stq_tail_snapshot[disp_br_tag[i]] = disp_tail[i];
       end
 
-      // 詰めた場合disp_tailを進める
+      // 命令が入った場合disp_tailを進める
       if (disp_st[i].valid && !disp_full[i]) begin
         disp_tail[i+1] = ptr_inc(disp_tail[i]);
       end else begin
@@ -259,6 +259,7 @@ module stq
       n_stq_head = ptr_inc(stq_head);
     end
 
+    // 最後にflush確認
     if (flush) begin
       n_stq_tail = n_stq_commit_head;
     end else if (br_update_ff.mispredict) begin
