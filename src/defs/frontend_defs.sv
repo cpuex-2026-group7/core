@@ -1,4 +1,7 @@
 package frontend_pkg;
+
+  localparam int FETCH_W = 2;
+
   typedef struct packed {
     logic valid;
     types::addr_t target;
@@ -25,5 +28,9 @@ package frontend_pkg;
     types::addr_t pc;
     ftq_bp_data_t bp_data;
   } ftq_data_t;
+
+  typedef struct packed {
+    isa::instr_t instr[FETCH_W];
+  } fetch_packet_t;
 
 endpackage
