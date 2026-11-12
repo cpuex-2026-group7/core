@@ -13,6 +13,12 @@
 #            配置配線が終わっていればその結果、無ければ合成の結果を使う
 #            timing 20 のように数を付けるとワースト 20 本（既定 10 本）
 #   ip       IP の状態を表示し、ロックされた IP を更新して、出力ファイルを作り直す
+#   backend  backend_top だけを out-of-context で合成・配置配線し、回路規模とクリティカルパスを表示
+#            .xpr は使わない。結果は timing/backend/ に保存（配置の図は placement.svg）
+#            backend 20 でワースト 20 本
+#            backend 100mhz や backend 10ns でクロックを指定（既定 12.5ns = 80MHz）
+#            backend iq_top のようにモジュール名を付けるとそれを top にする（結果は timing/iq_top/）
+#            backend synth で合成だけ（配線遅延は見積もり）。違反パスのまとめは groups.rpt
 # clean      合成と配置配線を強制的にやり直す
 #
 # 終了コード: 0 = 成功、1 = 失敗（シェルスクリプトから判定に使える）
@@ -166,9 +172,11 @@ proc show_critical_paths {n} {
     } else {
         die "no finished synthesis/implementation. run 'build' first"
     }
+    report_critical_paths $n $stage [file join $::script_dir timing]
+}
 
-    # Vivado の詳しいレポートは timing/ に保存する
-    set dir [file join $::script_dir timing]
+# 今開いているデザインのクリティカルパスを表示し、Vivado の詳しいレポートを dir に保存する
+proc report_critical_paths {n stage dir} {
     file mkdir $dir
     report_timing_summary -max_paths $n -file [file join $dir summary.rpt]
     report_timing -delay_type max -max_paths $n -nworst 1 -sort_by slack -input_pins \
@@ -239,7 +247,7 @@ proc show_critical_paths {n} {
     foreach r [lsort -integer -decreasing -index 1 $rows] {
         puts [format "  %3d / %d  %s" [lindex $r 1] $i [lindex $r 0]]
     }
-    puts "\nfull reports: timing/summary.rpt, timing/paths.rpt"
+    puts "\nfull reports: [file join $dir summary.rpt], [file join $dir paths.rpt]"
 }
 
 # ---------------------------------------------------------------
@@ -377,6 +385,51 @@ proc sync_fpu_sources {} {
 }
 
 # ---------------------------------------------------------------
+# プロジェクトの作成
+# ---------------------------------------------------------------
+
+# .xpr が無いときに、フォルダ名のプロジェクト（core.xpr）を作る。
+# src/ の .sv（src/ip と *_repository の下は除く）、制約、clk_wiz_0、fib.mem を登録し、top を top にする
+proc create_core_project {board_found} {
+    set dir $::script_dir
+    set name [file tail $dir]
+    section "Create project $name.xpr"
+    # .xpr が無いのに $name.runs などが残っていると作れないので、-force で古い結果ごと作り直す
+    create_project -force $name $dir -part xc7a100tcsg324-1
+    if {$board_found} {
+        set_property board_part digilentinc.com:nexys-a7-100t:part0:1.3 [current_project]
+    }
+    set_property target_language Verilog [current_project]
+
+    set src [file join $dir src]
+    set files {}
+    foreach f [find_sv_files $src] {
+        set r [file normalize $f]
+        if {[string match -nocase "[file normalize [file join $src ip]]/*" $r]} { continue }
+        if {[regexp -nocase {_repository/} $r]} { continue }
+        lappend files $r
+    }
+    add_files -fileset sources_1 -norecurse $files
+    set_property file_type SystemVerilog [get_files $files]
+
+    add_files -fileset sources_1 -norecurse [file join $src ip clk_wiz_0 clk_wiz_0.xci]
+
+    set mem [file join $dir test fib.mem]
+    if {[file exists $mem]} {
+        add_files -fileset sources_1 -norecurse $mem
+    } else {
+        puts "WARNING: $mem not found, i_mem is not initialized"
+    }
+
+    add_files -fileset constrs_1 -norecurse [file join $src constraints Nexys-A7-100T-Master.xdc]
+
+    set_property top top [get_filesets sources_1]
+    update_compile_order -fileset sources_1
+    puts "[llength $files] sources added"
+    close_project
+}
+
+# ---------------------------------------------------------------
 # ビルド
 # ---------------------------------------------------------------
 proc build_bitstream {force} {
@@ -435,6 +488,229 @@ proc build_bitstream {force} {
 }
 
 # ---------------------------------------------------------------
+# バックエンドだけの合成（backend モード）
+# ---------------------------------------------------------------
+
+# backend_top を top にして out-of-context で合成・配置配線し、回路規模とタイミングを表示する。
+# .xpr は使わず、ファイルを直接読む。ピン配置はしないのでボードには書き込めない
+proc synth_backend {n period top synth_only} {
+    set part xc7a100tcsg324-1
+    set src [file join $::script_dir src]
+    set out [file join $::script_dir timing [expr {$top eq "backend_top" ? "backend" : $top}]]
+    set t0 [clock seconds]
+
+    # package は使う側より先に読む
+    set files {}
+    foreach f {types ooo_types isa uop_types} {
+        lappend files [file join $src defs $f.sv]
+    }
+    foreach f {back_types iq_types rr_types ex_types rob_types lsu_types} {
+        lappend files [file join $src backend defs $f.sv]
+    }
+    lappend files {*}[find_sv_files [file join $src common]]
+    lappend files [file join $src backend backend_top.sv]
+    foreach d {iq rf ex lsu} {
+        lappend files {*}[find_sv_files [file join $src backend $d]]
+    }
+    set fpu [file join $src fpu fpu_repository src]
+    if {![file isdirectory $fpu]} { die "$fpu not found" }
+    lappend files {*}[find_sv_files $fpu]
+
+    section "Synthesize $top ([llength $files] files)"
+    read_verilog -sv $files
+    if {[catch {synth_design -top $top -part $part -mode out_of_context} err]} {
+        die "synthesis failed: $err"
+    }
+    puts "synthesis: [expr {[clock seconds] - $t0}] s"
+    if {[llength [get_ports -quiet clk]] == 0} { die "$top has no port named clk" }
+
+    # ポートの外は遅延 0 とみなして、入力から FF、FF から出力のパスも見る
+    create_clock -name clk -period $period [get_ports clk]
+    set ins [get_ports -filter {DIRECTION == IN && NAME != clk}]
+    set_input_delay  -clock clk 0 $ins
+    set outs [get_ports -filter {DIRECTION == OUT}]
+    set_output_delay -clock clk 0 $outs
+    # ポートの hold は外の回路が無いと意味が無い（クロックの遅延ぶん必ず違反に見える）ので見ない
+    set_false_path -hold -from $ins
+    set_false_path -hold -to $outs
+
+    # クロックは外の BUFG から来るものとして扱う（指定しないと普通の配線で引かれて skew が大きく出る）
+    set_property HD.CLK_SRC BUFGCTRL_X0Y0 [get_ports clk]
+
+    file mkdir $out
+    write_checkpoint -force [file join $out ${top}_synth.dcp]
+
+    # synth を付けたときは合成で止める（配線遅延は見積もり。段数を見るだけならこれで足りる）
+    if {$synth_only} {
+        report_utilization -file [file join $out utilization.rpt]
+        report_utilization -hierarchical -file [file join $out utilization_hier.rpt]
+        section "Utilization (after synthesis)"
+        puts [report_utilization -hierarchical -hierarchical_depth 2 -return_string]
+        report_critical_paths $n "$top, after synthesis - net delays are ESTIMATES" $out
+        report_path_groups $out
+        return
+    }
+
+    # route_design は tight_setup_hold_pins.txt をカレントディレクトリに出すので、出力先に移っておく
+    section "Place & route $top"
+    set t1 [clock seconds]
+    set cwd [pwd]
+    cd $out
+    foreach step {opt_design place_design phys_opt_design route_design} {
+        if {[catch {$step} err]} {
+            cd $cwd
+            die "$step failed: $err"
+        }
+    }
+    cd $cwd
+    puts "place & route: [expr {[clock seconds] - $t1}] s"
+    write_checkpoint -force [file join $out ${top}_routed.dcp]
+    report_utilization -file [file join $out utilization.rpt]
+    report_utilization -hierarchical -file [file join $out utilization_hier.rpt]
+
+    section "Utilization (after place & route)"
+    puts [report_utilization -hierarchical -hierarchical_depth 2 -return_string]
+    puts "full reports: [file join $out utilization.rpt], [file join $out utilization_hier.rpt]"
+
+    write_placement_svg [file join $out placement.svg]
+
+    report_critical_paths $n "$top, after place & route (out-of-context)" $out
+    report_path_groups $out
+}
+
+# ピンの名前から添字とセルの種類を落として、同じ FF の束を 1 つにまとめる
+proc path_group_name {pin} {
+    set n [get_property NAME $pin]
+    regsub {/[A-Za-z0-9]+$} $n {} n
+    regsub -all {\[[0-9]+\]} $n {[*]} n
+    regsub -all {_rep(lica)?(__?[0-9]+)?} $n {} n
+    regsub -all {_reg} $n {} n
+    regsub {g_lvt.*$} $n {lutram} n
+    regsub {payload_ram.*$} $n {payload_ram} n
+    return $n
+}
+
+# 違反しているパスを「始点の束 -> 終点の束」でまとめ、悪い順に表示する（全部は groups.rpt）。
+# 違反が無ければワースト 2000 本で同じことをする
+proc report_path_groups {dir} {
+    set paths [get_timing_paths -quiet -delay_type max -max_paths 30000 -nworst 1 -slack_lesser_than 0]
+    set what "failing endpoints"
+    if {[llength $paths] == 0} {
+        set paths [get_timing_paths -quiet -delay_type max -max_paths 2000 -nworst 1]
+        set what "worst endpoints (no violation)"
+    }
+    set g [dict create]
+    foreach p $paths {
+        set k "[path_group_name [get_property STARTPOINT_PIN $p]] -> [path_group_name [get_property ENDPOINT_PIN $p]]"
+        set s [get_property SLACK $p]
+        set l [get_property LOGIC_LEVELS $p]
+        if {![dict exists $g $k]} {
+            dict set g $k [list $s 1 $l]
+        } else {
+            lassign [dict get $g $k] ws c ml
+            dict set g $k [list [expr {$s < $ws ? $s : $ws}] [expr {$c + 1}] [expr {$l > $ml ? $l : $ml}]]
+        }
+    }
+    set rows {}
+    dict for {k v} $g { lappend rows [list [lindex $v 0] [lindex $v 1] [lindex $v 2] $k] }
+    set rows [lsort -real -index 0 $rows]
+
+    set file [file join $dir groups.rpt]
+    set fh [open $file w]
+    puts $fh "# [llength $paths] $what, [llength $rows] groups"
+    puts $fh "#  slack  endpoints  levels  startpoint -> endpoint"
+    foreach r $rows { puts $fh [format "%7.3f  %5d  %2d  %s" {*}$r] }
+    close $fh
+
+    section "Path groups ([llength $paths] $what, [llength $rows] groups)"
+    puts "    slack  endpoints  levels  startpoint -> endpoint"
+    foreach r [lrange $rows 0 29] { puts [format "  %7.3f  %5d  %2d  %s" {*}$r] }
+    puts "all groups: $file"
+}
+
+# 配置の結果を SVG の図にする。使ったサイトを、置かれたセルの一番上の階層ごとに色分けする
+proc write_placement_svg {file} {
+    set heights [dict create SLICE 1.0 RAMB18 2.5 DSP48 2.5 RAMB36 5.0]
+    set palette {#4e79a7 #f28e2b #59a14f #e15759 #b07aa1 #76b7b2 #edc948 #9c755f}
+    set cell 4.0
+
+    set sites [get_sites -regexp {(SLICE|RAMB18|RAMB36|DSP48)_X[0-9]+Y[0-9]+}]
+    set names [get_property NAME $sites]
+    set xs    [get_property RPM_X $sites]
+    set used  [get_property IS_USED $sites]
+
+    # RPM_X の一番小さい間隔を 1 列の幅にする
+    set ux [lsort -unique -integer $xs]
+    set min_x [lindex $ux 0]
+    set step 0
+    for {set i 1} {$i < [llength $ux]} {incr i} {
+        set d [expr {[lindex $ux $i] - [lindex $ux [expr {$i - 1}]]}]
+        if {$step == 0 || $d < $step} { set step $d }
+    }
+    if {$step == 0} { set step 1 }
+    set cols [expr {([lindex $ux end] - $min_x) / $step + 1}]
+
+    set max_row 0.0
+    foreach name $names {
+        regexp {^([A-Z0-9]+)_X[0-9]+Y([0-9]+)$} $name -> kind yi
+        set h [dict get $heights $kind]
+        if {($yi + 1) * $h > $max_row} { set max_row [expr {($yi + 1) * $h}] }
+    }
+
+    set colors [dict create]
+    set counts [dict create]
+    set n_slice 0
+    set n_slice_used 0
+    set body {}
+    foreach name $names x $xs u $used {
+        regexp {^([A-Z0-9]+)_X[0-9]+Y([0-9]+)$} $name -> kind yi
+        if {$kind eq "SLICE"} { incr n_slice }
+        if {!$u && $kind eq "RAMB18"} { continue }
+        set fill "#e6e6e6"
+        if {$u} {
+            set c [lindex [get_cells -quiet -of_objects [get_sites $name]] 0]
+            if {$c eq ""} { continue }
+            set cn [get_property NAME $c]
+            set i [string first "/" $cn]
+            set owner [expr {$i < 0 ? "(top)" : [string range $cn 0 [expr {$i - 1}]]}]
+            if {![dict exists $colors $owner]} {
+                dict set colors $owner [lindex $palette [expr {[dict size $colors] % [llength $palette]}]]
+            }
+            set fill [dict get $colors $owner]
+            if {$kind eq "SLICE"} {
+                incr n_slice_used
+                dict incr counts $owner
+            }
+        }
+        set h [dict get $heights $kind]
+        lappend body [format {<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>} \
+                          [expr {($x - $min_x) / double($step) * $cell}] \
+                          [expr {($max_row - ($yi + 1) * $h) * $cell + 30}] \
+                          [expr {$cell - 0.6}] [expr {$h * $cell - 0.6}] $fill]
+    }
+
+    set w [expr {$cols * $cell + 260}]
+    set ht [expr {$max_row * $cell + 40}]
+    set fh [open $file w]
+    puts $fh "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"$w\" height=\"$ht\" font-family=\"sans-serif\" font-size=\"13\">"
+    puts $fh "<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>"
+    puts $fh [format {<text x="0" y="18" fill="#222222">backend_top placement: %d / %d slices used (%.1f%%)</text>} \
+                  $n_slice_used $n_slice [expr {$n_slice > 0 ? 100.0 * $n_slice_used / $n_slice : 0}]]
+    puts $fh [join $body "\n"]
+    set lx [expr {$cols * $cell + 20}]
+    set ly 50
+    dict for {owner color} $colors {
+        set k [expr {[dict exists $counts $owner] ? [dict get $counts $owner] : 0}]
+        puts $fh "<rect x=\"$lx\" y=\"[expr {$ly - 11}]\" width=\"12\" height=\"12\" fill=\"$color\"/>"
+        puts $fh "<text x=\"[expr {$lx + 18}]\" y=\"$ly\" fill=\"#222222\">$owner ($k slices)</text>"
+        incr ly 20
+    }
+    puts $fh "</svg>"
+    close $fh
+    puts "placement figure: $file"
+}
+
+# ---------------------------------------------------------------
 # ボードへの書き込み
 # ---------------------------------------------------------------
 proc program_device {bit} {
@@ -486,25 +762,40 @@ proc program_device {bit} {
 set mode  "all"
 set force 0
 set npaths 10
+set period 12.5
+set synth_only 0
+set names {}
+set usage "(all|build|program|errors|status|timing \[N\]|ip|backend \[top\] \[synth\] \[N\] \[100mhz|10ns\] \[clean\])"
 foreach a $argv {
     switch -- $a {
-        all - build - program - errors - status - timing - ip { set mode $a }
+        all - build - program - errors - status - timing - ip - backend { set mode $a }
         clean   { set force 1 }
+        synth   { set synth_only 1 }
         default {
             if {[string is integer -strict $a] && $a > 0} {
                 set npaths $a
+            } elseif {[regexp -nocase {^([0-9]+\.?[0-9]*)(mhz|ns)$} $a -> v unit] && $v > 0} {
+                set period [expr {[string tolower $unit] eq "ns" ? double($v) : 1000.0 / $v}]
+            } elseif {[regexp {^[a-z][a-z0-9_]*$} $a]} {
+                lappend names $a
             } else {
-                die "unknown argument: $a  (all|build|program|errors|status|timing \[N\]|ip \[clean\])"
+                die "unknown argument: $a  $usage"
             }
         }
     }
 }
-
-# このスクリプトと同じフォルダにある .xpr を開く
-set xprs [glob -nocomplain -directory $script_dir *.xpr]
-if {[llength $xprs] != 1} {
-    die "expected exactly one .xpr in $script_dir (found [llength $xprs])"
+if {[llength $names] > 1 || ([llength $names] == 1 && $mode ne "backend")} {
+    die "unknown argument: $names  $usage"
 }
+
+# backend モードは .xpr を使わない。名前を付けたらそのモジュールを top にする
+if {$mode eq "backend"} {
+    fetch_fpu_repo
+    synth_backend $npaths $period [expr {[llength $names] == 1 ? [lindex $names 0] : "backend_top"}] $synth_only
+    exit 0
+}
+
+# このスクリプトと同じフォルダにある .xpr を開く。無ければ作る
 # バッチ起動時にも Nexys A7 のボード定義を登録する。
 # 候補を上から順に見て、最初に見つかったフォルダを使う（PC ごとに置き場所が違うため）
 set board_repo_candidates [list \
@@ -524,6 +815,14 @@ if {$board_repo ne ""} {
 if {$mode eq "all" || $mode eq "build"} {
     fetch_memory_repo
     fetch_fpu_repo
+}
+set xprs [glob -nocomplain -directory $script_dir *.xpr]
+if {[llength $xprs] == 0} {
+    create_core_project [expr {$board_repo ne ""}]
+    set xprs [glob -nocomplain -directory $script_dir *.xpr]
+}
+if {[llength $xprs] != 1} {
+    die "expected exactly one .xpr in $script_dir (found [llength $xprs])"
 }
 open_project [lindex $xprs 0]
 if {$mode eq "all" || $mode eq "build"} {
