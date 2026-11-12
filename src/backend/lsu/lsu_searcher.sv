@@ -65,7 +65,7 @@ module lsu_searcher
     forward_result = '0;
     p.wrap = 1'b0;
     p.stq_idx = ldq[forward_ldq_idx].tail_stq_idx;
-    // tailから一周して最後に当たったものが採用
+    // tailから一周して最後に当たったものを採用
     for (int i = 0; i < STQ_SIZE; i++) begin
       if (ldq[forward_ldq_idx].older_st_mask[p.stq_idx] && stq[p.stq_idx].addr_valid && stq[p.stq_idx].addr == ldq[forward_ldq_idx].addr) begin
         forward_result.hit = 1'b1;
