@@ -13,11 +13,27 @@
 //   - 依存のある命令列を流したとき、全部の結果が正しいこと（ランダムテスト。値は dispatch の時点でテスト側が計算する）
 //   - 分岐の mispredict と flush で、消えるべき命令が消え、残るべき命令が残ること
 //   - br_update_ff の中身（resolve / kill の mask と、一番古い mispredict の復帰用の情報）
-//   - 止まらないこと（どの命令も一定サイクル以内に終わる）
+//   - 止まらないこと（どの命令も一定サイクル以内に commit する）
+//   - load / store が LSU と D$ を通って、commit 順にメモリを読み書きしたのと同じ結果になること
 //
-// LSU（ldq / stq / lsu_controller / lsu_searcher）はまだポートだけなので、load の値は返ってこない。
-// MEM の命令は EX から LSU に渡す ex_lsu（dut.ex_lsu）で終わったことにする。load の rd は NONE にしておく
-// （値が返らないので、rd を持たせると待っている命令が永遠に止まる）。dispatch から LSU への入力と D$ の入力は 0 のまま。
+// テストベンチは ROB の役もする。命令は complete（WB、分岐は resolve、store は complete_st）の次のサイクル以降に
+// 古い順に COMMIT_W 個まで commit し、LSU に commit_ld / commit_st を出す。
+// 値は commit の時点で確かめる。load は順序違反で一度間違った値を WB に出してよく（load_violation で flush して直す）、
+// それに依存する命令や分岐も間違った値を出しうるので、WB / ex_lsu / br_update_ff で値が違っても NG にはせず記録だけして、
+// その命令が commit したら NG にする。
+//   - load の期待値は dispatch の時点で決める：「commit 順に書いたメモリ」に、生きている（自分より古い）store を
+//     古い順に上書きした値。MMIO（MMIO_RX_ADDR）の load は、受け取る順番（commit 順）の通し番号の値
+//   - commit する load が load_violation（rob_idx が一致）に出ていたら commit せず、次のサイクルに flush を出す
+//   - rob_head_ld は先頭が load のとき。MMIO の load は先頭のときだけ D$ に出ることを確かめる
+//   - 最後に STQ が空になってから、D$ のモデルの中身と「commit 順に書いたメモリ」を比べる
+//
+// D$ のモデル（test/lsu_top と同じ）
+//   - 要求をでたらめなサイクルに accept し、返事は accept の次のサイクル以降に 1 サイクル 1 つ、順番はでたらめ、ack か nack
+//   - kill された load は次のサイクルから返事をしない（kill のサイクルの返事は出ることがある）
+//   - store は ack のときに書く。同じアドレスの store は accept した順に書く。MMIO の load は nack しない
+//
+// LSU が WB に出す load は、kill のサイクル（br_update_ff / flush）に D$ の返事が来るとそのまま WB に出る。
+// EU の WB と違うが、ここではそのサイクルに消えた load のものだけ許して数える。
 //
 // 演算器（fmul / itof / ftoi / fadd / fsqrt / fdiv）は test/eu_3_top/models/ と test/eu_4_top/models/ の代わりを使う。
 //
@@ -25,7 +41,9 @@
 //   - 物理レジスタは I / F それぞれ 64 本を自分で割り当てる（rename はしない）。rd には空いているものを取り、
 //     読み手がもういなくなった書き込み済みのものを空ける。ソースは書き込み済みか、生きている命令が書く予定のものから選ぶ
 //   - 命令はプログラム順に、1 サイクルに各 IQ に 1 つまで出す。出せない命令が来たらそのサイクルはそこで止める
-//   - rob_idx / br_tag / ldq_idx / stq_idx は生きている命令の中で重ならないように割り当てる
+//     mispredict（br_update_ff）と flush のサイクルは dispatch しない（LSU が受け付けないので）
+//   - LSU にはそのサイクルに出した順のスロットで load / store / 分岐（tail の snapshot 用）を出す
+//   - rob_idx / br_tag は生きている命令の中で重ならないように割り当てる。ldq_idx / stq_idx は LSU が返すもの
 //   - brmask は「自分より古い、まだ解決していない分岐の tag」
 //   - 空けたもの（tag / rob_idx / 物理レジスタなど）は次のサイクルから使う
 //   - 分岐（条件分岐 / jalr / fb*）は、正しい飛び先を predict_pc に入れるか、わざと外す
@@ -35,8 +53,9 @@
 //
 // テストの前提にしている仕様
 //   - 書き込み（WB）：ALU は wb_alu[0]、F短 / F長 / F超長 は wb_fpu[0..2]。complete_idx[0, 2, 3, 4] は同じ valid と rob_idx
+//     MEM（load）は wb_mem[0] と complete_idx[1]、store の complete は complete_st
 //   - 分岐の結果は WB の次のサイクルの br_update_ff に出る。mispredict なら kill_mask、当たりなら resolve_mask
-//   - br_update_ff の kill_mask が見えたサイクルから、それより若い命令は WB にも ex_lsu にも出ない
+//   - br_update_ff の kill_mask が見えたサイクルから、それより若い命令は WB にも ex_lsu にも出ない（LSU の WB は上の例外あり）
 //   - flush のサイクルから、それまでに出した命令は WB にも ex_lsu にも出ない
 //   - 値：ALU / F短 は ex_top のテストと同じ。F長 / F超長 は eu_3_model_pkg / eu_4_model_pkg の m_*
 //     jal / jalr の rd は 16bit で計算した pc+1 をゼロ拡張したもの
@@ -64,8 +83,8 @@ module tb_backend_top
 ();
 
   localparam int MAX_ERRORS = 30;
-  localparam int LSU_DISP_W = 2;
-  localparam int COMMIT_W = 1;
+  localparam int LSU_DISP_W = 3;  // 1 サイクルに出す命令は 3 つまで
+  localparam int COMMIT_W = 2;
   localparam int NPREG = 64;
   localparam int FREE_TARGET = 16;  // 空きの物理レジスタがこれより少なければ空ける
   localparam int STUCK_LIMIT = 3000;
@@ -107,7 +126,7 @@ module tb_backend_top
   localparam int NK       = 20;
 
   // ランダムテストでの出やすさ
-  int weight[NK] = '{6, 8, 4, 4, 2, 2, 8, 5, 3, 4, 5, 6, 3, 3, 5, 3, 1, 1, 4, 6};
+  int weight[NK] = '{6, 8, 4, 4, 2, 2, 8, 5, 3, 4, 5, 6, 3, 3, 5, 3, 1, 1, 8, 7};
 
   // 物理レジスタの状態
   localparam int P_FREE  = 0;
@@ -156,30 +175,38 @@ module tb_backend_top
   assign disp_uop_mem[0]   = in_uop_mem;
   assign disp_uop_fpu[0]   = in_uop_fpu;
 
-  disp_lsu_t disp_ld[LSU_DISP_W];
+  disp_ldq_t disp_ld[LSU_DISP_W];
   ldq_idx_t  disp_ldq_idx[LSU_DISP_W];
   logic      disp_ld_full[LSU_DISP_W];
-  disp_lsu_t disp_st[LSU_DISP_W];
+  disp_stq_t disp_st[LSU_DISP_W];
   stq_idx_t  disp_stq_idx[LSU_DISP_W];
   logic      disp_st_full[LSU_DISP_W];
   logic      disp_br_valid[LSU_DISP_W];
   br_tag_t   disp_br_tag[LSU_DISP_W];
+  disp_ldq_t [LSU_DISP_W-1:0] in_ld;
+  disp_stq_t [LSU_DISP_W-1:0] in_st;
+  logic      [LSU_DISP_W-1:0] in_br_valid;
+  br_tag_t   [LSU_DISP_W-1:0] in_br_tag;
   for (genvar g = 0; g < LSU_DISP_W; g++) begin : g_lsu_disp
-    assign disp_ld[g]       = '0;
-    assign disp_st[g]       = '0;
-    assign disp_br_valid[g] = 1'b0;
-    assign disp_br_tag[g]   = '0;
+    assign disp_ld[g]       = in_ld[g];
+    assign disp_st[g]       = in_st[g];
+    assign disp_br_valid[g] = in_br_valid[g];
+    assign disp_br_tag[g]   = in_br_tag[g];
   end
 
   br_update_t      br_update_ff;
   complete_t       complete_idx[5];
   complete_t       complete_st;
-  load_violation_t load_violation;
+  logic            stq_empty;
+  load_violation_t load_violation[COMMIT_W];
   logic            commit_ld[COMMIT_W];
   logic            commit_st[COMMIT_W];
+  logic [COMMIT_W-1:0] in_commit_ld;
+  logic [COMMIT_W-1:0] in_commit_st;
+  logic                in_rob_head_ld;
   for (genvar g = 0; g < COMMIT_W; g++) begin : g_commit
-    assign commit_ld[g] = 1'b0;
-    assign commit_st[g] = 1'b0;
+    assign commit_ld[g] = in_commit_ld[g];
+    assign commit_st[g] = in_commit_st[g];
   end
 
   logic                dc_req_valid_ff;
@@ -191,6 +218,11 @@ module tb_backend_top
   logic [MAX_BR-1:0]   dc_br_kill_mask_ff;
   logic [MAX_BR-1:0]   dc_br_resolve_mask_ff;
   logic                dc_kill_all_ff;
+  logic                dc_req_accepted;
+  logic                dc_resp_valid;
+  logic                dc_resp_ack;
+  logic [31:0]         dc_resp_rdata;
+  logic [DC_TAG_W-1:0] dc_resp_tag;
 
   backend_top #(
     .LSU_DISP_W(LSU_DISP_W),
@@ -219,21 +251,22 @@ module tb_backend_top
     .br_update_ff(br_update_ff),
     .complete_idx(complete_idx),
     .complete_st(complete_st),
+    .stq_empty(stq_empty),
     .load_violation(load_violation),
     .commit_ld(commit_ld),
     .commit_st(commit_st),
-    .rob_head_ld(1'b0),
+    .rob_head_ld(in_rob_head_ld),
     .dc_req_valid_ff(dc_req_valid_ff),
     .dc_req_we_ff(dc_req_we_ff),
     .dc_req_addr_ff(dc_req_addr_ff),
     .dc_req_wdata_ff(dc_req_wdata_ff),
     .dc_req_tag_ff(dc_req_tag_ff),
     .dc_req_brmask_ff(dc_req_brmask_ff),
-    .dc_req_accepted(1'b0),
-    .dc_resp_valid(1'b0),
-    .dc_resp_ack(1'b0),
-    .dc_resp_rdata(32'h0),
-    .dc_resp_tag('0),
+    .dc_req_accepted(dc_req_accepted),
+    .dc_resp_valid(dc_resp_valid),
+    .dc_resp_ack(dc_resp_ack),
+    .dc_resp_rdata(dc_resp_rdata),
+    .dc_resp_tag(dc_resp_tag),
     .dc_br_kill_mask_ff(dc_br_kill_mask_ff),
     .dc_br_resolve_mask_ff(dc_br_resolve_mask_ff),
     .dc_kill_all_ff(dc_kill_all_ff)
@@ -407,7 +440,10 @@ module tb_backend_top
     int        lane;
     int        t_disp;
     int        t_wb;
-    logic      done;   // 分岐：WB 済みで resolve 待ち
+    logic      done;   // WB 済み
+    logic      cpl;    // complete（WB、分岐は resolve、store は complete_st）
+    int        t_cpl;
+    word_t     wb_val;  // WB に出た値
     preg_t     rd;
     preg_t     rs1;
     preg_t     rs2;
@@ -428,6 +464,7 @@ module tb_backend_top
     word_t     data;
     ldq_idx_t  ldq;
     stq_idx_t  stq;
+    logic      mmio;
   } ins_t;
 
   ins_t tbl[int];  // 生きている命令
@@ -445,9 +482,44 @@ module tb_backend_top
   int tag_owner[MAX_BR];
   int tag_free_at[MAX_BR];
   int ldq_owner[LDQ_SIZE];
-  int ldq_free_at[LDQ_SIZE];
   int stq_owner[STQ_SIZE];
-  int stq_free_at[STQ_SIZE];
+
+  // 値が違ったもの（commit まで来たら NG にする）
+  string bad_msg[int];
+  // このサイクルに消えた命令（rob_idx から種類）
+  int killed_now[int];
+  logic flush_pending;  // 順序違反の load を見つけたので次のサイクルに flush する
+
+  // メモリ
+  word_t arch_mem[addr_t];  // commit 順に書いたもの
+  word_t dc_mem[addr_t];  // D$ のモデル
+  int mmio_commit_n;
+  int mmio_acc_n;
+  // commit して D$ に書く前の store（STQ の番号ごと）
+  logic  cst_valid[STQ_SIZE];
+  addr_t cst_addr[STQ_SIZE];
+  word_t cst_data[STQ_SIZE];
+
+  // D$ が accept して返事をしていない要求（accept 順）
+  logic    p_we[$];
+  logic    p_mmio[$];
+  addr_t   p_addr[$];
+  int      p_idx[$];
+  int      p_cyc[$];
+  word_t   p_data[$];
+  brmask_t p_brmask[$];
+
+  // D$ の振る舞い
+  int acc_rate, resp_rate, nack_rate, commit_rate;
+  logic  c_acc;
+  int    c_resp_j;
+  logic  c_resp_ack;
+  word_t c_resp_rdata;
+
+  // LSU が dispatch に返すもの（このサイクルの頭に読む）
+  logic     g_ld_full, g_st_full;
+  ldq_idx_t g_ldq_idx;
+  stq_idx_t g_stq_idx;
 
   int next_id;
   int mode;
@@ -472,6 +544,7 @@ module tb_backend_top
 
   int unsigned cycles;
   int unsigned seed;
+  int trace_to;  // +trace=N：N サイクル目まで load / store の動きを表示する
   int          cyc;
   int          errors;
   logic        stuck;
@@ -486,6 +559,13 @@ module tb_backend_top
   int n_flush;
   int n_same_cycle;   // 同じサイクルに dispatch した命令の rd を読む
   int n_dir;
+  int n_commit;
+  int n_viol_flush;   // 順序違反の flush
+  int n_bad_killed;   // 値が違ったが commit せずに消えた
+  int n_mmio;
+  int n_wb_killed;    // 消えたサイクルに WB に出た load
+  int n_dc_ld, n_dc_st, n_dc_drop, n_dc_kill, n_ld_nack, n_st_nack, n_st_hold;
+  int n_ld_fwd_like;  // D$ の返事と別のサイクルに WB に出た load（forward）
 
   task automatic fail(string msg);
     errors++;
@@ -493,8 +573,58 @@ module tb_backend_top
   endtask
 
   function automatic string ins_str(ins_t e);
+    if (e.kind == K_LW || e.kind == K_SW)
+      return $sformatf("id=%0d %s rd=%h rs1=%h rs2=%h rob=%0d t_disp=%0d addr=%h ldq=%0d stq=%0d", e.id, kind_name(e.kind),
+                       e.rd, e.rs1, e.rs2, e.rob, e.t_disp, e.addr, e.ldq, e.stq);
     return $sformatf("id=%0d %s rd=%h rs1=%h rs2=%h rob=%0d t_disp=%0d", e.id, kind_name(e.kind), e.rd, e.rs1, e.rs2,
                      e.rob, e.t_disp);
+  endfunction
+
+  function automatic logic tr();
+    return cyc <= trace_to;
+  endfunction
+
+  task automatic note_bad(int id, string msg);
+    if (!bad_msg.exists(id)) bad_msg[id] = msg;
+  endtask
+
+  // 小さい値にして、load の結果をそのまま次の load / store のアドレスに使えるようにする
+  function automatic word_t init_val(addr_t a);
+    return (a * 32'd7 + 32'd3) & 32'h7;
+  endfunction
+
+  function automatic word_t arch_get(addr_t a);
+    if (arch_mem.exists(a)) return arch_mem[a];
+    return init_val(a);
+  endfunction
+
+  function automatic word_t dc_get(addr_t a);
+    if (dc_mem.exists(a)) return dc_mem[a];
+    return init_val(a);
+  endfunction
+
+  function automatic word_t mmio_val(int n);
+    return 32'hcafe_0000 + word_t'(n);
+  endfunction
+
+  // dispatch の時点の load の値（生きている命令は全部自分より古い）
+  function automatic word_t spec_load(addr_t a);
+    word_t v;
+    int n;
+    if (a == MMIO_RX_ADDR) begin
+      n = 0;
+      foreach (tbl[k]) if (tbl[k].kind == K_LW && tbl[k].mmio) n++;
+      return mmio_val(mmio_commit_n + n);
+    end
+    v = arch_get(a);
+    foreach (tbl[k]) if (tbl[k].kind == K_SW && tbl[k].addr == a) v = tbl[k].data;
+    return v;
+  endfunction
+
+  // 一番古い命令。無ければ -1
+  function automatic int head_id();
+    foreach (tbl[k]) return k;
+    return -1;
   endfunction
 
   function automatic int typ_i(preg_t p);
@@ -533,9 +663,7 @@ module tb_backend_top
     for (int i = 0; i < sz; i++) begin
       case (kind)
         0: ok = rob_owner[i] < 0 && rob_free_at[i] <= cyc;
-        1: ok = tag_owner[i] < 0 && tag_free_at[i] <= cyc;
-        2: ok = ldq_owner[i] < 0 && ldq_free_at[i] <= cyc;
-        default: ok = stq_owner[i] < 0 && stq_free_at[i] <= cyc;
+        default: ok = tag_owner[i] < 0 && tag_free_at[i] <= cyc;
       endcase
       if (ok) c++;
     end
@@ -545,9 +673,7 @@ module tb_backend_top
     for (int i = 0; i < sz; i++) begin
       case (kind)
         0: ok = rob_owner[i] < 0 && rob_free_at[i] <= cyc;
-        1: ok = tag_owner[i] < 0 && tag_free_at[i] <= cyc;
-        2: ok = ldq_owner[i] < 0 && ldq_free_at[i] <= cyc;
-        default: ok = stq_owner[i] < 0 && stq_free_at[i] <= cyc;
+        default: ok = tag_owner[i] < 0 && tag_free_at[i] <= cyc;
       endcase
       if (ok) begin
         if (n == k) return i;
@@ -582,6 +708,50 @@ module tb_backend_top
       end
     end
     return PNONE;
+  endfunction
+
+  int addr_cand[$];
+
+  // load / store のアドレスの元を選ぶ
+  //   small：x0 と小さい即値（すぐ計算できる）
+  //   near ：値が即値で 0〜5 に届く I レジスタ。書き込み前のもの（遅い命令の結果）を多めにして、順序違反を起こす
+  //   どちらでもない：でたらめなレジスタ
+  function automatic void pick_mem_base(output preg_t base, output logic is_small, output logic is_near, output int off);
+    int r, t, n_pend, idx;
+    longint d;
+    base = PNONE;
+    is_small = 1'b0;
+    is_near = 1'b0;
+    off = 0;
+    r = int'(rnd(10));
+    if (r < 3) begin
+      is_small = 1'b1;
+      return;
+    end
+    if (r >= 8) begin
+      base = pick_src(PREG_TYPE_I);
+      return;
+    end
+    t = int'(rnd(6));
+    addr_cand.delete();
+    for (int i = 0; i < NPREG; i++) begin
+      d = longint'(t) - longint'($signed(pval[0][i]));
+      if (pst[0][i] == P_PEND && d >= -16384 && d <= 16383) addr_cand.push_back(i);
+    end
+    n_pend = addr_cand.size();
+    for (int i = 0; i < NPREG; i++) begin
+      d = longint'(t) - longint'($signed(pval[0][i]));
+      if (pst[0][i] == P_KNOWN && d >= -16384 && d <= 16383) addr_cand.push_back(i);
+    end
+    if (addr_cand.size() == 0) begin
+      is_small = 1'b1;
+      return;
+    end
+    if (n_pend > 0 && rnd(10) < 7) idx = addr_cand[rnd(n_pend)];
+    else idx = addr_cand[rnd(addr_cand.size())];
+    base = '{typ: PREG_TYPE_I, idx: preg_idx_t'(idx)};
+    is_near = 1'b1;
+    off = t - int'($signed(pval[0][idx]));
   endfunction
 
   function automatic brmask_t cur_brmask();
@@ -627,7 +797,8 @@ module tb_backend_top
   task automatic kill_ins(int id);
     ins_t e;
     e = tbl[id];
-    if (e.rd.typ != PREG_TYPE_NONE && pst[typ_i(e.rd)][e.rd.idx] == P_PEND && pwriter[typ_i(e.rd)][e.rd.idx] == id) begin
+    // 書き込み済みでも空ける。順序違反の load に依存した命令は間違った値を書いているので、残すと後の命令が読む
+    if (e.rd.typ != PREG_TYPE_NONE && pst[typ_i(e.rd)][e.rd.idx] != P_FREE && pwriter[typ_i(e.rd)][e.rd.idx] == id) begin
       pst[typ_i(e.rd)][e.rd.idx] = P_FREE;
       pfree_at[typ_i(e.rd)][e.rd.idx] = cyc + 1;
     end
@@ -638,14 +809,14 @@ module tb_backend_top
       tag_owner[e.tag] = -1;
       tag_free_at[e.tag] = cyc + 1;
     end
-    if (e.kind == K_LW) begin
-      ldq_owner[e.ldq] = -1;
-      ldq_free_at[e.ldq] = cyc + 1;
+    if (e.kind == K_LW) ldq_owner[e.ldq] = -1;
+    if (e.kind == K_SW) stq_owner[e.stq] = -1;
+    if (bad_msg.exists(id)) begin
+      bad_msg.delete(id);
+      n_bad_killed++;
     end
-    if (e.kind == K_SW) begin
-      stq_owner[e.stq] = -1;
-      stq_free_at[e.stq] = cyc + 1;
-    end
+    killed_now[int'(e.rob)] = e.kind;
+    if (tr() && (e.kind == K_LW || e.kind == K_SW)) $display("  [%0d] kill: %s", cyc, ins_str(e));
     tbl.delete(id);
     n_killed++;
   endtask
@@ -659,26 +830,36 @@ module tb_backend_top
     foreach (kill_q[i]) kill_ins(kill_q[i]);
   endtask
 
-  // 終わった命令の後始末
-  task automatic finish_ins(int id);
+  // commit する。値はここで確かめる
+  task automatic commit_ins(int id);
     ins_t e;
     e = tbl[id];
+    if (bad_msg.exists(id)) begin
+      fail($sformatf("途中で値が違った命令が commit した: %s", bad_msg[id]));
+      bad_msg.delete(id);
+    end
+    if (e.rd.typ != PREG_TYPE_NONE && e.wb_val !== e.value)
+      fail($sformatf("commit した命令の WB の値 %h、期待 %h: %s", e.wb_val, e.value, ins_str(e)));
     release_srcs(e);
     rob_owner[e.rob] = -1;
     rob_free_at[e.rob] = cyc + 1;
-    if (e.is_br) begin
-      tag_owner[e.tag] = -1;
-      tag_free_at[e.tag] = cyc + 1;
-    end
     if (e.kind == K_LW) begin
       ldq_owner[e.ldq] = -1;
-      ldq_free_at[e.ldq] = cyc + 1;
+      if (e.mmio) begin
+        mmio_commit_n++;
+        n_mmio++;
+      end
     end
     if (e.kind == K_SW) begin
       stq_owner[e.stq] = -1;
-      stq_free_at[e.stq] = cyc + 1;
+      arch_mem[e.addr] = e.data;
+      if (cst_valid[e.stq]) fail($sformatf("STQ %0d に D$ に書いていない store がまだある: %s", e.stq, ins_str(e)));
+      cst_valid[e.stq] = 1'b1;
+      cst_addr[e.stq] = e.addr;
+      cst_data[e.stq] = e.data;
     end
     n_done[e.kind]++;
+    n_commit++;
     tbl.delete(id);
   endtask
 
@@ -708,9 +889,12 @@ module tb_backend_top
     word_t a, b;
     pc_t next_pc;
     preg_type_t s2_typ;
+    logic mem_small, mem_near;
+    int mem_off;
 
     case (k)
-      K_BR, K_FBR, K_SW, K_LW: rd_typ = PREG_TYPE_NONE;
+      K_BR, K_FBR, K_SW: rd_typ = PREG_TYPE_NONE;
+      K_LW: rd_typ = (dir < 0 && rnd(2) == 0) ? PREG_TYPE_F : PREG_TYPE_I;
       K_JALR: rd_typ = (dir < 0 && rnd(3) == 0) ? PREG_TYPE_NONE : PREG_TYPE_I;
       K_ADD, K_ADDI, K_SUB, K_SRA, K_JAL, K_FTOI: rd_typ = PREG_TYPE_I;
       default: rd_typ = PREG_TYPE_F;
@@ -730,13 +914,21 @@ module tb_backend_top
     end
     lq_i = 0;
     if (k == K_LW) begin
-      lq_i = pick_free(LDQ_SIZE, 2);
-      if (lq_i < 0) return 1'b0;
+      if (g_ld_full) return 1'b0;
+      lq_i = int'(g_ldq_idx);
+      if (ldq_owner[lq_i] >= 0) begin
+        fail($sformatf("disp_ldq_idx=%0d は生きている load が使っている", lq_i));
+        return 1'b0;
+      end
     end
     sq_i = 0;
     if (k == K_SW) begin
-      sq_i = pick_free(STQ_SIZE, 3);
-      if (sq_i < 0) return 1'b0;
+      if (g_st_full) return 1'b0;
+      sq_i = int'(g_stq_idx);
+      if (stq_owner[sq_i] >= 0 || cst_valid[sq_i]) begin
+        fail($sformatf("disp_stq_idx=%0d は生きている store か D$ に書く前の store が使っている", sq_i));
+        return 1'b0;
+      end
     end
 
     u = '0;
@@ -750,6 +942,9 @@ module tb_backend_top
     e.rs1 = PNONE;
     e.rs2 = PNONE;
     e.pc = rnd_pc();
+    mem_small = 1'b0;
+    mem_near = 1'b0;
+    mem_off = 0;
 
     // ソース
     if (dir >= 0) begin
@@ -762,20 +957,31 @@ module tb_backend_top
           e.rs1 = pick_src(PREG_TYPE_I);
           e.rs2 = pick_src(PREG_TYPE_I);
         end
-        K_ADDI, K_SRA, K_JALR, K_ITOF, K_LW: e.rs1 = pick_src(PREG_TYPE_I);
+        K_ADDI, K_SRA, K_JALR, K_ITOF: e.rs1 = pick_src(PREG_TYPE_I);
+        // アドレスは x0 + 小さい即値を多めにして、load と store をぶつける
+        K_LW: pick_mem_base(e.rs1, mem_small, mem_near, mem_off);
         K_FCSIGN, K_FTOI, K_FSQRT: e.rs1 = pick_src(PREG_TYPE_F);
         K_FBR, K_FMUL, K_FADD, K_FSUB, K_FDIV: begin
           e.rs1 = pick_src(PREG_TYPE_F);
           e.rs2 = pick_src(PREG_TYPE_F);
         end
         K_SW: begin
-          e.rs1 = pick_src(PREG_TYPE_I);
+          pick_mem_base(e.rs1, mem_small, mem_near, mem_off);
           s2_typ = rnd(2) ? PREG_TYPE_F : PREG_TYPE_I;
           e.rs2 = pick_src(s2_typ);
         end
         default: ;
       endcase
       u.imm = rnd_imm_raw();
+      if (mem_small) begin
+        u.imm = '0;
+        // MMIO：load は RX、store は TX
+        if (rnd(12) == 0) u.imm[14:0] = (k == K_LW) ? 15'h7fff : 15'h7ffe;
+        else u.imm[14:0] = 15'(rnd(6));
+      end else if (mem_near) begin
+        u.imm = '0;
+        u.imm[14:0] = 15'(mem_off);
+      end
     end
     a = val_of(e.rs1);
     b = val_of(e.rs2);
@@ -891,6 +1097,8 @@ module tb_backend_top
         u.fu_op = FU_OP_AGU;
         e.addr = a + ref_ext(IMM_C, u.imm);
         e.ldq = ldq_idx_t'(lq_i);
+        e.mmio = e.addr == MMIO_RX_ADDR;
+        e.value = spec_load(e.addr);
       end
       default: begin  // K_SW
         u.imm_type = IMM_D;
@@ -898,6 +1106,12 @@ module tb_backend_top
         u.is_store = 1'b1;
         e.is_store = 1'b1;
         e.addr = a + ref_ext(IMM_D, u.imm);
+        // RX のアドレスには store しない（RX は読むだけ）
+        if (e.addr == MMIO_RX_ADDR) begin
+          e.rs1 = PNONE;
+          u.imm = '0;
+          e.addr = '0;
+        end
         e.data = b;
         e.stq = stq_idx_t'(sq_i);
       end
@@ -939,9 +1153,9 @@ module tb_backend_top
     // 割り当てる
     if (e.rs1.typ != PREG_TYPE_NONE) begin
       preaders[typ_i(e.rs1)][e.rs1.idx]++;
-      if (pst[typ_i(e.rs1)][e.rs1.idx] == P_PEND && tbl.exists(pwriter[typ_i(e.rs1)][e.rs1.idx])
-          && tbl[pwriter[typ_i(e.rs1)][e.rs1.idx]].t_disp == cyc)
-        n_same_cycle++;
+      // && の右でも連想配列を読むとエントリを作るので if を分ける
+      if (pst[typ_i(e.rs1)][e.rs1.idx] == P_PEND && tbl.exists(pwriter[typ_i(e.rs1)][e.rs1.idx]))
+        if (tbl[pwriter[typ_i(e.rs1)][e.rs1.idx]].t_disp == cyc) n_same_cycle++;
     end
     if (e.rs2.typ != PREG_TYPE_NONE) preaders[typ_i(e.rs2)][e.rs2.idx]++;
     if (e.rd.typ != PREG_TYPE_NONE) begin
@@ -972,15 +1186,24 @@ module tb_backend_top
     logic used[3];
     logic full[3];
     int k, q, dir;
+    ins_t e;
     used = '{1'b0, 1'b0, 1'b0};
     full = '{disp_full_int, disp_full_mem, disp_full_fpu};
+    g_ld_full = disp_ld_full[0];
+    g_st_full = disp_st_full[0];
+    g_ldq_idx = disp_ldq_idx[0];
+    g_stq_idx = disp_stq_idx[0];
     in_valid_int = 1'b0;
     in_valid_mem = 1'b0;
     in_valid_fpu = 1'b0;
     in_uop_int = '0;
     in_uop_mem = '0;
     in_uop_fpu = '0;
-    if (mode == M_IDLE || flush) return;
+    in_ld = '0;
+    in_st = '0;
+    in_br_valid = '0;
+    in_br_tag = '0;
+    if (mode == M_IDLE || flush || br_update_ff.mispredict) return;
     for (int slot = 0; slot < 3; slot++) begin
       if (mode == M_DIR) begin
         if (dir_pos >= dir_n) break;
@@ -996,6 +1219,17 @@ module tb_backend_top
       if (!make_ins(k, dir)) break;
       used[q] = 1'b1;
       if (mode == M_DIR) dir_pos++;
+      // LSU にも同じスロットで出す（1 サイクルの MEM は 1 つなので ldq_idx / stq_idx はどのスロットでも tail）
+      e = tbl[next_id - 1];
+      if (tr() && (k == K_LW || k == K_SW || e.is_br))
+        $display("  [%0d] dispatch slot %0d: %s brmask=%b 期待値 %h", cyc, slot, ins_str(e), new_uop.brmask,
+                 k == K_SW ? e.data : e.value);
+      if (k == K_LW) in_ld[slot] = '{valid: 1'b1, rd: e.rd, rob_idx: e.rob, brmask: new_uop.brmask};
+      if (k == K_SW) in_st[slot] = '{valid: 1'b1, rob_idx: e.rob};
+      if (e.is_br) begin
+        in_br_valid[slot] = 1'b1;
+        in_br_tag[slot] = e.tag;
+      end
       case (q)
         Q_INT: begin
           in_valid_int = 1'b1;
@@ -1041,8 +1275,8 @@ module tb_backend_top
         fail($sformatf("tag %0d の分岐が WB の次のサイクル以外で resolve された（WB 済み=%b t_wb=%0d）: %s", t, e.done,
                        e.t_wb, ins_str(e)));
       if (u.kill_mask[t] !== e.mis)
-        fail($sformatf("tag %0d の分岐の mispredict=%b、期待 %b: %s taken=%b target=%h", t, u.kill_mask[t], e.mis,
-                       ins_str(e), e.taken, e.target));
+        note_bad(id, $sformatf("tag %0d の分岐の mispredict=%b、期待 %b: %s taken=%b target=%h", t, u.kill_mask[t], e.mis,
+                               ins_str(e), e.taken, e.target));
       if (u.kill_mask[t]) begin
         nmis++;
         if (oldest < 0 || id < oldest) oldest = id;
@@ -1052,7 +1286,7 @@ module tb_backend_top
     if (oldest >= 0) begin
       e = tbl[oldest];
       if (u.tag !== e.tag || u.taken !== e.taken || u.pc !== e.pc || u.target !== e.target || u.rob_idx !== e.rob)
-        fail($sformatf("br_update_ff 復帰用 tag=%0d taken=%b pc=%h target=%h rob=%0d 期待 %0d %b %h %h %0d", u.tag,
+        note_bad(oldest, $sformatf("br_update_ff 復帰用 tag=%0d taken=%b pc=%h target=%h rob=%0d 期待 %0d %b %h %h %0d", u.tag,
                        u.taken, u.pc, u.target, u.rob_idx, e.tag, e.taken, e.pc, e.target, e.rob));
       n_mis++;
       if (nmis > 1) n_two_mis++;
@@ -1060,21 +1294,35 @@ module tb_backend_top
     foreach (res_q[i]) begin
       if (tbl.exists(res_q[i])) begin
         n_br++;
-        finish_ins(res_q[i]);
+        resolve_br(res_q[i]);
       end
     end
     if (oldest >= 0) kill_younger(oldest);
 
     // WB したのに resolve されない分岐
     res_q.delete();
-    foreach (tbl[k]) if (tbl[k].is_br && tbl[k].done && tbl[k].t_wb < cyc) res_q.push_back(k);
+    foreach (tbl[k]) if (tbl[k].is_br && tbl[k].done && !tbl[k].cpl && tbl[k].t_wb < cyc) res_q.push_back(k);
     foreach (res_q[i]) begin
       fail($sformatf("WB の次のサイクルに resolve されなかった: %s", ins_str(tbl[res_q[i]])));
-      finish_ins(res_q[i]);
+      resolve_br(res_q[i]);
+    end
+  endtask
+
+  // 分岐が解決した。tag はここで空け、commit は後で
+  task automatic resolve_br(int id);
+    ins_t e;
+    e = tbl[id];
+    e.cpl = 1'b1;
+    e.t_cpl = cyc;
+    tbl[id] = e;
+    if (tag_owner[e.tag] == id) begin
+      tag_owner[e.tag] = -1;
+      tag_free_at[e.tag] = cyc + 1;
     end
   endtask
 
   task automatic do_flush();
+    if (tr()) $display("  [%0d] flush", cyc);
     kill_q.delete();
     foreach (tbl[k]) kill_q.push_back(k);
     foreach (kill_q[i]) kill_ins(kill_q[i]);
@@ -1089,7 +1337,17 @@ module tb_backend_top
     if (w.valid !== 1'b1) return;
     id = rob_owner[w.rob_idx];
     if (id < 0 || !tbl.exists(id)) begin
+      if (lane == L_MEM && killed_now.exists(int'(w.rob_idx))) begin
+        if (killed_now[int'(w.rob_idx)] == K_LW) begin
+          n_wb_killed++;
+          return;
+        end
+      end
       fail($sformatf("レーン %0d の WB rd=%h value=%h rob=%0d は生きている命令のものではない", lane, w.rd, w.value, w.rob_idx));
+      if (tr()) begin
+        $display("    D$ の返事 valid=%b tag=%h ack=%b、返事待ち %0d 個", dc_resp_valid, dc_resp_tag, dc_resp_ack, p_we.size());
+        foreach (ldq_owner[i]) $display("    ldq_owner[%0d]=%0d", i, ldq_owner[i]);
+      end
       return;
     end
     e = tbl[id];
@@ -1099,46 +1357,248 @@ module tb_backend_top
     end
     if (w.rd !== e.rd) fail($sformatf("レーン %0d の WB rd=%h 期待 %h: %s", lane, w.rd, e.rd, ins_str(e)));
     else if (e.rd.typ != PREG_TYPE_NONE && w.value !== e.value)
-      fail($sformatf("レーン %0d の WB value=%h 期待 %h: %s", lane, w.value, e.value, ins_str(e)));
+      note_bad(id, $sformatf("レーン %0d の WB value=%h 期待 %h: %s", lane, w.value, e.value, ins_str(e)));
     if (e.rd.typ != PREG_TYPE_NONE && pwriter[typ_i(e.rd)][e.rd.idx] == id) pst[typ_i(e.rd)][e.rd.idx] = P_KNOWN;
     if (rec_ev) ev_wb[id] = cyc;
-    if (e.is_br) begin
-      e.done = 1'b1;
-      e.t_wb = cyc;
-      tbl[id] = e;
-    end else begin
-      finish_ins(id);
+    if (lane == L_MEM) begin
+      if (c_resp_j < 0) n_ld_fwd_like++;
+      else if (p_we[c_resp_j] || p_idx[c_resp_j] != int'(e.ldq) || !c_resp_ack) n_ld_fwd_like++;
     end
+    e.done = 1'b1;
+    e.t_wb = cyc;
+    e.wb_val = w.value;
+    if (tr() && lane == L_MEM) $display("  [%0d] WB: %s 値 %h 期待 %h", cyc, ins_str(e), w.value, e.value);
+    if (!e.is_br) begin
+      e.cpl = 1'b1;
+      e.t_cpl = cyc;
+    end
+    tbl[id] = e;
   endtask
 
   task automatic check_lsu();
     ex_lsu_t x;
     ins_t e;
     int id;
+    logic exp_cpl;
     x = dut.ex_lsu[0];
-    if (!(x.addr_valid || x.data_valid)) return;
-    id = x.is_store ? stq_owner[x.stq_idx] : ldq_owner[x.ldq_idx];
-    if (id < 0 || !tbl.exists(id)) begin
-      fail($sformatf("ex_lsu is_store=%b addr_valid=%b data_valid=%b ldq=%0d stq=%0d は生きている命令のものではない",
-                     x.is_store, x.addr_valid, x.data_valid, x.ldq_idx, x.stq_idx));
-      return;
+    exp_cpl = 1'b0;
+    if (x.addr_valid || x.data_valid) begin
+      id = x.is_store ? stq_owner[x.stq_idx] : ldq_owner[x.ldq_idx];
+      if (id < 0 || !tbl.exists(id)) begin
+        fail($sformatf("ex_lsu is_store=%b addr_valid=%b data_valid=%b ldq=%0d stq=%0d は生きている命令のものではない",
+                       x.is_store, x.addr_valid, x.data_valid, x.ldq_idx, x.stq_idx));
+      end else begin
+        e = tbl[id];
+        if (!x.is_store && x.data_valid) fail($sformatf("load なのに data_valid: %s", ins_str(e)));
+        if (x.is_store) exp_cpl = (x.addr_valid || e.seen_addr) && (x.data_valid || e.seen_data);
+        if (x.addr_valid) begin
+          if (e.seen_addr) fail($sformatf("アドレスが 2 回出た: %s", ins_str(e)));
+          else if (x.addr !== e.addr) note_bad(id, $sformatf("ex_lsu addr=%h 期待 %h: %s", x.addr, e.addr, ins_str(e)));
+          e.seen_addr = 1'b1;
+          if (rec_ev) ev_addr[id] = cyc;
+          if (tr()) $display("  [%0d] AGU addr %h: %s", cyc, x.addr, ins_str(e));
+        end
+        if (x.data_valid && x.is_store) begin
+          if (e.seen_data) fail($sformatf("データが 2 回出た: %s", ins_str(e)));
+          else if (x.data !== e.data) note_bad(id, $sformatf("ex_lsu data=%h 期待 %h: %s", x.data, e.data, ins_str(e)));
+          e.seen_data = 1'b1;
+          if (rec_ev) ev_data[id] = cyc;
+          if (tr()) $display("  [%0d] AGU data %h: %s", cyc, x.data, ins_str(e));
+        end
+        if (exp_cpl) begin
+          e.cpl = 1'b1;
+          e.t_cpl = cyc;
+          if (complete_st.rob_idx !== e.rob)
+            fail($sformatf("complete_st.rob_idx=%0d 期待 %0d: %s", complete_st.rob_idx, e.rob, ins_str(e)));
+        end
+        tbl[id] = e;
+      end
     end
-    e = tbl[id];
-    if (!x.is_store && x.data_valid) fail($sformatf("load なのに data_valid: %s", ins_str(e)));
-    if (x.addr_valid) begin
-      if (e.seen_addr) fail($sformatf("アドレスが 2 回出た: %s", ins_str(e)));
-      else if (x.addr !== e.addr) fail($sformatf("ex_lsu addr=%h 期待 %h: %s", x.addr, e.addr, ins_str(e)));
-      e.seen_addr = 1'b1;
-      if (rec_ev) ev_addr[id] = cyc;
+    if (complete_st.valid !== exp_cpl) fail($sformatf("complete_st.valid=%b 期待 %b", complete_st.valid, exp_cpl));
+  endtask
+
+  // ---------------- commit ----------------
+
+  int cm_ids[$];
+
+  task automatic do_commit();
+    ins_t e;
+    logic viol;
+    int h;
+    in_commit_ld = '0;
+    in_commit_st = '0;
+    h = head_id();
+    in_rob_head_ld = 1'b0;
+    // && の右でも連想配列を読むとエントリを作るので if を分ける
+    if (!flush && h >= 0) in_rob_head_ld = tbl[h].kind == K_LW;
+    if (flush) return;
+    cm_ids.delete();
+    foreach (tbl[k]) begin
+      if (cm_ids.size() >= COMMIT_W) break;
+      cm_ids.push_back(k);
     end
-    if (x.data_valid && x.is_store) begin
-      if (e.seen_data) fail($sformatf("データが 2 回出た: %s", ins_str(e)));
-      else if (x.data !== e.data) fail($sformatf("ex_lsu data=%h 期待 %h: %s", x.data, e.data, ins_str(e)));
-      e.seen_data = 1'b1;
-      if (rec_ev) ev_data[id] = cyc;
+    for (int i = 0; i < cm_ids.size(); i++) begin
+      e = tbl[cm_ids[i]];
+      if (!e.cpl || e.t_cpl >= cyc || int'(rnd(100)) >= commit_rate) break;
+      if (e.kind == K_LW) begin
+        viol = 1'b0;
+        for (int j = 0; j < COMMIT_W; j++) begin
+          if (load_violation[j].valid && load_violation[j].rob_idx == e.rob) viol = 1'b1;
+        end
+        if (viol) begin
+          flush_pending = 1'b1;
+          if (tr()) $display("  [%0d] 順序違反で commit しない: %s", cyc, ins_str(e));
+          n_viol_flush++;
+          break;
+        end
+        in_commit_ld[i] = 1'b1;
+      end
+      if (e.kind == K_SW) in_commit_st[i] = 1'b1;
+      if (tr() && (e.kind == K_LW || e.kind == K_SW))
+        $display("  [%0d] commit slot %0d: %s WB の値 %h", cyc, i, ins_str(e), e.wb_val);
+      commit_ins(cm_ids[i]);
     end
-    tbl[id] = e;
-    if (e.seen_addr && (!e.is_store || e.seen_data)) finish_ins(id);
+  endtask
+
+  // ---------------- D$ のモデル ----------------
+
+  // タスクのローカルのキューは Verilator 5.020 で呼ぶたびに空にならないので、ここに置いて毎回空にする
+  int dc_cand[$];
+
+  task automatic dc_decide();
+    lsu_tag_t tg;
+    logic blocked;
+    int j;
+    dc_cand.delete();
+    c_acc = dc_req_valid_ff && int'(rnd(100)) < acc_rate;
+    c_resp_j = -1;
+    c_resp_ack = rnd(2) == 1;
+    c_resp_rdata = $urandom();
+    tg = lsu_tag_t'($urandom());
+    if (int'(rnd(100)) < resp_rate) begin
+      for (j = 0; j < p_cyc.size(); j++) if (p_cyc[j] < cyc) dc_cand.push_back(j);
+      if (dc_cand.size() > 0) begin
+        j = dc_cand[rnd(dc_cand.size())];
+        c_resp_j = j;
+        tg = '0;
+        if (p_we[j]) begin
+          // 同じアドレスの store は accept 順に書く
+          blocked = 1'b0;
+          for (int k = 0; k < j; k++) if (p_we[k] && p_addr[k] == p_addr[j]) blocked = 1'b1;
+          c_resp_ack = !blocked && int'(rnd(100)) >= nack_rate;
+          if (blocked && rnd(2) == 0) begin
+            c_resp_j = -1;
+            n_st_hold++;
+          end
+          tg.is_store = 1'b1;
+          tg.stq_idx = stq_idx_t'(p_idx[j]);
+        end else begin
+          c_resp_ack = p_mmio[j] || int'(rnd(100)) >= nack_rate;
+          c_resp_rdata = p_mmio[j] ? p_data[j] : dc_get(p_addr[j]);
+          tg.ldq_idx = ldq_idx_t'(p_idx[j]);
+        end
+      end
+    end
+    dc_req_accepted = c_acc;
+    dc_resp_valid = c_resp_j >= 0;
+    dc_resp_ack = c_resp_ack;
+    dc_resp_rdata = c_resp_rdata;
+    dc_resp_tag = tg;
+  endtask
+
+  task automatic dc_del(int j);
+    p_we.delete(j);
+    p_mmio.delete(j);
+    p_addr.delete(j);
+    p_idx.delete(j);
+    p_cyc.delete(j);
+    p_data.delete(j);
+    p_brmask.delete(j);
+  endtask
+
+  task automatic dc_push(logic we, logic mmio, addr_t a, int idx, word_t d, brmask_t m);
+    p_we.push_back(we);
+    p_mmio.push_back(mmio);
+    p_addr.push_back(a);
+    p_idx.push_back(idx);
+    p_cyc.push_back(cyc);
+    p_data.push_back(d);
+    p_brmask.push_back(m);
+  endtask
+
+  task automatic dc_post();
+    lsu_tag_t tg;
+    logic dkill, mm;
+    int idx, id, j;
+    // accept
+    tg = lsu_tag_t'(dc_req_tag_ff);
+    if (dc_req_valid_ff && c_acc) begin
+      if (!dc_req_we_ff) begin
+        idx = int'(tg.ldq_idx);
+        id = ldq_owner[idx];
+        dkill = (dc_req_brmask_ff & dc_br_kill_mask_ff) != '0 || dc_kill_all_ff;
+        if (tg.is_store) fail("load の要求なのに tag.is_store = 1");
+        if (dkill) n_dc_drop++;
+        else begin
+          if (id < 0 || !tbl.exists(id)) fail($sformatf("生きていない load の要求を D$ が accept した（LDQ %0d）", idx));
+          else begin
+            if (tbl[id].done) fail($sformatf("WB 済みの load の要求が D$ に出た: %s", ins_str(tbl[id])));
+            if (dc_req_addr_ff == MMIO_RX_ADDR && head_id() != id)
+              fail($sformatf("先頭でない MMIO の load が D$ に出た: %s", ins_str(tbl[id])));
+          end
+          for (j = 0; j < p_idx.size(); j++)
+            if (!p_we[j] && p_idx[j] == idx) fail($sformatf("返事がまだの load をもう一度 D$ に出した（LDQ %0d）", idx));
+          mm = dc_req_addr_ff == MMIO_RX_ADDR;
+          dc_push(1'b0, mm, dc_req_addr_ff, idx, mmio_val(mmio_acc_n), dc_req_brmask_ff & ~dc_br_resolve_mask_ff);
+          if (mm) mmio_acc_n++;
+          n_dc_ld++;
+          if (tr()) $display("  [%0d] D$ accept load LDQ %0d addr %h（rob の持ち主 %0d）", cyc, idx, dc_req_addr_ff, id);
+        end
+      end else begin
+        idx = int'(tg.stq_idx);
+        if (!tg.is_store) fail("store の要求なのに tag.is_store = 0");
+        if (dc_req_brmask_ff != '0) fail($sformatf("store の要求の brmask=%b", dc_req_brmask_ff));
+        if (!cst_valid[idx]) fail($sformatf("commit していない store の要求が D$ に出た（STQ %0d）", idx));
+        else if (dc_req_addr_ff !== cst_addr[idx] || dc_req_wdata_ff !== cst_data[idx])
+          fail($sformatf("store の要求（STQ %0d）addr=%h data=%h、期待 %h %h", idx, dc_req_addr_ff, dc_req_wdata_ff,
+                         cst_addr[idx], cst_data[idx]));
+        for (j = 0; j < p_idx.size(); j++)
+          if (p_we[j] && p_idx[j] == idx) fail($sformatf("返事がまだの store をもう一度 D$ に出した（STQ %0d）", idx));
+        dc_push(1'b1, 1'b0, dc_req_addr_ff, idx, dc_req_wdata_ff, '0);
+        n_dc_st++;
+        if (tr()) $display("  [%0d] D$ accept store STQ %0d addr %h data %h", cyc, idx, dc_req_addr_ff, dc_req_wdata_ff);
+      end
+    end
+    // 返事
+    if (c_resp_j >= 0) begin
+      j = c_resp_j;
+      if (tr())
+        $display("  [%0d] D$ 返事 %s %0d addr %h ack=%b rdata %h", cyc, p_we[j] ? "store STQ" : "load LDQ", p_idx[j], p_addr[j],
+                 c_resp_ack, c_resp_rdata);
+      if (p_we[j]) begin
+        // stale になった store は ack の後でも出し直されるので、控えは STQ が解放したときに消す
+        if (c_resp_ack) dc_mem[p_addr[j]] = p_data[j];
+        else n_st_nack++;
+      end else if (!c_resp_ack) n_ld_nack++;
+      dc_del(j);
+    end
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      if (dut.u_lsu_top.stq_release_mask[i]) begin
+        if (!cst_valid[i]) fail($sformatf("commit していない STQ %0d が解放された", i));
+        cst_valid[i] = 1'b0;
+      end
+    end
+    // kill
+    for (j = p_we.size() - 1; j >= 0; j--) begin
+      if (p_we[j]) continue;
+      if ((p_brmask[j] & dc_br_kill_mask_ff) != '0 || dc_kill_all_ff) begin
+        if (p_mmio[j]) fail("accept した MMIO の load が kill された");
+        dc_del(j);
+        n_dc_kill++;
+      end else begin
+        p_brmask[j] = p_brmask[j] & ~dc_br_resolve_mask_ff;
+      end
+    end
   endtask
 
   task automatic check_stuck();
@@ -1156,19 +1616,31 @@ module tb_backend_top
   // ---------------- 1 サイクル ----------------
 
   task automatic tick();
+    int h;
+    logic head_mmio;
     @(negedge clk);
     cyc++;
+    killed_now.delete();
     check_br_update();
-    flush = (mode == M_RANDOM) && flush_en && (rnd(FLUSH_RATE) == 0);
+    // 先頭の MMIO の load は D$ に出すと取り消せないので、でたらめな flush はしない
+    h = head_id();
+    head_mmio = 1'b0;
+    if (h >= 0) head_mmio = tbl[h].kind == K_LW && tbl[h].mmio;
+    flush = flush_pending || ((mode == M_RANDOM) && flush_en && (rnd(FLUSH_RATE) == 0) && !head_mmio);
+    flush_pending = 1'b0;
     if (flush) do_flush();
+    dc_decide();
+    do_commit();
     free_pregs();
     gen_dispatch();
     #1;
     check_wb_lane(L_ALU, complete_idx[0], dut.wb_alu[0]);
+    check_wb_lane(L_MEM, complete_idx[1], dut.wb_mem[0]);
     check_wb_lane(L_FS, complete_idx[2], dut.wb_fpu[0]);
     check_wb_lane(L_FL, complete_idx[3], dut.wb_fpu[1]);
     check_wb_lane(L_FVL, complete_idx[4], dut.wb_fpu[2]);
     check_lsu();
+    dc_post();
     if (cyc % 64 == 0) check_stuck();
   endtask
 
@@ -1176,11 +1648,12 @@ module tb_backend_top
     int n;
     mode = M_IDLE;
     n = 0;
-    while (tbl.size() != 0 && !stuck) begin
+    while ((tbl.size() != 0 || flush_pending || !stq_empty || p_we.size() != 0) && !stuck) begin
       tick();
       n++;
       if (n > STUCK_LIMIT * 2) begin
-        fail($sformatf("%s: 終わらない命令が %0d 個残った", what, tbl.size()));
+        fail($sformatf("%s: 終わらない命令が %0d 個残った（STQ が空 %b、D$ の返事待ち %0d）", what, tbl.size(), stq_empty,
+                       p_we.size()));
         stuck = 1'b1;
       end
     end
@@ -1299,6 +1772,7 @@ module tb_backend_top
   initial begin
     if (!$value$plusargs("cycles=%d", cycles)) cycles = 200000;
     if (!$value$plusargs("seed=%d", seed)) seed = 1;
+    if (!$value$plusargs("trace=%d", trace_to)) trace_to = 0;
     void'($urandom(seed));
     $display("backend_top: seed=%0d cycles=%0d", seed, cycles);
 
@@ -1318,6 +1792,26 @@ module tb_backend_top
     rate = 100;
     flush_en = 1'b0;
     rec_ev = 1'b0;
+    in_ld = '0;
+    in_st = '0;
+    in_br_valid = '0;
+    in_br_tag = '0;
+    in_commit_ld = '0;
+    in_commit_st = '0;
+    in_rob_head_ld = 1'b0;
+    dc_req_accepted = 1'b0;
+    dc_resp_valid = 1'b0;
+    dc_resp_ack = 1'b0;
+    dc_resp_rdata = '0;
+    dc_resp_tag = '0;
+    flush_pending = 1'b0;
+    mmio_commit_n = 0;
+    mmio_acc_n = 0;
+    acc_rate = 100;
+    resp_rate = 100;
+    nack_rate = 0;
+    commit_rate = 100;
+    c_resp_j = -1;
     for (int t = 0; t < 2; t++) begin
       for (int i = 0; i < NPREG; i++) begin
         pst[t][i] = P_FREE;
@@ -1337,13 +1831,10 @@ module tb_backend_top
       tag_owner[i] = -1;
       tag_free_at[i] = 0;
     end
-    for (int i = 0; i < LDQ_SIZE; i++) begin
-      ldq_owner[i] = -1;
-      ldq_free_at[i] = 0;
-    end
+    for (int i = 0; i < LDQ_SIZE; i++) ldq_owner[i] = -1;
     for (int i = 0; i < STQ_SIZE; i++) begin
       stq_owner[i] = -1;
-      stq_free_at[i] = 0;
+      cst_valid[i] = 1'b0;
     end
     for (int k = 0; k < NK; k++) begin
       n_disp[k] = 0;
@@ -1356,6 +1847,19 @@ module tb_backend_top
     n_flush = 0;
     n_same_cycle = 0;
     n_dir = 0;
+    n_commit = 0;
+    n_viol_flush = 0;
+    n_bad_killed = 0;
+    n_mmio = 0;
+    n_wb_killed = 0;
+    n_dc_ld = 0;
+    n_dc_st = 0;
+    n_dc_drop = 0;
+    n_dc_kill = 0;
+    n_ld_nack = 0;
+    n_st_nack = 0;
+    n_st_hold = 0;
+    n_ld_fwd_like = 0;
 
     // rst は最初の 3 サイクル
     repeat (3) @(negedge clk);
@@ -1374,11 +1878,25 @@ module tb_backend_top
           1: rate = 70;
           default: rate = 30;
         endcase
+        acc_rate = rnd(3) == 0 ? 25 : 85;
+        resp_rate = rnd(3) == 0 ? 25 : 85;
+        nack_rate = rnd(3) == 0 ? 30 : 5;
+        commit_rate = rnd(3) == 0 ? 40 : 100;
       end
       tick();
     end
     flush_en = 1'b0;
+    acc_rate = 100;
+    resp_rate = 100;
+    nack_rate = 0;
+    commit_rate = 100;
     drain("ランダムテストの後");
+
+    // D$ の中身を commit 順に書いたメモリと比べる
+    foreach (arch_mem[a])
+      if (dc_get(a) !== arch_mem[a]) fail($sformatf("最後の D$ の mem[%h]=%h、commit 順に書いた値 %h", a, dc_get(a), arch_mem[a]));
+    foreach (dc_mem[a])
+      if (dc_mem[a] !== arch_get(a)) fail($sformatf("最後の D$ の mem[%h]=%h、commit 順に書いた値 %h", a, dc_mem[a], arch_get(a)));
 
     $display("定型テストの間隔 %0d 個", n_dir);
     for (int k = 0; k < NK; k++)
@@ -1386,6 +1904,11 @@ module tb_backend_top
     $display("  分岐の resolve %0d、mispredict %0d（同じサイクルに 2 本 %0d）、flush %0d、消えた命令 %0d", n_br, n_mis,
              n_two_mis, n_flush, n_killed);
     $display("  同じサイクルに dispatch した命令の rd を読んだ %0d", n_same_cycle);
+    $display("  commit %0d、順序違反の flush %0d、値が違ったが commit せずに消えた命令 %0d、MMIO の load %0d", n_commit,
+             n_viol_flush, n_bad_killed, n_mmio);
+    $display("  load の WB のうち forward %0d、消えたサイクルに WB に出た load %0d", n_ld_fwd_like, n_wb_killed);
+    $display("  D$：load の accept %0d（accept と同時に kill %0d、後から kill %0d、nack %0d）、store の accept %0d（nack %0d、同じアドレス待ち %0d）",
+             n_dc_ld, n_dc_drop, n_dc_kill, n_ld_nack, n_dc_st, n_st_nack, n_st_hold);
     if (errors == 0) $display("PASS");
     else $display("FAIL: %0d 個", errors);
     $finish;

@@ -8,6 +8,7 @@ package ooo_types;
   localparam int NUM_PREG_I = 64;
   localparam int NUM_PREG_F = 64;
   localparam int PREG_W = $clog2((NUM_PREG_I > NUM_PREG_F) ? NUM_PREG_I : NUM_PREG_F);
+  localparam int DISPATCH_W = 1;
   localparam int ROB_SIZE = 32;
   localparam int MAX_BR = 8;
   localparam int BR_TAG_W = (MAX_BR > 1) ? $clog2(MAX_BR) : 1;
@@ -31,12 +32,12 @@ package ooo_types;
     MEM_TYPE_ST = 1'b1
   } ls_type_t;
 
+  typedef logic [((ROB_SIZE > 1) ? $clog2(ROB_SIZE) : 1)-1:0] rob_row_t;
   typedef struct packed {
     rob_row_t row;
-    logic [$clog2(DISPATCH_W)-1:0] bank;
+    logic [((DISPATCH_W > 1) ? $clog2(DISPATCH_W) : 1)-1:0] bank;
   } rob_idx_t;
 
-  typedef logic [$clog2(ROB_SIZE)-1:0] rob_row_t;
   typedef logic [MAX_BR-1:0] brmask_t;
   typedef logic [BR_TAG_W-1:0] br_tag_t;
   typedef logic [$clog2(LDQ_SIZE)-1:0] ldq_idx_t;
@@ -57,8 +58,8 @@ package ooo_types;
 
   // ex_topでFFに入れた後配られる
   typedef struct packed {
-    brmask_t  resolve_mask;     // 予測が当たった分岐
-    brmask_t  kill_mask;        // 予測が外れた分岐
+    brmask_t  resolve_mask;  // 予測が当たった分岐
+    brmask_t  kill_mask;     // 予測が外れた分岐
     logic     mispredict;
     // これ以降は復帰用の情報
     br_tag_t  tag;

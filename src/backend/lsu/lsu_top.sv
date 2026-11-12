@@ -14,15 +14,15 @@ module lsu_top
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush, // loadの順序違反でflush
+  input wire logic flush, // loadの順序違反でflush(ROBのFF)
 
   // dispatch(スロットが小さい方が古い)
   // load
-  input wire disp_lsu_t disp_ld[DISP_W],
+  input wire disp_ldq_t disp_ld[DISP_W],
   output ldq_idx_t disp_ldq_idx[DISP_W],
   output logic disp_ld_full[DISP_W],
   // store
-  input wire disp_lsu_t disp_st[DISP_W],
+  input wire disp_stq_t disp_st[DISP_W],
   output stq_idx_t disp_stq_idx[DISP_W],
   output logic disp_st_full[DISP_W],
   // branch(tail snapshotをLSU内で取らせる)
@@ -40,10 +40,11 @@ module lsu_top
   input wire logic commit_st[COMMIT_W],  // storeをコミットしたヨ
   input wire logic rob_head_ld,  // MMIOのloadは取り消されるとまずいのでROBの先頭しか無理
   output complete_t complete_st,  // addressとdata揃ったらcomplete出す
-  output load_violation_t load_violation,  // load順序違反
+  output logic stq_empty,  // commit済みのstoreも全部D$に書き終わった(halt用)
+  output load_violation_t load_violation[COMMIT_W],  // headからk番目のloadまでについて情報提供
 
   // RFへ
-  output ex_wb_t wb_mem[1],  // loadをRFへ
+  output lsu_wb_t wb_mem[1],  // loadをRFへ
 
   // IQへ
   output wakeup_t slow_wakeup_mem,
@@ -52,6 +53,7 @@ module lsu_top
   // killされたloadは次のサイクル以降validなrespを返さない
   // killが届くまでに出したrespはcore側の責任で無視する
   // 生きている要求にはackかnackをちょうど1回返す
+  // MMIOはacceptしたらnackしない
   // パラメータとして DC_TAG_WとMAX_BRを渡す
   // clk(coreと同じ)、rst(coreと同じ)D$に渡す
   // 下は全部core側のFF
@@ -92,29 +94,25 @@ module lsu_top
   assign dc_br_kill_mask_ff = br_update_ff.kill_mask;
   assign dc_br_resolve_mask_ff = br_update_ff.resolve_mask;
 
-  always_ff @(posedge clk) begin
-    dc_kill_all_ff <= !rst & flush;
-  end
+  assign dc_kill_all_ff = flush;
 
-  st_dep_t st_dep[DISP_W];
+  older_st_t older_st[DISP_W];
+  stq_mask_t stq_release_mask;
 
-  ldq_entry_t ldq[LDQ_SIZE];
-  ldq_idx_t ldq_head;
-  stq_entry_t stq[STQ_SIZE];
-  stq_idx_t stq_head;
-  stq_idx_t stq_exec_head;
+  ldq_controller_t ldq_controller[LDQ_SIZE];
+  ldq_searcher_t ldq_searcher[LDQ_SIZE];
+  ldq_idx_t ldq_head_idx;
+  stq_controller_t stq_controller;
+  stq_cnt_t stq_cnt;
+  stq_searcher_t stq_searcher[STQ_SIZE];
+  stq_fwd_t stq_fwd[STQ_SIZE];
 
-  ld_addr_t ld_addr;
-  ldq_idx_with_valid_t ld_requested, ld_nack;
-  ld_wb_notice_t ld_gone_to_wb;
-  st_addr_t st_addr;
-  st_data_t st_data;
+  ldq_idx_with_valid_t ld_requested, ld_nack, ld_gone_to_wb;
   logic st_requested;
   stq_idx_with_valid_t st_ack, st_nack;
 
-  forward_search_t forward_search;
-  forward_result_t forward_result;
-  ldq_mask_t violation_mask;
+  ld_fwd_t ld_fwd;
+  ldq_mask_t violation_mask, stale_mask;
 
   ldq #(
     .DISP_W  (DISP_W),
@@ -126,18 +124,22 @@ module lsu_top
     .disp_ld(disp_ld),
     .disp_ldq_idx(disp_ldq_idx),
     .disp_full(disp_ld_full),
-    .st_dep(st_dep),
+    .older_st(older_st),
+    .stq_release_mask(stq_release_mask),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),
-    .ld_addr(ld_addr),
+    .ex_lsu(ex_lsu[0]),
     .ld_requested(ld_requested),
     .ld_nack(ld_nack),
     .ld_gone_to_wb(ld_gone_to_wb),
     .violation_mask(violation_mask),
+    .stale_mask(stale_mask),
+    .ld_fwd(ld_fwd),
     .br_update_ff(br_update_ff),
     .commit_ld(commit_ld),
-    .ldq_ff(ldq),
-    .ldq_head(ldq_head),
+    .ldq_controller_ff(ldq_controller),
+    .ldq_searcher_ff(ldq_searcher),
+    .ldq_head_idx(ldq_head_idx),
     .load_violation(load_violation)
   );
 
@@ -151,45 +153,42 @@ module lsu_top
     .disp_st(disp_st),
     .disp_stq_idx(disp_stq_idx),
     .disp_full(disp_st_full),
-    .st_dep(st_dep),
+    .older_st(older_st),
+    .stq_release_mask(stq_release_mask),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),
-    .st_addr(st_addr),
-    .st_data(st_data),
+    .ex_lsu(ex_lsu[0]),
     .st_requested(st_requested),
     .st_ack(st_ack),
     .st_nack(st_nack),
     .br_update_ff(br_update_ff),
     .commit_st(commit_st),
-    .stq_ff(stq),
-    .stq_head(stq_head),
-    .exec_head(stq_exec_head),
-    .complete_st(complete_st)
+    .stq_controller(stq_controller),
+    .stq_cnt(stq_cnt),
+    .stq_searcher_ff(stq_searcher),
+    .stq_fwd_ff(stq_fwd),
+    .complete_st(complete_st),
+    .stq_empty(stq_empty)
   );
 
   lsu_controller u_lsu_controller (
     .clk(clk),
     .rst(rst),
     .flush(flush),
-    .ex_lsu(ex_lsu[0]),
     .br_update_ff(br_update_ff),
     .rob_head_ld(rob_head_ld),
-    .ldq(ldq),
-    .ldq_head(ldq_head),
-    .stq(stq),
-    .stq_head(stq_head),
-    .stq_exec_head(stq_exec_head),
-    .ld_addr(ld_addr),
+    .ldq(ldq_controller),
+    .ldq_head_idx(ldq_head_idx),
+    .head_store(stq_controller),
+    .stq_cnt(stq_cnt),
     .ld_requested(ld_requested),
     .ld_nack(ld_nack),
     .ld_gone_to_wb(ld_gone_to_wb),
-    .st_addr(st_addr),
-    .st_data(st_data),
     .st_requested(st_requested),
     .st_ack(st_ack),
     .st_nack(st_nack),
-    .forward_search(forward_search),
-    .forward_result(forward_result),
+    .stq_fwd(stq_fwd),
+    .stale_mask(stale_mask),
     .wb_mem(wb_mem[0]),
     .slow_wakeup_mem(slow_wakeup_mem),
     .dc_req_ff(dc_req_ff),
@@ -198,12 +197,12 @@ module lsu_top
   );
 
   lsu_searcher u_lsu_searcher (
-    .ldq(ldq),
-    .stq(stq),
-    .forward_search(forward_search),
-    .forward_result(forward_result),
-    .violation_search(st_addr),
-    .violation_mask(violation_mask)
+    .ldq(ldq_searcher),
+    .stq(stq_searcher),
+    .ex_lsu(ex_lsu[0]),
+    .violation_mask(violation_mask),
+    .stale_mask(stale_mask),
+    .ld_fwd(ld_fwd)
   );
 
 endmodule
