@@ -19,6 +19,7 @@ module fetchq #(
 
   localparam int NENTRY = 2 ** IDX_WIDTH;
 
+  // TODO: Use fetch_packet_t as the queue entry type.
   isa::instr_t data[NENTRY];
 
   assign dout = data[ptr_head];

@@ -320,9 +320,7 @@ make -C test/btb
 
 frontend テストには、逐次フェッチ、リセットベクタ、cold / warm JAL、学習済みループ、
 Queue 満杯時を含む redirect、stall 中の frontend redirect 保持、redirect の優先順位を検査する記述がある。
-ただし現行テストは、既に削除された内部信号 `dut.fetchq_empty` / `dut.fetchq_full` を参照している。
-テスト側を現行の `fetchq_valid` や実在する満杯判定に合わせる必要があり、現状のまま通過するテストとしては扱わない。
-また、追加された `pc_backend_redirect_src` の接続・駆動がないため、各インスタンスと backend redirect の刺激を更新する必要がある。
-backend 優先の検査では、旧 F3 の更新抑止に加えて、原因 PC のエントリが指定 target と valid で更新されることも確認する必要がある。
+2026-11-12 に現行ソースで上記 lint と frontend 回帰テストの成功を確認した（300 checks）。
+テストは `fetchq_valid` / `fetchq_ready` を使い、`pc_backend_redirect_src` の接続・駆動と原因 PC への BTB 学習も検証する。
 条件分岐の実行結果や JALR の実 target、後段との PC / FTQ index の対応付けは、このテストでは検証していない。
-この文書の作成時には RTL シミュレーションは実行していない。
+複数命令供給へ拡張する際の制約と追加検証項目は [`docs/knowledge/frontend-multiway.md`](../../docs/knowledge/frontend-multiway.md) を参照。
