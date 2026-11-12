@@ -113,7 +113,7 @@ module lsu_top
 
   forward_search_t forward_search;
   forward_result_t forward_result;
-  ldq_mask_t violation_mask;
+  ldq_mask_t violation_mask, stale_mask;
 
   ldq #(
     .DISP_W  (DISP_W),
@@ -134,6 +134,7 @@ module lsu_top
     .ld_nack(ld_nack),
     .ld_gone_to_wb(ld_gone_to_wb),
     .violation_mask(violation_mask),
+    .stale_mask(stale_mask),
     .br_update_ff(br_update_ff),
     .commit_ld(commit_ld),
     .ldq_controller_ff(ldq_controller),
@@ -186,7 +187,7 @@ module lsu_top
     .st_nack(st_nack),
     .forward_search(forward_search),
     .forward_result(forward_result),
-    .violation_mask(violation_mask),
+    .stale_mask(stale_mask),
     .wb_mem(wb_mem[0]),
     .slow_wakeup_mem(slow_wakeup_mem),
     .dc_req_ff(dc_req_ff),
@@ -200,7 +201,8 @@ module lsu_top
     .forward_search(forward_search),
     .forward_result(forward_result),
     .ex_lsu(ex_lsu[0]),
-    .violation_mask(violation_mask)
+    .violation_mask(violation_mask),
+    .stale_mask(stale_mask)
   );
 
 endmodule

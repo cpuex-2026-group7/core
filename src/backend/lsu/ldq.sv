@@ -38,7 +38,8 @@ module ldq
   output ldq_idx_t ldq_head_idx,
 
   // searcher
-  input wire ldq_mask_t violation_mask,
+  input wire ldq_mask_t violation_mask,  // WBに出た後のloadが違反
+  input wire ldq_mask_t stale_mask,  // WBに出る前のloadが当たった
 
   // controller、searcherへ
   output ldq_controller_t ldq_controller_ff[LDQ_SIZE],
@@ -142,8 +143,8 @@ module ldq
   end
 
   // AGUからの入力
-  logic ex_st_addr_valid;
-  assign ex_st_addr_valid = !ex_lsu.is_store && ex_lsu.addr_valid;
+  logic ex_ld_addr_valid;
+  assign ex_ld_addr_valid = !ex_lsu.is_store && ex_lsu.addr_valid;
 
   // ldq_ffとhead,tail
   ldq_ptr_t n_ldq_head, n_ldq_tail;
@@ -154,43 +155,6 @@ module ldq
     end
     n_ldq_head = ldq_head;
     n_ldq_tail = disp_tail[DISP_W];
-
-    // dispatch
-    if (!br_update_ff.mispredict && !flush) begin
-      for (int i = 0; i < DISP_W; i++) begin
-        if (disp_ld[i].valid && !disp_full[i]) begin
-          n_ldq_ff[disp_ldq_idx[i]].valid = !br_kill_check(disp_ld[i].brmask, br_update_ff);
-          n_ldq_ff[disp_ldq_idx[i]].addr_valid = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].mmio = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].ld_requested = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].stale = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].older_st_mask =
-            apply_st_resolve(older_st[i].older_st_mask, br_update_ff.release_mask);
-          n_ldq_ff[disp_ldq_idx[i]].tail_stq_idx = older_st[i].tail_stq_idx;
-          n_ldq_ff[disp_ldq_idx[i]].violated = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].forwarded = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].gone_to_wb = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].rd = disp_ld[i].rd;
-          n_ldq_ff[disp_ldq_idx[i]].rob_idx = disp_ld[i].rob_idx;
-          n_ldq_ff[disp_ldq_idx[i]].brmask = apply_br_resolve(disp_ld[i].brmask, br_update_ff);
-        end
-      end
-    end
-
-    // AGUから
-    if (ex_st_addr_valid) begin
-      n_ldq_ff[ex_lsu.ldq_idx].addr_valid = 1'b1;
-      n_ldq_ff[ex_lsu.ldq_idx].addr = ex_lsu.addr;
-      n_ldq_ff[ex_lsu.ldq_idx].mmio = (ex_lsu.addr == MMIO_RX_ADDR);
-    end
-
-    // commitでheadを進める
-    for (int i = 0; i < COMMIT_W; i++) begin
-      if (commit_ld[i]) begin
-        n_ldq_ff[n_ldq_head.idx].valid = 1'b0;
-        n_ldq_head = ptr_inc(n_ldq_head);
-      end
-    end
 
     // resolve_mask
     for (int i = 0; i < LDQ_SIZE; i++) begin
@@ -203,6 +167,65 @@ module ldq
     // store resolve
     for (int i = 0; i < LDQ_SIZE; i++) begin
       n_ldq_ff[i].older_st_mask = apply_st_resolve(ldq_ff[i].older_st_mask, stq_release_mask);
+    end
+
+    // requested
+    if (ld_requested.valid) begin
+      n_ldq_ff[ld_requested.idx].ld_requested = 1'b1;
+      n_ldq_ff[ld_requested.idx].stale |= ld_requested.stale;
+    end
+    // gone_to_wb
+    if (ld_gone_to_wb.valid) begin
+      n_ldq_ff[ld_gone_to_wb.idx].ld_requested = 1'b0;
+      n_ldq_ff[ld_gone_to_wb.idx].gone_to_wb = 1'b1;
+      n_ldq_ff[ld_gone_to_wb.idx].forwarded = ld_gone_to_wb.forwarded;
+      n_ldq_ff[ld_gone_to_wb.idx].forward_stq_idx = ld_gone_to_wb.forward_stq_idx;
+    end
+    // violation,stale
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      n_ldq_ff[i].violated |= violation_mask[i];  // wbまで行った救いようのない違反
+      n_ldq_ff[i].stale |= n_ldq_ff[i].ld_requested & stale_mask[i];  // wbに行く前なのでstaleにして救う
+    end
+    // nack
+    if (ld_nack.valid) begin
+      n_ldq_ff[ld_nack.idx].ld_requested = 1'b0;
+      n_ldq_ff[ld_nack.idx].stale = 1'b0;
+    end
+
+    // dispatch
+    if (!br_update_ff.mispredict && !flush) begin
+      for (int i = 0; i < DISP_W; i++) begin
+        if (disp_ld[i].valid && !disp_full[i]) begin
+          n_ldq_ff[disp_ldq_idx[i]].valid = 1'b1;
+          n_ldq_ff[disp_ldq_idx[i]].addr_valid = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].mmio = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].ld_requested = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].stale = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].older_st_mask = older_st[i].older_st_mask; //同じサイクルのreleaseは除外済み
+          n_ldq_ff[disp_ldq_idx[i]].tail_stq_idx = older_st[i].tail_stq_idx;
+          n_ldq_ff[disp_ldq_idx[i]].violated = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].forwarded = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].gone_to_wb = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].rd = disp_ld[i].rd;
+          n_ldq_ff[disp_ldq_idx[i]].rob_idx = disp_ld[i].rob_idx;
+          n_ldq_ff[disp_ldq_idx[i]].brmask = apply_br_resolve(disp_ld[i].brmask, br_update_ff);
+        end
+      end
+    end
+
+    // AGUから
+    if (ex_ld_addr_valid) begin
+      n_ldq_ff[ex_lsu.ldq_idx].addr_valid = 1'b1;
+      n_ldq_ff[ex_lsu.ldq_idx].addr = ex_lsu.addr;
+      n_ldq_ff[ex_lsu.ldq_idx].mmio = (ex_lsu.addr == MMIO_RX_ADDR);
+    end
+
+    // commitでheadを進める
+    for (int i = 0; i < COMMIT_W; i++) begin
+      if (commit_ld[i]) begin
+        n_ldq_ff[n_ldq_head.idx].valid = 1'b0;
+        n_ldq_head = ptr_inc(n_ldq_head);
+      end
     end
 
     // 最後にflush確認
@@ -233,10 +256,13 @@ module ldq
   end
 
   // violation
+  ldq_ptr_t violation_ptr[COMMIT_W+1];
   always_comb begin
+    violation_ptr[0] = ldq_head;
     for (int i = 0; i < COMMIT_W; i++) begin
-      load_violation[i].valid   = ldq_ff[ldq_head.idx].valid & ldq_ff[ldq_head.idx].violated;
-      load_violation[i].rob_idx = ldq_ff[ldq_head.idx].rob_idx;
+      load_violation[i].valid = ldq_ff[violation_ptr[i].idx].valid && ldq_ff[violation_ptr[i].idx].violated;
+      load_violation[i].rob_idx = ldq_ff[violation_ptr[i].idx].rob_idx;
+      violation_ptr[i+1] = ptr_inc(violation_ptr[i]);
     end
   end
 
