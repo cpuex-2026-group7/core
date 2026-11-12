@@ -29,7 +29,7 @@ module lsu_controller
   // STQ
   input wire stq_controller_t head_store,  // 次にD$に送るstore
   input wire stq_cnt_t stq_cnt,  // STQの中身の数
-  input wire stq_forward_t stq_forward[STQ_SIZE],  // forwardするデータ
+  input wire stq_fwd_t stq_fwd[STQ_SIZE],  // forwardするデータ
   output logic st_requested,
   output stq_idx_with_valid_t st_ack,
   output stq_idx_with_valid_t st_nack,
@@ -83,13 +83,16 @@ module lsu_controller
   end
 
   // loadからのreq
-  dc_req_t load_req;
+  dc_req_t   load_req;
+  fwd_cand_t fwd_cand;
   always_comb begin
     ldq_ptr_t p;
     logic     ld_ready;
     load_req = '0;
+    fwd_cand = '0;
     p.wrap = 1'b0;
     p.ldq_idx = ldq_head_idx;
+    // 条件満たす一番古いものを探す
     for (int i = 0; i < LDQ_SIZE; i++) begin
       p = ldq_ptr_dec(p);
       ld_ready = ldq[p.ldq_idx].valid && ldq[p.ldq_idx].addr_valid && !ldq[p.ldq_idx].ld_requested
@@ -98,21 +101,22 @@ module lsu_controller
       if (ldq[p.ldq_idx].mmio && !(rob_head_ld && p.ldq_idx == ldq_head_idx)) begin
         ld_ready = 1'b0;
       end
+
       // flushのときはloadは消す
       if (ld_ready && !flush) begin
-        load_req.valid = 1'b1;
-        load_req.addr = ldq[p.ldq_idx].addr;
-        load_req.tag.ldq_idx = p.ldq_idx;
-        load_req.brmask = apply_br_resolve(ldq[p.ldq_idx].brmask, br_update_ff);
+        // forward待ちはD$にreqしない
+        if (!ldq[p.ldq_idx].fwd_hit) begin
+          load_req.valid = 1'b1;
+          load_req.addr = ldq[p.ldq_idx].addr;
+          load_req.tag.ldq_idx = p.ldq_idx;
+          load_req.brmask = apply_br_resolve(ldq[p.ldq_idx].brmask, br_update_ff);
+        end
+        if (ldq[p.ldq_idx].fwd_hit && stq_fwd[ldq[p.ldq_idx].fwd_stq_idx].data_valid && !ldq[p.ldq_idx].mmio) begin
+          fwd_cand.valid   = 1'b1;
+          fwd_cand.ldq_idx = p.ldq_idx;
+          fwd_cand.stq_idx = ldq[p.ldq_idx].fwd_stq_idx;
+        end
       end
-    end
-  end
-
-  // とりあえずload_reqでfowardしとく
-  always_comb begin
-    forward_ldq_idx = '0;
-    if (load_req.valid) begin
-      forward_ldq_idx = load_req.tag.ldq_idx;
     end
   end
 
@@ -135,7 +139,7 @@ module lsu_controller
 
     if (!n_dc_req_ff.valid || dc_accepted) begin
       n_dc_req_ff.valid = 1'b0;
-      if (load_req.valid && !forward_result.hit && (load_turn_ff || !store_req.valid)) begin
+      if (load_req.valid && (load_turn_ff || !store_req.valid)) begin
         // loadをreq
         n_dc_req_ff = load_req;
         ld_requested.valid = 1'b1;
@@ -176,12 +180,12 @@ module lsu_controller
       wb_mem.rd = ldq[resp_ldq_idx].rd;
       wb_mem.value = dc_resp.rdata;
       wb_mem.rob_idx = ldq[resp_ldq_idx].rob_idx;
-    end else if (load_req.valid && forward_result.hit && forward_result.data_valid && !stale_mask[forward_ldq_idx]) begin
+    end else if (fwd_cand.valid && !stale_mask[fwd_cand.ldq_idx]) begin
       // 空いていればforward
       wb_mem.valid = 1'b1;
-      wb_mem.rd = ldq[forward_ldq_idx].rd;
-      wb_mem.value = forward_result.data;
-      wb_mem.rob_idx = ldq[forward_ldq_idx].rob_idx;
+      wb_mem.rd = ldq[fwd_cand.ldq_idx].rd;
+      wb_mem.value = stq_fwd[fwd_cand.stq_idx].data;
+      wb_mem.rob_idx = ldq[fwd_cand.ldq_idx].rob_idx;
       forwarded = 1'b1;
     end
   end
@@ -192,9 +196,7 @@ module lsu_controller
   always_comb begin
     ld_gone_to_wb = '0;
     ld_gone_to_wb.valid = wb_mem.valid;
-    ld_gone_to_wb.ldq_idx = forwarded ? forward_ldq_idx : resp_ldq_idx;
-    ld_gone_to_wb.forwarded = forwarded;
-    ld_gone_to_wb.forward_stq_idx = forward_result.stq_idx;
+    ld_gone_to_wb.ldq_idx = forwarded ? fwd_cand.ldq_idx : resp_ldq_idx;
   end
 
 endmodule

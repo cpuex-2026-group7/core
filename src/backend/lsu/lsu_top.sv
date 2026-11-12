@@ -105,7 +105,7 @@ module lsu_top
   stq_controller_t stq_controller;
   stq_cnt_t stq_cnt;
   stq_searcher_t stq_searcher[STQ_SIZE];
-  stq_forward_t stq_forward[STQ_SIZE];
+  stq_fwd_t stq_fwd[STQ_SIZE];
 
   ldq_idx_with_valid_t ld_requested, ld_nack, ld_gone_to_wb;
   logic st_requested;
@@ -166,7 +166,7 @@ module lsu_top
     .stq_controller(stq_controller),
     .stq_cnt(stq_cnt),
     .stq_searcher_ff(stq_searcher),
-    .stq_forward_ff(stq_forward),
+    .stq_fwd_ff(stq_fwd),
     .complete_st(complete_st),
     .stq_empty(stq_empty)
   );
@@ -187,7 +187,7 @@ module lsu_top
     .st_requested(st_requested),
     .st_ack(st_ack),
     .st_nack(st_nack),
-    .stq_forward(stq_forward),
+    .stq_fwd(stq_fwd),
     .stale_mask(stale_mask),
     .wb_mem(wb_mem[0]),
     .slow_wakeup_mem(slow_wakeup_mem),

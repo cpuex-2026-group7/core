@@ -197,7 +197,7 @@ package lsu_types;
   typedef struct packed {
     logic  data_valid;
     word_t data;
-  } stq_forward_t;
+  } stq_fwd_t;
 
   // controllerからLDQへ
   typedef struct packed {
@@ -216,6 +216,13 @@ package lsu_types;
     logic     hit;
     stq_idx_t stq_idx;
   } ld_fwd_t;
+
+  // forwardするloadの候補
+  typedef struct packed {
+    logic     valid;
+    ldq_idx_t ldq_idx;
+    stq_idx_t stq_idx;  // forward元
+  } fwd_cand_t;
 
   // dc_req_ff、dc_respのtag
   typedef struct packed {

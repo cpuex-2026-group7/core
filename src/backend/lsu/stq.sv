@@ -41,7 +41,7 @@ module stq
   // searcherへ
   output stq_searcher_t stq_searcher_ff[STQ_SIZE],
   // controllerへ(forwardするデータ)
-  output stq_forward_t stq_forward_ff[STQ_SIZE],
+  output stq_fwd_t stq_fwd_ff[STQ_SIZE],
 
   // EXから
   input wire br_update_t br_update_ff,
@@ -62,8 +62,8 @@ module stq
       stq_searcher_ff[i].addr = stq_ff[i].addr;
       stq_searcher_ff[i].data_valid = stq_ff[i].data_valid;
       stq_searcher_ff[i].data = stq_ff[i].data;
-      stq_forward_ff[i].data_valid = stq_ff[i].data_valid;
-      stq_forward_ff[i].data = stq_ff[i].data;
+      stq_fwd_ff[i].data_valid = stq_ff[i].data_valid;
+      stq_fwd_ff[i].data = stq_ff[i].data;
     end
   end
 
