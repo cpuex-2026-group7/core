@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
+// need to resolve some problems.
+
 module ftq #(
     parameter int IDX_WIDTH = 5
 ) (
