@@ -16,7 +16,7 @@
 2. 現在の生成元では正解決から `resolve_mask`、予測ミスから `kill_mask` を作る。以下の `mispredict_mask` はこの `kill_mask` に相当する。
 3. 各既存 valid entry について、**更新前の mask** で `kill = |(old_mask & mispredict_mask)` を判定。kill なら valid を落とし、それ以外は `old_mask & ~resolve_mask` を保存する。先に bit を消してから kill を判定すると予測ミスを見逃す。
 4. mask 更新は dispatch の有無や writeback と独立に毎 cycle 適用する。他の分岐が mispredict した cycle でも、生存 entry に対する正解決の通知を失わないこと。`kill_mask` の有無で分けた双方の経路に更新が必要。
-5. `src/backend/defs/rob_types.sv` の `entry.brmask` と `entry.uop.brmask` は二重保持。片方だけ更新しない。mask の保持元を一つにして commit 出力をそこから構成するか、両方の一致を維持する。
+5. 2026-11-12 に `src/backend/defs/rob_types.sv` の独立した `entry.brmask` を削除し、`entry.uop.brmask` に一本化した。`rob.sv` の kill 判定・resolve 更新・commit 出力は同じ保持元を使う。二重保持による commit 出力の更新漏れを防ぐため、独立したコピーを追加しない。
 6. 新規 dispatch と同 cycle の解決も整合させる。上流が既に mask を更新している契約を確認し、そうでなければ取り込む uop も旧 mask による kill と resolve bit 除去を行う。解決 tag の同 cycle 再割当ては、新しい依存 bit まで消さないよう割当て・通知の世代/タイミング契約を定める。
 7. 複数 mispredict の mask は OR できるが、tail 復旧先は**最古**の mispredict を選ぶ。現在の `ex_top.sv` は他の mispredict に依存しない分岐の復旧情報を `br_update.rob_idx` に渡す。bank/row 型なので ROB の `+1` は row 単位であり、同じ row 内の若い bank の無効化は mask 側で担う。
 
@@ -33,4 +33,6 @@
 
 ## 実装時に確認するケース
 
-正解決後の tag 再利用、同 cycle の正解決と別分岐の mispredict、旧 mask による kill、新規 dispatch と解決の同時発生、複数 mispredict の最古選択、同一 row の分岐より後ろの bank の kill。動作シミュレーションは未実行。
+正解決後の tag 再利用、同 cycle の正解決と別分岐の mispredict、旧 mask による kill、新規 dispatch と解決の同時発生、複数 mispredict の最古選択、同一 row の分岐より後ろの bank の kill。
+
+2026-11-11 の限定単体検証（Verilator、DISPATCH_W=2）で、新規 dispatch の入力 mask に同 cycle の resolve bit が残る問題を再現した。2026-11-12 の現行 `rob.sv` は dispatch 時にも `dis_uops[i].brmask & ~br_update.resolve_mask` を保存し、この問題は修正済み。同日の限定単体検証で、入力 mask と resolve_mask がともに `8'h01` の場合、保存 mask が `0` になることを確認した。解決 tag の同 cycle 再割当て契約は依然未確認。他の列挙ケースは未検証。元の `ooo_types.sv` は `rob_row_t` の宣言順と未定義 `DISPATCH_W` で lint できないため、検証用コピーだけで宣言順と bank 幅を補った。

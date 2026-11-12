@@ -1,8 +1,6 @@
 `timescale 1ns/1ps
 `default_nettype none
 
-// TODO restart from resolving Spec-[P1]-1.
-
 module rob
 #(
     parameter int DISPATCH_W = 1,
@@ -101,11 +99,11 @@ always_ff @(posedge clk) begin : entry_manipulation
         rob_tail <= br_update.rob_idx.row + ooo_types::rob_row_t'(1);
         for(int i = 0; i < ooo_types::ROB_SIZE; i++) begin
             for(int j = 0; j < DISPATCH_W; j++) begin
-                if(|(entries[j][i].brmask & br_update.kill_mask)) begin
+                if(|(entries[j][i].uop.brmask & br_update.kill_mask)) begin
                     entries[j][i].valid <= 1'b0;
                     entries[j][i].excp <= 1'b0;
                 end
-                entries[j][i].brmask <= entries[j][i].brmask & ~br_update.resolve_mask;
+                entries[j][i].uop.brmask <= entries[j][i].uop.brmask & ~br_update.resolve_mask;
             end
         end
 
@@ -120,7 +118,7 @@ always_ff @(posedge clk) begin : entry_manipulation
 
         for (int i = 0; i < ooo_types::ROB_SIZE; i++) begin : apply_br_resolve
             for(int j = 0; j < DISPATCH_W; j++) begin
-                entries[j][i].brmask <= entries[j][i].brmask & ~br_update.resolve_mask;
+                entries[j][i].uop.brmask <= entries[j][i].uop.brmask & ~br_update.resolve_mask;
             end
         end
 
@@ -133,10 +131,10 @@ always_ff @(posedge clk) begin : entry_manipulation
             entries[i][rob_tail].valid <= dis_mask[i];
             entries[i][rob_tail].busy <= 1'b1;
             entries[i][rob_tail].excp <= 1'b0;
-            entries[i][rob_tail].brmask <= dis_uops[i].brmask;
             entries[i][rob_tail].ldst <= dis_ldst[i];
             entries[i][rob_tail].stale_pdst <= dis_stale_pdst[i];
-            entries[i][rob_tail].uop <= dis_uops[i]; // brmask is included in dis_uops. there should be a room for improvements.
+            entries[i][rob_tail].uop <= dis_uops[i];
+            entries[i][rob_tail].uop.brmask <= dis_uops[i].brmask & ~br_update.resolve_mask;
         end
         rob_tail <= dis_mask == '0 ? rob_tail : rob_tail_next;
         rob_head <= ((|com_mask) && (com_mask == head_valids))

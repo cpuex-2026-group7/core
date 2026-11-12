@@ -24,7 +24,6 @@ package rob_types;
     logic valid;
     logic busy;
     logic excp; // load violation
-    brmask_t brmask;
     rf_idx_t ldst;
     preg_t stale_pdst;
     disp_uop_t uop;
