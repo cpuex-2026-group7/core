@@ -111,7 +111,7 @@ module lsu_top
   logic st_requested;
   stq_idx_with_valid_t st_ack, st_nack;
 
-  forward_search_t forward_search;
+  ldq_idx_t forward_ldq_idx;
   forward_result_t forward_result;
   ldq_mask_t violation_mask, stale_mask;
 
@@ -185,7 +185,7 @@ module lsu_top
     .st_requested(st_requested),
     .st_ack(st_ack),
     .st_nack(st_nack),
-    .forward_search(forward_search),
+    .forward_ldq_idx(forward_ldq_idx),
     .forward_result(forward_result),
     .stale_mask(stale_mask),
     .wb_mem(wb_mem[0]),
@@ -198,7 +198,7 @@ module lsu_top
   lsu_searcher u_lsu_searcher (
     .ldq(ldq_searcher),
     .stq(stq_searcher),
-    .forward_search(forward_search),
+    .forward_ldq_idx(forward_ldq_idx),
     .forward_result(forward_result),
     .ex_lsu(ex_lsu[0]),
     .violation_mask(violation_mask),

@@ -36,9 +36,9 @@ module lsu_controller
   output stq_idx_with_valid_t st_nack,
 
   // searcher
-  output forward_search_t forward_search,
+  output ldq_idx_t forward_ldq_idx,
   input wire forward_result_t forward_result,
-  input wire ldq_mask_t violation_mask,  // respのloadが当たっていたらWBに出さずに出し直す
+  input wire ldq_mask_t stale_mask,  // WBに出すloadが当たっていたら出さない。respなら出し直す
 
   // RFへ
   output lsu_wb_t wb_mem,

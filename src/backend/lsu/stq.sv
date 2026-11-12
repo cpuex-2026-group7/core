@@ -49,48 +49,6 @@ module stq
   output logic stq_empty  // commit済みのstoreも全部D$に書き終わった(halt用)
 );
 
-  localparam int STQ_CNT_W = $clog2(STQ_SIZE + 1);
-  typedef logic [STQ_CNT_W-1:0] stq_cnt_t;
-
-  typedef struct packed {
-    logic     wrap;
-    stq_idx_t idx;
-  } stq_ptr_t;
-
-  function automatic stq_ptr_t ptr_inc(input stq_ptr_t p);
-    if (p.idx == stq_idx_t'(STQ_SIZE - 1)) begin
-      ptr_inc.wrap = ~p.wrap;
-      ptr_inc.idx  = '0;
-    end else begin
-      ptr_inc.wrap = p.wrap;
-      ptr_inc.idx  = p.idx + 1'b1;
-    end
-  endfunction
-
-  // fromからtoまでの個数
-  function automatic stq_cnt_t ptr_dist(input stq_ptr_t from, input stq_ptr_t to);
-    if (from.wrap == to.wrap) begin
-      ptr_dist = stq_cnt_t'(to.idx) - stq_cnt_t'(from.idx);
-    end else begin
-      ptr_dist = stq_cnt_t'(to.idx) + stq_cnt_t'(STQ_SIZE) - stq_cnt_t'(from.idx);
-    end
-  endfunction
-
-  // エントリiがfromからtoまでに入っているか
-  function automatic logic in_range(input int i, input stq_ptr_t from, input stq_ptr_t to);
-    stq_cnt_t off;
-    if (stq_idx_t'(i) >= from.idx) begin
-      off = stq_cnt_t'(i) - stq_cnt_t'(from.idx);
-    end else begin
-      off = stq_cnt_t'(i) + stq_cnt_t'(STQ_SIZE) - stq_cnt_t'(from.idx);
-    end
-    in_range = off < ptr_dist(from, to);
-  endfunction
-
-  function automatic logic ptr_full(input stq_ptr_t head, input stq_ptr_t tail);
-    ptr_full = head.idx == tail.idx && head.wrap != tail.wrap;
-  endfunction
-
   stq_ptr_t stq_head, stq_commit_head, stq_exec_head, stq_tail;
   stq_ptr_t stq_tail_snapshot[MAX_BR];
   stq_entry_t stq_ff[STQ_SIZE];
@@ -105,17 +63,17 @@ module stq
   end
 
   // commit済みでまだ要求していないものがある
-  assign stq_controller.valid = stq_exec_head != stq_commit_head && !stq_ff[stq_exec_head.idx].st_requested;
-  assign stq_controller.idx = stq_exec_head.idx;
-  assign stq_controller.addr = stq_ff[stq_exec_head.idx].addr;
-  assign stq_controller.data = stq_ff[stq_exec_head.idx].data;
+  assign stq_controller.valid = stq_exec_head != stq_commit_head && !stq_ff[stq_exec_head.stq_idx].st_requested;
+  assign stq_controller.stq_idx = stq_exec_head.stq_idx;
+  assign stq_controller.addr = stq_ff[stq_exec_head.stq_idx].addr;
+  assign stq_controller.data = stq_ff[stq_exec_head.stq_idx].data;
 
   assign stq_empty = stq_head == stq_tail;
 
   // headがstoredなら解放
   always_comb begin
     stq_release_mask = '0;
-    stq_release_mask[stq_head.idx] = stq_ff[stq_head.idx].stored;
+    stq_release_mask[stq_head.stq_idx] = stq_ff[stq_head.stq_idx].stored;
   end
 
   // disp_tailとtail_snapshot
@@ -127,13 +85,13 @@ module stq
     end
     disp_tail[0] = stq_tail;
     for (int i = 0; i < DISP_W; i++) begin
-      disp_stq_idx[i] = disp_tail[i].idx;
-      disp_full[i] = ptr_full(stq_head, disp_tail[i]);
+      disp_stq_idx[i] = disp_tail[i].stq_idx;
+      disp_full[i] = stq_ptr_full(stq_head, disp_tail[i]);
 
       // olderを詰める
-      older_st[i].tail_stq_idx = disp_tail[i].idx;
+      older_st[i].tail_stq_idx = disp_tail[i].stq_idx;
       for (int j = 0; j < STQ_SIZE; j++) begin
-        older_st[i].older_st_mask[j] = in_range(j, stq_head, disp_tail[i]) && !stq_release_mask[j];
+        older_st[i].older_st_mask[j] = stq_in_range(j, stq_head, disp_tail[i]) && !stq_release_mask[j];
       end
 
       // snapshotを詰める
@@ -143,7 +101,7 @@ module stq
 
       // 命令が入った場合disp_tailを進める
       if (disp_st[i].valid && !disp_full[i]) begin
-        disp_tail[i+1] = ptr_inc(disp_tail[i]);
+        disp_tail[i+1] = stq_ptr_inc(disp_tail[i]);
       end else begin
         disp_tail[i+1] = disp_tail[i];
       end
@@ -176,10 +134,10 @@ module stq
   logic st_resp_idx_stale;
   stq_idx_t st_resp_idx;
   stq_ptr_t st_nack_ptr;
-  assign st_resp_idx = st_nack.valid ? st_nack.idx : st_ack.idx;
+  assign st_resp_idx = st_nack.valid ? st_nack.stq_idx : st_ack.stq_idx;
   assign st_resp_idx_stale = (st_ack.valid || st_nack.valid) && stq_ff[st_resp_idx].stale;
-  assign st_nack_ptr.wrap = st_nack.idx >= stq_head.idx ? stq_head.wrap : ~stq_head.wrap;
-  assign st_nack_ptr.idx = st_nack.idx;
+  assign st_nack_ptr.wrap = st_nack.stq_idx >= stq_head.stq_idx ? stq_head.wrap : ~stq_head.wrap;
+  assign st_nack_ptr.stq_idx = st_nack.stq_idx;
 
   // stq_ffとhead,tail
   stq_ptr_t n_stq_head, n_stq_commit_head, n_stq_exec_head, n_stq_tail;
@@ -222,15 +180,15 @@ module stq
     // commitでcommit_headを進める
     for (int i = 0; i < COMMIT_W; i++) begin
       if (commit_st[i]) begin
-        n_stq_ff[n_stq_commit_head.idx].committed = 1'b1;
-        n_stq_commit_head = ptr_inc(n_stq_commit_head);
+        n_stq_ff[n_stq_commit_head.stq_idx].committed = 1'b1;
+        n_stq_commit_head = stq_ptr_inc(n_stq_commit_head);
       end
     end
 
     // exec_headを進める
     if (st_requested) begin
-      n_stq_ff[stq_exec_head.idx].st_requested = 1'b1;
-      n_stq_exec_head = ptr_inc(stq_exec_head);
+      n_stq_ff[stq_exec_head.stq_idx].st_requested = 1'b1;
+      n_stq_exec_head = stq_ptr_inc(stq_exec_head);
     end
 
     // ackとnack
@@ -240,26 +198,26 @@ module stq
       n_stq_ff[st_resp_idx].stale = 1'b0;
     end else if (st_ack.valid) begin
       // ackされたstoreはstoredにする
-      n_stq_ff[st_ack.idx].st_requested = 1'b0;
-      n_stq_ff[st_ack.idx].stored = 1'b1;
+      n_stq_ff[st_ack.stq_idx].st_requested = 1'b0;
+      n_stq_ff[st_ack.stq_idx].stored = 1'b1;
     end else if (st_nack.valid) begin
       // nackされたstoreからやりなおし
       for (int i = 0; i < STQ_SIZE; i++) begin
-        if (in_range(i, st_nack_ptr, n_stq_exec_head)) begin
+        if (stq_in_range(i, st_nack_ptr, n_stq_exec_head)) begin
           n_stq_ff[i].stored = 1'b0;
           n_stq_ff[i].stale  = n_stq_ff[i].st_requested;
         end
       end
-      n_stq_ff[st_nack.idx].st_requested = 1'b0;
-      n_stq_ff[st_nack.idx].stale = 1'b0;
+      n_stq_ff[st_nack.stq_idx].st_requested = 1'b0;
+      n_stq_ff[st_nack.stq_idx].stale = 1'b0;
       n_stq_exec_head = st_nack_ptr;
     end
 
     // headを進める
-    if (stq_ff[stq_head.idx].stored) begin
-      n_stq_ff[stq_head.idx].valid = 1'b0;
-      n_stq_ff[stq_head.idx].stored = 1'b0;
-      n_stq_head = ptr_inc(stq_head);
+    if (stq_ff[stq_head.stq_idx].stored) begin
+      n_stq_ff[stq_head.stq_idx].valid = 1'b0;
+      n_stq_ff[stq_head.stq_idx].stored = 1'b0;
+      n_stq_head = stq_ptr_inc(stq_head);
     end
 
     // 最後にflush確認

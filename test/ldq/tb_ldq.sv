@@ -380,11 +380,11 @@ module tb_ldq
     g_idx = -1;
     n_idx = -1;
     lr = '0;
-    lr.idx = ldq_idx_t'(rnd(N));
+    lr.ldq_idx = ldq_idx_t'(rnd(N));
     ln = '0;
-    ln.idx = ldq_idx_t'(rnd(N));
+    ln.ldq_idx = ldq_idx_t'(rnd(N));
     lg = '0;
-    lg.idx = ldq_idx_t'(rnd(N));
+    lg.ldq_idx = ldq_idx_t'(rnd(N));
     lg.forward_stq_idx = stq_idx_t'($urandom());
     if (rnd(100) < req_rate) begin
       for (int q = head_pos; q < tail_pos; q++) begin
@@ -394,7 +394,7 @@ module tb_ldq
       if (cand.size() > 0) begin
         r_idx = cand[rnd(cand.size())];
         lr.valid = 1'b1;
-        lr.idx = ldq_idx_t'(r_idx);
+        lr.ldq_idx = ldq_idx_t'(r_idx);
         lr.stale = rnd(8) == 0;
       end
       cand.delete();
@@ -407,7 +407,7 @@ module tb_ldq
       if (cand.size() > 0) begin
         g_idx = cand[rnd(cand.size())];
         lg.valid = 1'b1;
-        lg.idx = ldq_idx_t'(g_idx);
+        lg.ldq_idx = ldq_idx_t'(g_idx);
         // D$ の返事なら forward ではない。出していなければ forward
         lg.forwarded = m_req[g_idx] ? 1'b0 : 1'b1;
       end
@@ -421,7 +421,7 @@ module tb_ldq
       if (cand.size() > 0) begin
         n_idx = cand[rnd(cand.size())];
         ln.valid = 1'b1;
-        ln.idx = ldq_idx_t'(n_idx);
+        ln.ldq_idx = ldq_idx_t'(n_idx);
       end
       cand.delete();
     end

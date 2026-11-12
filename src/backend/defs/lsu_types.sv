@@ -5,6 +5,70 @@ package lsu_types;
   import types::*;
   import ooo_types::*;
 
+  typedef struct packed {
+    logic     wrap;
+    ldq_idx_t ldq_idx;
+  } ldq_ptr_t;
+
+  typedef struct packed {
+    logic     wrap;
+    stq_idx_t stq_idx;
+  } stq_ptr_t;
+
+  localparam int STQ_CNT_W = $clog2(STQ_SIZE + 1);
+  typedef logic [STQ_CNT_W-1:0] stq_cnt_t;
+
+  function automatic ldq_ptr_t ldq_ptr_inc(input ldq_ptr_t p);
+    if (p.ldq_idx == ldq_idx_t'(LDQ_SIZE - 1)) begin
+      ldq_ptr_inc.wrap = ~p.wrap;
+      ldq_ptr_inc.ldq_idx = '0;
+    end else begin
+      ldq_ptr_inc.wrap = p.wrap;
+      ldq_ptr_inc.ldq_idx = p.ldq_idx + 1'b1;
+    end
+  endfunction
+
+  function automatic logic ldq_ptr_full(input ldq_ptr_t head, input ldq_ptr_t tail);
+    ldq_ptr_full = head.ldq_idx == tail.ldq_idx && head.wrap != tail.wrap;
+  endfunction
+
+  function automatic stq_ptr_t stq_ptr_inc(input stq_ptr_t p);
+    if (p.stq_idx == stq_idx_t'(STQ_SIZE - 1)) begin
+      stq_ptr_inc.wrap = ~p.wrap;
+      stq_ptr_inc.stq_idx = '0;
+    end else begin
+      stq_ptr_inc.wrap = p.wrap;
+      stq_ptr_inc.stq_idx = p.stq_idx + 1'b1;
+    end
+  endfunction
+
+  // fromからtoまでの個数
+  function automatic stq_cnt_t stq_ptr_dist(input stq_ptr_t from, input stq_ptr_t to);
+    if (from.wrap == to.wrap) begin
+      stq_ptr_dist = stq_cnt_t'(to.stq_idx) - stq_cnt_t'(from.stq_idx);
+    end else begin
+      stq_ptr_dist = stq_cnt_t'(to.stq_idx) + stq_cnt_t'(STQ_SIZE) - stq_cnt_t'(from.stq_idx);
+    end
+  endfunction
+
+  // idxのfromからのオフセット
+  function automatic stq_cnt_t stq_ptr_ofs(input stq_idx_t idx, input stq_ptr_t from);
+    if (idx >= from.stq_idx) begin
+      stq_ptr_ofs = idx - stq_cnt_t'(from.stq_idx);
+    end else begin
+      stq_ptr_ofs = idx + stq_cnt_t'(STQ_SIZE) - stq_cnt_t'(from.stq_idx);
+    end
+  endfunction
+
+  // エントリiがfromからtoまでに入っているか
+  function automatic logic stq_in_range(input stq_idx_t i, input stq_ptr_t from, input stq_ptr_t to);
+    stq_in_range = stq_ptr_ofs(i, from) < stq_ptr_dist(from, to);
+  endfunction
+
+  function automatic logic stq_ptr_full(input stq_ptr_t head, input stq_ptr_t tail);
+    stq_ptr_full = head.stq_idx == tail.stq_idx && head.wrap != tail.wrap;
+  endfunction
+
   typedef logic [STQ_SIZE-1:0] stq_mask_t;
   typedef logic [LDQ_SIZE-1:0] ldq_mask_t;
 
@@ -103,8 +167,8 @@ package lsu_types;
 
   // STQからcontrollerへ
   typedef struct packed {
-    logic     valid;  // commit済みでまだD$に出していない
-    stq_idx_t idx;
+    logic     valid;    // commit済みでまだD$に出していない
+    stq_idx_t stq_idx;
     addr_t    addr;
     word_t    data;
   } stq_controller_t;
@@ -120,36 +184,29 @@ package lsu_types;
   // controllerからLDQへ
   typedef struct packed {
     logic     valid;
-    ldq_idx_t idx;
+    ldq_idx_t ldq_idx;
   } ldq_idx_with_valid_t;
 
   // controllerからLDQへ
   typedef struct packed {
     logic     valid;
-    ldq_idx_t idx;
-    logic     stale;  // 出すサイクルに古いstoreのアドレスが来て一致した
+    ldq_idx_t ldq_idx;
+    logic     stale;    // 出すサイクルに古いstoreのアドレスが来て一致した
   } ld_requested_t;
 
   // controllerからSTQへ
   typedef struct packed {
     logic     valid;
-    stq_idx_t idx;
+    stq_idx_t stq_idx;
   } stq_idx_with_valid_t;
 
   // controllerからLDQへ
   typedef struct packed {
     logic     valid;
-    ldq_idx_t idx;
+    ldq_idx_t ldq_idx;
     logic     forwarded;
     stq_idx_t forward_stq_idx;
   } ld_wb_notice_t;
-
-  // controllerからsearcherへ
-  typedef struct packed {
-    logic     valid;
-    ldq_idx_t idx;
-    addr_t    addr;
-  } forward_search_t;
 
   // searcherからcontrollerへ
   typedef struct packed {

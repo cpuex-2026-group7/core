@@ -53,30 +53,11 @@ module ldq
   output load_violation_t load_violation[COMMIT_W]  // headからk番目のloadまでについて情報提供
 );
 
-  typedef struct packed {
-    logic     wrap;
-    ldq_idx_t idx;
-  } ldq_ptr_t;
-
-  function automatic ldq_ptr_t ptr_inc(input ldq_ptr_t p);
-    if (p.idx == ldq_idx_t'(LDQ_SIZE - 1)) begin
-      ptr_inc.wrap = ~p.wrap;
-      ptr_inc.idx  = '0;
-    end else begin
-      ptr_inc.wrap = p.wrap;
-      ptr_inc.idx  = p.idx + 1'b1;
-    end
-  endfunction
-
-  function automatic logic ptr_full(input ldq_ptr_t head, input ldq_ptr_t tail);
-    ptr_full = head.idx == tail.idx && head.wrap != tail.wrap;
-  endfunction
-
   ldq_ptr_t ldq_head, ldq_tail;
   ldq_ptr_t ldq_tail_snapshot[MAX_BR];
   ldq_entry_t ldq_ff[LDQ_SIZE];
 
-  assign ldq_head_idx = ldq_head.idx;
+  assign ldq_head_idx = ldq_head.ldq_idx;
 
   // ldq_ffからcontroller,searcherへ
   always_comb begin
@@ -113,8 +94,8 @@ module ldq
     end
     disp_tail[0] = ldq_tail;
     for (int i = 0; i < DISP_W; i++) begin
-      disp_ldq_idx[i] = disp_tail[i].idx;
-      disp_full[i] = ptr_full(ldq_head, disp_tail[i]);
+      disp_ldq_idx[i] = disp_tail[i].ldq_idx;
+      disp_full[i] = ldq_ptr_full(ldq_head, disp_tail[i]);
 
       // snapshotを詰める
       if (disp_br_valid[i]) begin
@@ -123,7 +104,7 @@ module ldq
 
       // 命令が入った場合disp_tailを進める
       if (disp_ld[i].valid && !disp_full[i]) begin
-        disp_tail[i+1] = ptr_inc(disp_tail[i]);
+        disp_tail[i+1] = ldq_ptr_inc(disp_tail[i]);
       end else begin
         disp_tail[i+1] = disp_tail[i];
       end
@@ -171,15 +152,15 @@ module ldq
 
     // requested
     if (ld_requested.valid) begin
-      n_ldq_ff[ld_requested.idx].ld_requested = 1'b1;
-      n_ldq_ff[ld_requested.idx].stale |= ld_requested.stale;
+      n_ldq_ff[ld_requested.ldq_idx].ld_requested = 1'b1;
+      n_ldq_ff[ld_requested.ldq_idx].stale |= ld_requested.stale;
     end
     // gone_to_wb
     if (ld_gone_to_wb.valid) begin
-      n_ldq_ff[ld_gone_to_wb.idx].ld_requested = 1'b0;
-      n_ldq_ff[ld_gone_to_wb.idx].gone_to_wb = 1'b1;
-      n_ldq_ff[ld_gone_to_wb.idx].forwarded = ld_gone_to_wb.forwarded;
-      n_ldq_ff[ld_gone_to_wb.idx].forward_stq_idx = ld_gone_to_wb.forward_stq_idx;
+      n_ldq_ff[ld_gone_to_wb.ldq_idx].ld_requested = 1'b0;
+      n_ldq_ff[ld_gone_to_wb.ldq_idx].gone_to_wb = 1'b1;
+      n_ldq_ff[ld_gone_to_wb.ldq_idx].forwarded = ld_gone_to_wb.forwarded;
+      n_ldq_ff[ld_gone_to_wb.ldq_idx].forward_stq_idx = ld_gone_to_wb.forward_stq_idx;
     end
     // violation,stale
     for (int i = 0; i < LDQ_SIZE; i++) begin
@@ -188,8 +169,8 @@ module ldq
     end
     // nack
     if (ld_nack.valid) begin
-      n_ldq_ff[ld_nack.idx].ld_requested = 1'b0;
-      n_ldq_ff[ld_nack.idx].stale = 1'b0;
+      n_ldq_ff[ld_nack.ldq_idx].ld_requested = 1'b0;
+      n_ldq_ff[ld_nack.ldq_idx].stale = 1'b0;
     end
 
     // dispatch
@@ -223,8 +204,8 @@ module ldq
     // commitでheadを進める
     for (int i = 0; i < COMMIT_W; i++) begin
       if (commit_ld[i]) begin
-        n_ldq_ff[n_ldq_head.idx].valid = 1'b0;
-        n_ldq_head = ptr_inc(n_ldq_head);
+        n_ldq_ff[n_ldq_head.ldq_idx].valid = 1'b0;
+        n_ldq_head = ldq_ptr_inc(n_ldq_head);
       end
     end
 
@@ -260,9 +241,9 @@ module ldq
   always_comb begin
     violation_ptr[0] = ldq_head;
     for (int i = 0; i < COMMIT_W; i++) begin
-      load_violation[i].valid = ldq_ff[violation_ptr[i].idx].valid && ldq_ff[violation_ptr[i].idx].violated;
-      load_violation[i].rob_idx = ldq_ff[violation_ptr[i].idx].rob_idx;
-      violation_ptr[i+1] = ptr_inc(violation_ptr[i]);
+      load_violation[i].valid = ldq_ff[violation_ptr[i].ldq_idx].valid && ldq_ff[violation_ptr[i].ldq_idx].violated;
+      load_violation[i].rob_idx = ldq_ff[violation_ptr[i].ldq_idx].rob_idx;
+      violation_ptr[i+1] = ldq_ptr_inc(violation_ptr[i]);
     end
   end
 

@@ -335,9 +335,9 @@ module tb_stq
     exp_ctrl_valid = exec_pos != commit_pos && !m_requested[exec_pos%N];
     t_st_requested = exp_ctrl_valid && rnd(100) < req_rate;
     t_st_ack.valid = 1'b0;
-    t_st_ack.idx = stq_idx_t'(rnd(N));
+    t_st_ack.stq_idx = stq_idx_t'(rnd(N));
     t_st_nack.valid = 1'b0;
-    t_st_nack.idx = stq_idx_t'(rnd(N));
+    t_st_nack.stq_idx = stq_idx_t'(rnd(N));
     resp = infl_idx.size() > 0 && rnd(100) < resp_rate;
     resp_nack = 1'b0;
     j = 0;
@@ -353,10 +353,10 @@ module tb_stq
       resp_nack = rnd(100) < nack_rate;
       if (resp_nack) begin
         t_st_nack.valid = 1'b1;
-        t_st_nack.idx = stq_idx_t'(infl_idx[j]);
+        t_st_nack.stq_idx = stq_idx_t'(infl_idx[j]);
       end else begin
         t_st_ack.valid = 1'b1;
-        t_st_ack.idx = stq_idx_t'(infl_idx[j]);
+        t_st_ack.stq_idx = stq_idx_t'(infl_idx[j]);
       end
     end
 
@@ -399,8 +399,8 @@ module tb_stq
       err($sformatf("stq_controller.valid = %0b、期待値 %0b", stq_controller.valid, exp_ctrl_valid));
     if (exp_ctrl_valid) begin
       idx = exec_pos % N;
-      if (int'(stq_controller.idx) != idx)
-        err($sformatf("stq_controller.idx = %0d、期待値 %0d", stq_controller.idx, idx));
+      if (int'(stq_controller.stq_idx) != idx)
+        err($sformatf("stq_controller.stq_idx = %0d、期待値 %0d", stq_controller.stq_idx, idx));
       if (stq_controller.addr != m_addr[idx])
         err($sformatf("stq_controller.addr = %h、期待値 %h", stq_controller.addr, m_addr[idx]));
       if (stq_controller.data != m_data[idx])
