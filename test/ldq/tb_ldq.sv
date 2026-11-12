@@ -22,10 +22,16 @@
 //   - commit は古い分岐が全部解決した後
 //   - controller からの ld_requested / ld_gone_to_wb / ld_nack は同じサイクルに別のエントリに来る
 //     ld_requested：ld_requested=1
-//     ld_gone_to_wb：ld_requested=0、gone_to_wb=1、forwarded / forward_stq_idx を入れる
+//     ld_gone_to_wb：ld_requested=0、gone_to_wb=1
 //     violation_mask：violated を立てる
 //     stale_mask：上の更新の後で ld_requested なら stale を立てる
 //     ld_nack：ld_requested=0、stale=0（stale_mask より優先）
+//   - violation_mask / stale_mask が立つのは store のアドレスが AGU から来たサイクルだけ
+//   - forward 元（fwd_hit / fwd_stq_idx）
+//     load のアドレスが来たサイクル：ld_fwd をそのまま入れる
+//     store のアドレスが来たサイクル：stale_mask が立っているエントリは fwd_hit=1、fwd_stq_idx=ex_lsu.stq_idx
+//     その後で stq_release_mask[fwd_stq_idx] なら fwd_hit=0（同じサイクルに入れた分にも当てる）
+//     dispatch で fwd_hit=0。gone_to_wb では変えない
 //   - load_violation[k] は head から k 番目のエントリで、valid は valid && violated
 
 module tb_ldq
@@ -57,10 +63,11 @@ module tb_ldq
   ex_lsu_t             ex_lsu;
   ldq_idx_with_valid_t ld_requested;
   ldq_idx_with_valid_t ld_nack;
-  ld_wb_notice_t       ld_gone_to_wb;
+  ldq_idx_with_valid_t ld_gone_to_wb;
   ldq_idx_t            ldq_head_idx;
   ldq_mask_t           violation_mask;
   ldq_mask_t           stale_mask;
+  ld_fwd_t             ld_fwd;
   ldq_controller_t     ldq_controller_ff[  LDQ_SIZE];
   ldq_searcher_t       ldq_searcher_ff  [  LDQ_SIZE];
   br_update_t          br_update_ff;
@@ -85,7 +92,8 @@ module tb_ldq
   ex_lsu_t             t_ex_lsu;
   ldq_idx_with_valid_t t_ld_requested;
   ldq_idx_with_valid_t t_ld_nack;
-  ld_wb_notice_t       t_ld_gone_to_wb;
+  ldq_idx_with_valid_t t_ld_gone_to_wb;
+  ld_fwd_t             t_ld_fwd;
   ldq_mask_t           t_violation_mask;
   ldq_mask_t           t_stale_mask;
   br_update_t          t_br_update_ff;
@@ -104,6 +112,7 @@ module tb_ldq
     ld_gone_to_wb <= t_ld_gone_to_wb;
     violation_mask <= t_violation_mask;
     stale_mask <= t_stale_mask;
+    ld_fwd <= t_ld_fwd;
     br_update_ff <= t_br_update_ff;
     commit_ld <= t_commit_ld;
   end
@@ -175,6 +184,7 @@ module tb_ldq
 
   int n_disp, n_full, n_kill_disp, n_wrap, n_commit, n_mispredict, n_flush;
   int n_agu, n_mmio, n_req, n_gone, n_nack, n_stale_set, n_viol_out, n_kill_entry;
+  int n_fwd_ld, n_fwd_st, n_fwd_rel, n_fwd_rel_same, n_st_agu;
 
   task automatic err(string msg);
     errors++;
@@ -247,10 +257,15 @@ module tb_ldq
       if (ldq_searcher_ff[i].tail_stq_idx != m_tail_stq[i])
         err($sformatf("ldq_searcher_ff[%0d].tail_stq_idx = %0d、期待値 %0d", i, ldq_searcher_ff[i].tail_stq_idx,
                       m_tail_stq[i]));
-      if (ldq_searcher_ff[i].forwarded != m_fwd[i])
-        err($sformatf("ldq_searcher_ff[%0d].forwarded = %0b、期待値 %0b", i, ldq_searcher_ff[i].forwarded, m_fwd[i]));
-      else if (m_fwd[i] && ldq_searcher_ff[i].forward_stq_idx != m_fwd_idx[i])
-        err($sformatf("ldq_searcher_ff[%0d].forward_stq_idx = %0d、期待値 %0d", i, ldq_searcher_ff[i].forward_stq_idx,
+      if (ldq_searcher_ff[i].fwd_hit != m_fwd[i])
+        err($sformatf("ldq_searcher_ff[%0d].fwd_hit = %0b、期待値 %0b", i, ldq_searcher_ff[i].fwd_hit, m_fwd[i]));
+      else if (m_fwd[i] && ldq_searcher_ff[i].fwd_stq_idx != m_fwd_idx[i])
+        err($sformatf("ldq_searcher_ff[%0d].fwd_stq_idx = %0d、期待値 %0d", i, ldq_searcher_ff[i].fwd_stq_idx,
+                      m_fwd_idx[i]));
+      if (ldq_controller_ff[i].fwd_hit != m_fwd[i])
+        err($sformatf("ldq_controller_ff[%0d].fwd_hit = %0b、期待値 %0b", i, ldq_controller_ff[i].fwd_hit, m_fwd[i]));
+      else if (m_fwd[i] && ldq_controller_ff[i].fwd_stq_idx != m_fwd_idx[i])
+        err($sformatf("ldq_controller_ff[%0d].fwd_stq_idx = %0d、期待値 %0d", i, ldq_controller_ff[i].fwd_stq_idx,
                       m_fwd_idx[i]));
     end
 
@@ -288,7 +303,9 @@ module tb_ldq
     logic d_commit[COMMIT_W];
     ldq_idx_with_valid_t lr;
     ldq_idx_with_valid_t ln;
-    ld_wb_notice_t lg;
+    ldq_idx_with_valid_t lg;
+    ld_fwd_t lf;
+    bit st_agu;
     ldq_mask_t vm, sm;
     stq_mask_t rel;
 
@@ -361,11 +378,11 @@ module tb_ldq
       ex.data_valid = 1'b0;
       ex.ldq_idx = ldq_idx_t'(p % N);
       ex.addr = rnd_addr();
-    end else if (rnd(2) == 0) begin
-      // store か、addr_valid でない load。LDQ は無視するはず
-      if (rnd(2) == 0) begin
+    end else if (rnd(4) != 0) begin
+      // store か、addr_valid でない load。LDQ に入るのは store のアドレスが来たときの forward 元だけ
+      if (rnd(4) != 0) begin
         ex.is_store = 1'b1;
-        ex.addr_valid = rnd(2) == 1;
+        ex.addr_valid = rnd(4) != 0;
         ex.data_valid = rnd(2) == 1;
       end else begin
         ex.is_store = 1'b0;
@@ -374,6 +391,10 @@ module tb_ldq
       end
     end
     cand.delete();
+    st_agu = ex.is_store && ex.addr_valid;
+    // load のアドレスが来ていないサイクルの ld_fwd は無視されるはず
+    lf.hit = rnd(2) == 1;
+    lf.stq_idx = stq_idx_t'($urandom());
 
     // ---- controller と searcher ----
     r_idx = -1;
@@ -385,7 +406,6 @@ module tb_ldq
     ln.ldq_idx = ldq_idx_t'(rnd(N));
     lg = '0;
     lg.ldq_idx = ldq_idx_t'(rnd(N));
-    lg.forward_stq_idx = stq_idx_t'($urandom());
     if (rnd(100) < req_rate) begin
       for (int q = head_pos; q < tail_pos; q++) begin
         idx = q % N;
@@ -407,8 +427,6 @@ module tb_ldq
         g_idx = cand[rnd(cand.size())];
         lg.valid = 1'b1;
         lg.ldq_idx = ldq_idx_t'(g_idx);
-        // D$ の返事なら forward ではない。出していなければ forward
-        lg.forwarded = m_req[g_idx] ? 1'b0 : 1'b1;
       end
       cand.delete();
     end
@@ -426,14 +444,24 @@ module tb_ldq
     end
     vm = '0;
     sm = '0;
-    for (int q = head_pos; q < tail_pos; q++) begin
-      idx = q % N;
-      if (m_gone[idx] && rnd(100) < viol_rate) vm[idx] = 1'b1;
-      // ld_requested でないものにも当てる（LDQ が and を取るはず）
-      if (rnd(100) < stale_rate) sm[idx] = 1'b1;
+    if (st_agu) begin
+      n_st_agu++;
+      for (int q = head_pos; q < tail_pos; q++) begin
+        idx = q % N;
+        if (m_gone[idx] && rnd(100) < viol_rate) vm[idx] = 1'b1;
+        // ld_requested でないものにも当てる（LDQ が and を取るはず）
+        if (rnd(100) < stale_rate) sm[idx] = 1'b1;
+      end
     end
     rel = '0;
-    if (rnd(100) < rel_rate) rel[rnd(STQ_SIZE)] = 1'b1;
+    if (rnd(100) < rel_rate) begin
+      // このサイクルに入る forward 元を解放する場合も作る
+      case (rnd(4))
+        0: rel[lf.stq_idx] = 1'b1;
+        1: rel[ex.stq_idx] = 1'b1;
+        default: rel[rnd(STQ_SIZE)] = 1'b1;
+      endcase
+    end
 
     // ---- dispatch ----
     cur_mask = '0;
@@ -499,6 +527,7 @@ module tb_ldq
     t_ld_gone_to_wb = lg;
     t_violation_mask = vm;
     t_stale_mask = sm;
+    t_ld_fwd = lf;
 
     @(negedge clk);
     #1;
@@ -528,8 +557,6 @@ module tb_ldq
     if (g_idx >= 0) begin
       m_req[g_idx] = 1'b0;
       m_gone[g_idx] = 1'b1;
-      m_fwd[g_idx] = lg.forwarded;
-      m_fwd_idx[g_idx] = lg.forward_stq_idx;
       n_gone++;
     end
     for (int q = head_pos; q < tail_pos; q++) begin
@@ -553,6 +580,28 @@ module tb_ldq
       m_mmio[idx] = ex.addr == MMIO_RX_ADDR;
       n_agu++;
       if (m_mmio[idx]) n_mmio++;
+      m_fwd[idx] = lf.hit;
+      m_fwd_idx[idx] = lf.stq_idx;
+      if (lf.hit) n_fwd_ld++;
+      if (lf.hit && rel[lf.stq_idx]) n_fwd_rel_same++;
+    end
+    if (st_agu) begin
+      for (int q = head_pos; q < tail_pos; q++) begin
+        idx = q % N;
+        if (sm[idx]) begin
+          m_fwd[idx] = 1'b1;
+          m_fwd_idx[idx] = ex.stq_idx;
+          n_fwd_st++;
+          if (rel[ex.stq_idx]) n_fwd_rel_same++;
+        end
+      end
+    end
+    for (int q = head_pos; q < tail_pos; q++) begin
+      idx = q % N;
+      if (m_fwd[idx] && rel[m_fwd_idx[idx]]) begin
+        m_fwd[idx] = 1'b0;
+        n_fwd_rel++;
+      end
     end
 
     if (kill_cycle) begin
@@ -638,6 +687,7 @@ module tb_ldq
     t_ld_gone_to_wb = '0;
     t_violation_mask = '0;
     t_stale_mask = '0;
+    t_ld_fwd = '0;
     t_stq_release_mask = '0;
     for (int i = 0; i < DISP_W; i++) begin
       t_disp_ld[i] = '0;
@@ -679,6 +729,8 @@ module tb_ldq
     $display("AGU %0d（mmio %0d）、requested %0d、gone_to_wb %0d、nack %0d", n_agu, n_mmio, n_req,
              n_gone, n_nack);
     $display("stale_mask で stale になった %0d、load_violation を出した %0d", n_stale_set, n_viol_out);
+    $display("store の AGU %0d、forward 元：load の到着で %0d、store の到着で %0d、解放で消えた %0d（入れたサイクルに %0d）",
+             n_st_agu, n_fwd_ld, n_fwd_st, n_fwd_rel, n_fwd_rel_same);
     if (errors == 0) $display("PASS");
     else $display("FAIL（%0d 件）", errors);
     $finish;

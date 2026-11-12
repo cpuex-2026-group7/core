@@ -64,12 +64,13 @@ module lsu_searcher
   always_comb begin
     stq_ptr_t p;
     ld_fwd = '0;
+    p = '0;
     if (!ex_lsu.is_store && ex_lsu.addr_valid) begin
       p.wrap = 1'b0;
       p.stq_idx = ldq[ex_lsu.ldq_idx].tail_stq_idx;
       // tailから一周して最後に当たったものを採用
       for (int i = 0; i < STQ_SIZE; i++) begin
-        if (ldq[ex_lsu.ldq_idx].older_st_mask[p.stq_idx] && stq[p.stq_idx].addr_valid && stq[p.stq_idx].addr == ldq[ex_lsu.ldq_idx].addr && !ldq[p.stq_idx].mmio) begin
+        if (ldq[ex_lsu.ldq_idx].older_st_mask[p.stq_idx] && stq[p.stq_idx].addr_valid && stq[p.stq_idx].addr == ex_lsu.addr && ex_lsu.addr != MMIO_RX_ADDR) begin
           ld_fwd.hit = 1'b1;
           ld_fwd.stq_idx = p.stq_idx;
         end
