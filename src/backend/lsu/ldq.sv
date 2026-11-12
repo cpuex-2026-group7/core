@@ -34,12 +34,13 @@ module ldq
   // controller
   input wire ldq_idx_with_valid_t ld_requested,
   input wire ldq_idx_with_valid_t ld_nack,
-  input wire ld_wb_notice_t ld_gone_to_wb,
+  input wire ldq_idx_with_valid_t ld_gone_to_wb,
   output ldq_idx_t ldq_head_idx,
 
   // searcher
   input wire ldq_mask_t violation_mask,  // WBに出た後のloadが違反
   input wire ldq_mask_t stale_mask,  // WBに出る前のloadでアドレス一致したもの
+  input wire ld_fwd_t ld_fwd,  // AGUに来たloadのforward元
 
   // controller、searcherへ
   output ldq_controller_t ldq_controller_ff[LDQ_SIZE],
@@ -69,6 +70,8 @@ module ldq
       ldq_controller_ff[i].ld_requested = ldq_ff[i].ld_requested;
       ldq_controller_ff[i].stale = ldq_ff[i].stale;
       ldq_controller_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
+      ldq_controller_ff[i].fwd_hit = ldq_ff[i].fwd_hit;
+      ldq_controller_ff[i].fwd_stq_idx = ldq_ff[i].fwd_stq_idx;
       ldq_controller_ff[i].rd = ldq_ff[i].rd;
       ldq_controller_ff[i].rob_idx = ldq_ff[i].rob_idx;
       ldq_controller_ff[i].brmask = ldq_ff[i].brmask;
@@ -80,8 +83,8 @@ module ldq
       ldq_searcher_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
       ldq_searcher_ff[i].older_st_mask = ldq_ff[i].older_st_mask;
       ldq_searcher_ff[i].tail_stq_idx = ldq_ff[i].tail_stq_idx;
-      ldq_searcher_ff[i].forwarded = ldq_ff[i].forwarded;
-      ldq_searcher_ff[i].forward_stq_idx = ldq_ff[i].forward_stq_idx;
+      ldq_searcher_ff[i].fwd_hit = ldq_ff[i].fwd_hit;
+      ldq_searcher_ff[i].fwd_stq_idx = ldq_ff[i].fwd_stq_idx;
     end
   end
 
@@ -123,10 +126,6 @@ module ldq
     end
   end
 
-  // AGUからの入力
-  logic ex_ld_addr_valid;
-  assign ex_ld_addr_valid = !ex_lsu.is_store && ex_lsu.addr_valid;
-
   // ldq_ffとhead,tail
   ldq_ptr_t n_ldq_head, n_ldq_tail;
   ldq_entry_t n_ldq_ff[LDQ_SIZE];
@@ -157,9 +156,7 @@ module ldq
     // gone_to_wb
     if (ld_gone_to_wb.valid) begin
       n_ldq_ff[ld_gone_to_wb.ldq_idx].ld_requested = 1'b0;
-      n_ldq_ff[ld_gone_to_wb.ldq_idx].gone_to_wb = 1'b1;
-      n_ldq_ff[ld_gone_to_wb.ldq_idx].forwarded = ld_gone_to_wb.forwarded;
-      n_ldq_ff[ld_gone_to_wb.ldq_idx].forward_stq_idx = ld_gone_to_wb.forward_stq_idx;
+      n_ldq_ff[ld_gone_to_wb.ldq_idx].gone_to_wb   = 1'b1;
     end
     // violation,stale
     for (int i = 0; i < LDQ_SIZE; i++) begin
@@ -184,7 +181,7 @@ module ldq
           n_ldq_ff[disp_ldq_idx[i]].older_st_mask = older_st[i].older_st_mask; //同じサイクルのreleaseは除外済み
           n_ldq_ff[disp_ldq_idx[i]].tail_stq_idx = older_st[i].tail_stq_idx;
           n_ldq_ff[disp_ldq_idx[i]].violated = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].forwarded = 1'b0;
+          n_ldq_ff[disp_ldq_idx[i]].fwd_hit = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].gone_to_wb = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].rd = disp_ld[i].rd;
           n_ldq_ff[disp_ldq_idx[i]].rob_idx = disp_ld[i].rob_idx;
@@ -194,10 +191,30 @@ module ldq
     end
 
     // AGUから
-    if (ex_ld_addr_valid) begin
+    if (!ex_lsu.is_store && ex_lsu.addr_valid) begin
+      // loadのアドレスが来た場合
       n_ldq_ff[ex_lsu.ldq_idx].addr_valid = 1'b1;
       n_ldq_ff[ex_lsu.ldq_idx].addr = ex_lsu.addr;
+      n_ldq_ff[ex_lsu.ldq_idx].fwd_hit = ld_fwd.hit;
+      n_ldq_ff[ex_lsu.ldq_idx].fwd_stq_idx = ld_fwd.stq_idx;
       n_ldq_ff[ex_lsu.ldq_idx].mmio = (ex_lsu.addr == MMIO_RX_ADDR);
+    end
+    if (ex_lsu.is_store && ex_lsu.addr_valid) begin
+      // storeのアドレスが来た場合
+      for (int i = 0; i < LDQ_SIZE; i++) begin
+        if (stale_mask[i]) begin
+          n_ldq_ff[i].fwd_hit = 1'b1;
+          n_ldq_ff[i].fwd_stq_idx = ex_lsu.stq_idx;
+        end
+      end
+    end
+
+    // stq_releaseによるforward元の解放
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      if (stq_release_mask[n_ldq_ff[i].fwd_stq_idx]) begin
+        n_ldq_ff[i].fwd_hit = 1'b0;
+        n_ldq_ff[i].fwd_stq_idx = '0;
+      end
     end
 
     // commitでheadを進める

@@ -126,8 +126,8 @@ package lsu_types;
     stq_mask_t older_st_mask;  // 自分より古いstoreのmask
     stq_idx_t tail_stq_idx;  // dispatch時のSTQのtail
     logic violated;  // load順序違反
-    logic forwarded;  // forwardされた
-    stq_idx_t forward_stq_idx;  // forward元
+    logic fwd_hit;  // 自分より古いstoreにアドレスが一致するものがある
+    stq_idx_t fwd_stq_idx;  // 暫定のforward元
     logic gone_to_wb;  // WBに進んだ
     preg_t rd;
     rob_idx_t rob_idx;
@@ -157,6 +157,8 @@ package lsu_types;
     logic     ld_requested;
     logic     stale;
     logic     gone_to_wb;
+    logic     fwd_hit;
+    stq_idx_t fwd_stq_idx;
     preg_t    rd;
     rob_idx_t rob_idx;
     brmask_t  brmask;
@@ -171,8 +173,8 @@ package lsu_types;
     logic      gone_to_wb;
     stq_mask_t older_st_mask;
     stq_idx_t  tail_stq_idx;
-    logic      forwarded;
-    stq_idx_t  forward_stq_idx;
+    logic      fwd_hit;
+    stq_idx_t  fwd_stq_idx;
   } ldq_searcher_t;
 
   // STQからcontrollerへ
@@ -191,6 +193,12 @@ package lsu_types;
     word_t data;
   } stq_searcher_t;
 
+  // STQからcontrollerへ
+  typedef struct packed {
+    logic  data_valid;
+    word_t data;
+  } stq_forward_t;
+
   // controllerからLDQへ
   typedef struct packed {
     logic     valid;
@@ -203,21 +211,11 @@ package lsu_types;
     stq_idx_t stq_idx;
   } stq_idx_with_valid_t;
 
-  // controllerからLDQへ
-  typedef struct packed {
-    logic     valid;
-    ldq_idx_t ldq_idx;
-    logic     forwarded;
-    stq_idx_t forward_stq_idx;
-  } ld_wb_notice_t;
-
-  // searcherからcontrollerへ
+  // searcherからLDQへ
   typedef struct packed {
     logic     hit;
-    logic     data_valid;
     stq_idx_t stq_idx;
-    word_t    data;
-  } forward_result_t;
+  } ld_fwd_t;
 
   // dc_req_ff、dc_respのtag
   typedef struct packed {

@@ -24,18 +24,17 @@ module lsu_controller
   input wire ldq_idx_t ldq_head_idx,  // loadの先頭(MMIO用)
   output ldq_idx_with_valid_t ld_requested,
   output ldq_idx_with_valid_t ld_nack,
-  output ld_wb_notice_t ld_gone_to_wb,
+  output ldq_idx_with_valid_t ld_gone_to_wb,
 
   // STQ
   input wire stq_controller_t head_store,  // 次にD$に送るstore
   input wire stq_cnt_t stq_cnt,  // STQの中身の数
+  input wire stq_forward_t stq_forward[STQ_SIZE],  // forwardするデータ
   output logic st_requested,
   output stq_idx_with_valid_t st_ack,
   output stq_idx_with_valid_t st_nack,
 
   // searcher
-  output ldq_idx_t forward_ldq_idx,
-  input wire forward_result_t forward_result,
   input wire ldq_mask_t stale_mask,  // WBに出すloadが当たっていたら出さない
 
   // RFへ
@@ -167,7 +166,9 @@ module lsu_controller
   ldq_idx_t resp_ldq_idx;
   assign resp_ldq_idx = dc_resp.tag.ldq_idx;
 
+  logic forwarded;
   always_comb begin
+    forwarded = 1'b0;
     wb_mem = '0;
     if (dc_resp.valid && !dc_resp.tag.is_store && dc_resp.ack && !ldq[resp_ldq_idx].stale && !stale_mask[resp_ldq_idx]) begin
       // loadをWBへ送る
@@ -175,12 +176,13 @@ module lsu_controller
       wb_mem.rd = ldq[resp_ldq_idx].rd;
       wb_mem.value = dc_resp.rdata;
       wb_mem.rob_idx = ldq[resp_ldq_idx].rob_idx;
-    end else if (load_req.valid && forward_result.hit && forward_result.data_valid) begin
+    end else if (load_req.valid && forward_result.hit && forward_result.data_valid && !stale_mask[forward_ldq_idx]) begin
       // 空いていればforward
       wb_mem.valid = 1'b1;
       wb_mem.rd = ldq[forward_ldq_idx].rd;
       wb_mem.value = forward_result.data;
       wb_mem.rob_idx = ldq[forward_ldq_idx].rob_idx;
+      forwarded = 1'b1;
     end
   end
 
@@ -190,7 +192,9 @@ module lsu_controller
   always_comb begin
     ld_gone_to_wb = '0;
     ld_gone_to_wb.valid = wb_mem.valid;
-    ld_gone_to_wb.ldq_idx = resp_ldq_idx;
+    ld_gone_to_wb.ldq_idx = forwarded ? forward_ldq_idx : resp_ldq_idx;
+    ld_gone_to_wb.forwarded = forwarded;
+    ld_gone_to_wb.forward_stq_idx = forward_result.stq_idx;
   end
 
 endmodule
