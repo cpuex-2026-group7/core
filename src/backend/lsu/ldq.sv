@@ -141,6 +141,10 @@ module ldq
     end
   end
 
+  // AGUからの入力
+  logic ex_st_addr_valid;
+  assign ex_st_addr_valid = !ex_lsu.is_store && ex_lsu.addr_valid;
+
   // ldq_ffとhead,tail
   ldq_ptr_t n_ldq_head, n_ldq_tail;
   ldq_entry_t n_ldq_ff[LDQ_SIZE];
@@ -155,29 +159,50 @@ module ldq
     if (!br_update_ff.mispredict && !flush) begin
       for (int i = 0; i < DISP_W; i++) begin
         if (disp_ld[i].valid && !disp_full[i]) begin
-          n_ldq_ff[disp_ldq_idx[i]].valid = 1'b1;
+          n_ldq_ff[disp_ldq_idx[i]].valid = !br_kill_check(disp_ld[i].brmask, br_update_ff);
           n_ldq_ff[disp_ldq_idx[i]].addr_valid = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].mmio = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].ld_requested = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].stale = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].older_st_mask = older_st[i].older_st_mask;
+          n_ldq_ff[disp_ldq_idx[i]].older_st_mask =
+            apply_st_resolve(older_st[i].older_st_mask, br_update_ff.release_mask);
           n_ldq_ff[disp_ldq_idx[i]].tail_stq_idx = older_st[i].tail_stq_idx;
           n_ldq_ff[disp_ldq_idx[i]].violated = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].forwarded = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].gone_to_wb = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].rd = disp_ld[i].rd;
           n_ldq_ff[disp_ldq_idx[i]].rob_idx = disp_ld[i].rob_idx;
-          n_ldq_ff[disp_ldq_idx[i]].brmask = disp_ld[i].brmask;
+          n_ldq_ff[disp_ldq_idx[i]].brmask = apply_br_resolve(disp_ld[i].brmask, br_update_ff);
         end
       end
     end
 
-    // commitで解放
+    // AGUから
+    if (ex_st_addr_valid) begin
+      n_ldq_ff[ex_lsu.ldq_idx].addr_valid = 1'b1;
+      n_ldq_ff[ex_lsu.ldq_idx].addr = ex_lsu.addr;
+      n_ldq_ff[ex_lsu.ldq_idx].mmio = (ex_lsu.addr == MMIO_RX_ADDR);
+    end
+
+    // commitでheadを進める
     for (int i = 0; i < COMMIT_W; i++) begin
       if (commit_ld[i]) begin
         n_ldq_ff[n_ldq_head.idx].valid = 1'b0;
         n_ldq_head = ptr_inc(n_ldq_head);
       end
+    end
+
+    // resolve_mask
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      n_ldq_ff[i].brmask = apply_br_resolve(ldq_ff[i].brmask, br_update_ff);
+    end
+    // kill_mask
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      n_ldq_ff[i].valid &= !br_kill_check(ldq_ff[i].brmask, br_update_ff);
+    end
+    // store resolve
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      n_ldq_ff[i].older_st_mask = apply_st_resolve(ldq_ff[i].older_st_mask, stq_release_mask);
     end
 
     // 最後にflush確認
@@ -204,6 +229,14 @@ module ldq
       end
       ldq_head <= n_ldq_head;
       ldq_tail <= n_ldq_tail;
+    end
+  end
+
+  // violation
+  always_comb begin
+    for (int i = 0; i < COMMIT_W; i++) begin
+      load_violation[i].valid   = ldq_ff[ldq_head.idx].valid & ldq_ff[ldq_head.idx].violated;
+      load_violation[i].rob_idx = ldq_ff[ldq_head.idx].rob_idx;
     end
   end
 

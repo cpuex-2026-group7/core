@@ -8,6 +8,11 @@ package lsu_types;
   typedef logic [STQ_SIZE-1:0] stq_mask_t;
   typedef logic [LDQ_SIZE-1:0] ldq_mask_t;
 
+  // 当たったstoreのビットを落とす
+  function automatic stq_mask_t apply_st_resolve(input stq_mask_t brmask, input stq_mask_t release_mask);
+    return brmask & ~release_mask;
+  endfunction
+
   // LSUからWBへ(中身はex_wb_tと同じ)
   typedef ex_types::ex_wb_t lsu_wb_t;
 
@@ -64,8 +69,8 @@ package lsu_types;
     word_t    data;
     logic     committed;
     logic     st_requested;  // D$に出した(返事はまだ)
-    logic     stale;       // nackでなかったことになった
-    logic     stored;      // D$がACKした
+    logic     stale;         // nackでなかったことになった
+    logic     stored;        // D$がACKした
     rob_idx_t rob_idx;
   } stq_entry_t;
 
