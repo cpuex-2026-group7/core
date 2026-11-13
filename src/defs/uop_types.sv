@@ -108,7 +108,7 @@ package uop_types;
   typedef struct packed {
     imm_t     imm_type;
     imm_raw_t imm;
-    logic     is_store
+    logic     is_store;
     dest_eu_t dest_eu;
     dest_fu_t dest_fu;
     fu_op_t   fu_op;
