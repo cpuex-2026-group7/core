@@ -30,6 +30,10 @@
 #   N        クリティカルパスをワースト N 本表示（既定 10 本）
 #   100mhz   クロックを指定（10ns とも書ける。既定 12.5ns = 80MHz）。全体は clk_wiz_0 で決まるので効かない
 #   clean    全体の合成と配置配線を強制的にやり直す
+#   strategy:<名前>        配置配線の strategy（Vivado の名前。例 Performance_Explore）。無ければ既定
+#   synth_strategy:<名前>  合成の strategy（例 Flow_PerfOptimized_high）。無ければ既定
+#            全体は synth_1 / impl_1 に設定し、変わったらやり直す（次に付けずにビルドすると既定に戻る）
+#            モジュールは仮のプロジェクトで中身を読み出し、同じオプションで合成・配置配線する
 #   違反パスを「始点の FF の束 -> 終点の束」でまとめた表を groups.rpt に出す
 #
 # 終了コード: 0 = 成功、1 = 失敗（シェルスクリプトから判定に使える）
@@ -691,10 +695,105 @@ proc show_module_status {top} {
     }
 }
 
-proc synth_backend {n period top synth_only} {
+# strategy の名前を確かめる。default は Vivado の既定の strategy
+proc check_strategy {run name} {
+    if {$name in {default Default}} {
+        return [expr {[string match synth* [get_property NAME $run]] ? "Vivado Synthesis Defaults" : "Vivado Implementation Defaults"}]
+    }
+    set names [list_property_value strategy $run]
+    if {$name ni $names} {
+        error "unknown strategy for [get_property NAME $run]: $name\n  choose from: [join $names {, }]"
+    }
+    return $name
+}
+
+# 全体：synth_1 / impl_1 の strategy を設定する（指定が無ければ既定に戻す）。変わった run はやり直す
+proc apply_project_strategies {impl synth} {
+    foreach {run name} [list synth_1 $synth impl_1 $impl] {
+        set r [get_runs $run]
+        if {$name eq ""} { set name default }
+        if {[catch {check_strategy $r $name} name]} { die $name }
+        set old [get_property strategy $r]
+        puts "$run strategy: $name"
+        if {$old ne $name} {
+            puts "  changed from: $old"
+            set_property strategy $name $r
+            catch {reset_run $r}
+        }
+    }
+}
+
+# モジュール単位：strategy の中身を仮のプロジェクトで Vivado から読み出し、
+# {合成のオプション 配置配線のコマンドの列} にする。合成は既定と違うオプションだけを返す
+proc strategy_flow {impl synth dir} {
+    set steps {opt_design place_design phys_opt_design route_design}
+    if {$impl eq "" && $synth eq ""} { return [list {} $steps] }
+
+    set tmp [file join $dir strategy_tmp]
+    create_project -force strategy_tmp $tmp -part xc7a100tcsg324-1
+    if {[catch {read_strategies $impl $synth $steps} r]} {
+        close_project
+        file delete -force $tmp
+        die $r
+    }
+    close_project
+    file delete -force $tmp
+    return $r
+}
+
+proc read_strategies {impl synth steps} {
+    set sr [get_runs synth_1]
+    set ir [get_runs impl_1]
+
+    set synth_opts {}
+    if {$synth ne ""} {
+        set synth [check_strategy $sr $synth]
+        set props [lsearch -all -inline -glob [list_property $sr] STEPS.SYNTH_DESIGN.ARGS.*]
+        set base [dict create]
+        foreach p $props { dict set base $p [get_property $p $sr] }
+        set_property strategy $synth $sr
+        foreach p $props {
+            set v [get_property $p $sr]
+            if {$v eq [dict get $base $p]} { continue }
+            set key [lindex [split $p .] end]
+            if {$key eq "MORE OPTIONS"} {
+                lappend synth_opts {*}$v
+            } elseif {$key in {KEEP_EQUIVALENT_REGISTERS NO_LC NO_SRLEXTRACT RETIMING ASSERT}} {
+                if {$v} { lappend synth_opts -[string tolower $key] }
+            } else {
+                lappend synth_opts -[string tolower $key] $v
+            }
+        }
+    }
+
+    if {$impl ne ""} {
+        set impl [check_strategy $ir $impl]
+        set_property strategy $impl $ir
+        set steps {}
+        foreach {st cmd} {
+            OPT_DESIGN opt_design POWER_OPT_DESIGN power_opt_design PLACE_DESIGN place_design
+            POST_PLACE_POWER_OPT_DESIGN power_opt_design PHYS_OPT_DESIGN phys_opt_design
+            ROUTE_DESIGN route_design POST_ROUTE_PHYS_OPT_DESIGN phys_opt_design
+        } {
+            # PLACE_DESIGN と ROUTE_DESIGN には IS_ENABLED が無い（いつも走る）
+            if {![catch {get_property STEPS.$st.IS_ENABLED $ir} en] && $en eq "0"} { continue }
+            set c [list $cmd]
+            if {![catch {get_property STEPS.$st.ARGS.DIRECTIVE $ir} d] && $d ne ""} { lappend c -directive $d }
+            if {![catch {get_property "STEPS.$st.ARGS.MORE OPTIONS" $ir} m]} { lappend c {*}$m }
+            lappend steps $c
+        }
+    }
+    return [list $synth_opts $steps]
+}
+
+proc synth_backend {n period top synth_only impl_strategy synth_strategy} {
     set part xc7a100tcsg324-1
     set src [file join $::root_dir src]
     set out [backend_out_dir $top]
+    file mkdir $out
+    lassign [strategy_flow $impl_strategy $synth_strategy $out] synth_opts steps
+    if {$synth_strategy ne ""} { puts "synthesis strategy: $synth_strategy -> $synth_opts" }
+    if {$impl_strategy ne ""} { puts "implementation strategy: $impl_strategy -> [join $steps {; }]" }
     set t0 [clock seconds]
 
     # top から下の階層のファイルと、それが使っている package（使われる側が先）を毎回集める
@@ -702,7 +801,7 @@ proc synth_backend {n period top synth_only} {
 
     section "Synthesize $top ([llength $files] files)"
     read_verilog -sv $files
-    if {[catch {synth_design -top $top -part $part -mode out_of_context} err]} {
+    if {[catch {synth_design -top $top -part $part -mode out_of_context {*}$synth_opts} err]} {
         die "synthesis failed: $err"
     }
     puts "synthesis: [expr {[clock seconds] - $t0}] s"
@@ -740,10 +839,11 @@ proc synth_backend {n period top synth_only} {
     set t1 [clock seconds]
     set cwd [pwd]
     cd $out
-    foreach step {opt_design place_design phys_opt_design route_design} {
-        if {[catch {$step} err]} {
+    foreach step $steps {
+        puts "> $step"
+        if {[catch {{*}$step} err]} {
             cd $cwd
-            die "$step failed: $err"
+            die "[lindex $step 0] failed: $err"
         }
     }
     cd $cwd
@@ -1103,8 +1203,10 @@ set period 12.5
 set period_given 0
 set synth_only 0
 set gui 0
+set impl_strategy ""
+set synth_strategy ""
 set names {}
-set usage "(\[all|build|program|errors|status|timing|ip|view\] \[top|backend|<module>\] \[synth\] \[N\] \[100mhz|10ns\] \[clean\])"
+set usage "(\[all|build|program|errors|status|timing|ip|view\] \[top|backend|<module>\] \[synth\] \[N\] \[100mhz|10ns\] \[clean\] \[strategy:<name>\] \[synth_strategy:<name>\])"
 foreach a $argv {
     switch -- $a {
         all - build - program - errors - status - timing - ip - view - open {
@@ -1116,7 +1218,11 @@ foreach a $argv {
         synth   { set synth_only 1 }
         gui     { set gui 1 }
         default {
-            if {[string is integer -strict $a] && $a > 0} {
+            if {[regexp {^strategy:(\w+)$} $a -> s]} {
+                set impl_strategy $s
+            } elseif {[regexp {^synth_strategy:(\w+)$} $a -> s]} {
+                set synth_strategy $s
+            } elseif {[string is integer -strict $a] && $a > 0} {
                 set npaths $a
             } elseif {[regexp -nocase {^([0-9]+\.?[0-9]*)(mhz|ns)$} $a -> v unit] && $v > 0} {
                 set period [expr {[string tolower $unit] eq "ns" ? double($v) : 1000.0 / $v}]
@@ -1176,7 +1282,7 @@ if {!$whole} {
     switch -- $mode {
         build - view {
             fetch_fpu_repo
-            synth_backend $npaths $period $target $synth_only
+            synth_backend $npaths $period $target $synth_only $impl_strategy $synth_strategy
         }
         timing {
             set stage [open_module_result $target]
@@ -1226,6 +1332,7 @@ if {[llength $xprs] != 1} {
 open_project [lindex $xprs 0]
 if {$fetch} {
     sync_sources
+    apply_project_strategies $impl_strategy $synth_strategy
 }
 
 # view を GUI で開くときは、結果のランを開いて終わる（GUI が閉じないよう exit しない）

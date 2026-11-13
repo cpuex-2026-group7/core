@@ -4,13 +4,14 @@
 #   make synth iq_top             iq_top を合成だけ
 #   make build backend CLOCK=100  backend_top を 100MHz で配置配線
 #   make timing backend N=20      前回の結果のワースト 20 本
+#   make build backend STRATEGY=Performance_Explore  配置配線の strategy を指定（合成は SYNTH_STRATEGY=）
 #   make view iq_top SYNTH=1      合成の結果を GUI で開く
 #   make program                  全体をビルドしてボードに書き込む（write なら書き込むだけ）
 #   make lint                     全部を lint
 #   make lint iq_top              iq_top から下の階層だけを lint
 #
 # 1 つ目がコマンド、2 つ目が対象（無ければ全体）
-# オプションはビルドが CLOCK= N= SYNTH=1 CLEAN=1、lint が ALL=1 STRICT=1 V=1
+# オプションはビルドが CLOCK= N= SYNTH=1 CLEAN=1 STRATEGY= SYNTH_STRATEGY=、lint が ALL=1 STRICT=1 V=1
 # ビルドは Windows の make で動かす（WSL の make からは Windows の .exe を呼べない）。
 # lint は WSL の Verilator を使う（Windows の make からは wsl 経由で呼ぶ）
 
@@ -22,7 +23,7 @@ ifeq ($(CMD),)
   CMD := help
 endif
 ifneq ($(word 3,$(MAKECMDGOALS)),)
-  $(error 書けるのはコマンドと対象の 2 つまで。オプションは CLOCK= N= SYNTH=1 CLEAN=1 ALL=1 STRICT=1 V=1)
+  $(error 書けるのはコマンドと対象の 2 つまで。オプションは CLOCK= N= SYNTH=1 CLEAN=1 STRATEGY= SYNTH_STRATEGY= ALL=1 STRICT=1 V=1)
 endif
 ifeq ($(filter $(CMD),$(CMDS)),)
   $(error 知らないコマンド: $(CMD)（$(CMDS)）)
@@ -54,7 +55,9 @@ CLI_ARGS := $(CLI_UTF8) $(CMD) $(TARGET) \
             $(if $(CLOCK),CLOCK=$(CLOCK)) \
             $(if $(N),N=$(N)) \
             $(if $(SYNTH),SYNTH=$(SYNTH)) \
-            $(if $(CLEAN),CLEAN=$(CLEAN))
+            $(if $(CLEAN),CLEAN=$(CLEAN)) \
+            $(if $(STRATEGY),STRATEGY=$(STRATEGY)) \
+            $(if $(SYNTH_STRATEGY),SYNTH_STRATEGY=$(SYNTH_STRATEGY))
 
 $(CMD):
 	@powershell.exe -NoProfile -ExecutionPolicy Bypass -File launch/cli.ps1 $(strip $(CLI_ARGS))

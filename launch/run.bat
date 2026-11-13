@@ -1,6 +1,6 @@
 @echo off
 rem launch\run.bat - find Vivado and run launch\flow.tcl (called by build.bat and make)
-rem usage: run.bat [all^|build^|program^|errors^|status^|timing^|ip^|view^|open] [top^|backend^|module] [synth] [N] [100mhz^|10ns] [clean]
+rem usage: run.bat [all^|build^|program^|errors^|status^|timing^|ip^|view^|open] [top^|backend^|module] [synth] [N] [100mhz^|10ns] [clean] [strategy:name] [synth_strategy:name]
 rem To use a specific Vivado:  set VIVADO=C:\Xilinx\Vivado\2024.2\bin\vivado.bat
 setlocal
 cd /d "%~dp0.."
