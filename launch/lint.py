@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""リポジトリ内のコードをまとめて静的チェックする
+"""リポジトリ内のコードをまとめて静的チェックする（WSL で動かす。Verilator を使うので）
 
-    python3 lint.py            ふつうに実行
-    python3 lint.py --strict   style も失敗扱いにする
-    python3 lint.py -a         note（未使用信号など）も表示
-    python3 lint.py -v         ツールの生の出力も表示
+    make lint                         全部（Windows の make から。中で wsl python3 launch/lint.py を呼ぶ）
+    make lint iq_top                  iq_top から下の階層だけ（backend は backend_top、top は全体の top）
+    make lint iq_top ALL=1 STRICT=1   オプションは ALL=1（-a）、STRICT=1（--strict）、V=1（-v）
+
+    python3 launch/lint.py [モジュール]   WSL で直接
+    --strict   style も失敗扱いにする
+    -a         note（未使用信号など）も表示
+    -v         ツールの生の出力も表示
+
+モジュールを指定したときは、そのモジュールから下の階層のファイルだけを見る
+（.xpr との対応、テストベンチ、Python のチェックはしない）
 
 チェック内容
   1. Vivado プロジェクト (.xpr) とファイルの対応   追加し忘れ・消し忘れ
@@ -31,7 +38,8 @@ import sys
 import tempfile
 from collections import defaultdict
 
-ROOT = os.path.dirname(os.path.abspath(__file__))  # このファイルはリポジトリ直下（src と同じ階層）に置く
+# このファイルは launch/ の中にある。ROOT はリポジトリ直下
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Verilator の警告のうち、失敗にはせず「注意」として出すもの
 SOFT_RULES = {"UNUSEDSIGNAL", "UNUSEDPARAM", "UNUSEDGENVAR", "UNUSED", "DECLFILENAME", "PINCONNECTEMPTY"}
@@ -94,9 +102,14 @@ class Report:
 # ---------------------------------------------------------------------------
 # ファイル集め
 # ---------------------------------------------------------------------------
+# ビルドに使っていない他の班員のリポジトリ（中身は向こうの担当なので見ない）
+SKIP_DIRS = ["memory_repository"]
+
+
 def sv_files(subdir):
     files = sorted(glob.glob(os.path.join(ROOT, subdir, "**", "*.sv"), recursive=True))
-    return [f for f in files if os.sep + "ip" + os.sep not in f]
+    return [f for f in files if os.sep + "ip" + os.sep not in f
+            and not any(os.sep + d + os.sep in f for d in SKIP_DIRS)]
 
 
 def order_packages(files):
@@ -127,6 +140,52 @@ def order_packages(files):
     return ordered, others
 
 
+def module_defs(files):
+    """モジュール名 -> 定義しているファイル"""
+    defs = {}
+    for f in files:
+        for m in re.findall(r"^\s*module\s+(\w+)", open(f, encoding="utf-8", errors="replace").read(), re.M):
+            defs[m] = f
+    return defs
+
+
+def hierarchy_files(top, defs):
+    """top から下の階層で使っているモジュールのファイル（インスタンスを正規表現で拾う）"""
+    seen, files, stack = set(), set(), [top]
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in defs:
+            continue
+        seen.add(name)
+        f = defs[name]
+        files.add(f)
+        text = re.sub(r"//.*", "", open(f, encoding="utf-8", errors="replace").read())
+        m = re.search(r"^\s*module\s+" + name + r"\b(.*?)^\s*endmodule", text, re.M | re.S)
+        body = m.group(1) if m else text
+        for inst in re.findall(r"^\s*(\w+)\s*(?:#\s*\(|\w+\s*(?:\[[^\]]*\]\s*)?\()", body, re.M):
+            if inst in defs and inst not in seen:
+                stack.append(inst)
+    return sorted(files)
+
+
+def used_packages(pkgs, files):
+    """files が使っている package（package が import しているものも含む）を pkgs の順のまま返す"""
+    info = {}
+    for f in pkgs:
+        text = open(f, encoding="utf-8", errors="replace").read()
+        name = re.search(r"^\s*package\s+(\w+)\s*;", text, re.M).group(1)
+        info[name] = (f, set(re.findall(r"\b(\w+)::", text)) - {name})
+    need, stack = set(), []
+    for f in files:
+        stack += re.findall(r"\b(\w+)::", open(f, encoding="utf-8", errors="replace").read())
+    while stack:
+        n = stack.pop()
+        if n in info and n not in need:
+            need.add(n)
+            stack += list(info[n][1])
+    return [f for f in pkgs if any(info[n][0] == f for n in need)]
+
+
 # ---------------------------------------------------------------------------
 # 1. Vivado プロジェクトとの対応
 # ---------------------------------------------------------------------------
@@ -142,7 +201,8 @@ def check_xpr(rep):
     for ext in ("sv", "v", "svh", "vh", "xdc", "mem"):
         for f in glob.glob(os.path.join(ROOT, "src", "**", f"*.{ext}"), recursive=True):
             r = os.path.normpath(rel(f))
-            if not r.startswith(os.path.join("src", "ip")):
+            # 他の班員のリポジトリ（*_repository）はプロジェクトに入れるかをビルドの側で決めるので見ない
+            if not r.startswith(os.path.join("src", "ip")) and "_repository" not in r:
                 on_disk.add(r)
     for f in sorted(on_disk - registered):
         rep.add("error", "xpr", f, None, "Vivado プロジェクトに追加されていない（Add Sources を忘れている）")
@@ -263,6 +323,7 @@ def main():
     ap.add_argument("--strict", action="store_true", help="style も失敗扱いにする")
     ap.add_argument("-a", "--all", action="store_true", help="note（未使用信号など）も表示")
     ap.add_argument("-v", "--verbose", action="store_true", help="各ツールの生の出力も表示")
+    ap.add_argument("module", nargs="?", help="このモジュールから下の階層だけを見る（backend は backend_top）")
     args = ap.parse_args()
 
     rep = Report()
@@ -270,12 +331,33 @@ def main():
     pkgs, mods = order_packages(src)
     tbs = sv_files("sim")
 
+    if args.module:
+        top = "backend_top" if args.module == "backend" else args.module
+        defs = module_defs(mods)
+        if top not in defs:
+            raise SystemExit(f"モジュール {top} が src/ に無い")
+        files = hierarchy_files(top, defs)
+        print(color(f"{top} から下: {len(files)} ファイル（package {len(used_packages(pkgs, files))} 個）", "dim"))
+        check_conventions(rep, files)
+        with tempfile.TemporaryDirectory() as tmp:
+            stubs = []
+            for name, body in IP_STUBS.items():
+                if name not in defs:
+                    p = os.path.join(tmp, f"{name}.sv")
+                    with open(p, "w") as fh:
+                        fh.write(f"// verilator lint_off UNUSEDSIGNAL\n// verilator lint_off DECLFILENAME\n{body}")
+                    stubs.append(p)
+            # top から下のファイルだけを渡す（関係ないファイルの書きかけで止まらないように）
+            run_verilator(rep, used_packages(pkgs, files) + files + stubs, top, ["--top-module", top], args.verbose)
+        run_verible(rep, files, args.verbose)
+        finish(rep, args)
+
     check_xpr(rep)
     check_conventions(rep, src)
 
     with tempfile.TemporaryDirectory() as tmp:
         defined = {m for f in mods for m in re.findall(r"^\s*module\s+(\w+)",
-                                                       open(f, encoding="utf-8").read(), re.M)}
+                                                       open(f, encoding="utf-8", errors="replace").read(), re.M)}
         stubs = []
         for name, body in IP_STUBS.items():
             if name not in defined:
@@ -297,7 +379,10 @@ def main():
 
     run_verible(rep, src + tbs, args.verbose)
     run_python(rep, args.verbose)
+    finish(rep, args)
 
+
+def finish(rep, args):
     rep.print(args.all)
     e, w, s, n = (rep.count(x) for x in ("error", "warn", "style", "note"))
     summary = f"{e} error, {w} warning, {s} style, {n} note" + ("" if args.all or n == 0 else "（note は -a で表示）")
