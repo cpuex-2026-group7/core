@@ -1,7 +1,8 @@
 # launch/flow.tcl - Vivado を GUI なしで動かすスクリプト（Vivado の中で動く本体）
 #
-# リポジトリ直下の launch/ に置く。普通は make か build.bat（-> launch/run.bat）から呼ぶ:
-#   vivado -mode batch -nojournal -notrace -source launch/flow.tcl -tclargs [モード] [対象] [オプション]
+# リポジトリ直下の launch/ に置く。普通は make か build.bat（-> launch/run.bat）から呼ぶ。Vivado は -source のファイルを Windows の文字コードで読むので、
+# launch/boot.tcl から UTF-8 として読み込む:
+#   vivado -mode batch -nojournal -notrace -source launch/boot.tcl -tclargs [モード] [対象] [オプション]
 #
 # 対象（どのモードでも同じ）:
 #   （なし） 全体（top.sv）。.xpr のプロジェクトでビルドする。top と書いても同じ
@@ -811,82 +812,214 @@ proc report_path_groups {dir} {
     puts "all groups: $file"
 }
 
-# 配置の結果を SVG の図にする。使ったサイトを、置かれたセルの一番上の階層ごとに色分けする
+# 配置の結果を SVG の図にする。Vivado の Device 画面と同じタイルの並び（GRID_POINT）で、
+# 列の幅はタイルの種類に合わせて変える（CLB / BRAM / DSP は太く、配線の INT は細く、区切りの列はもっと細く）。
+# 黒い背景に、使っている LUT / FF / CARRY などをモジュール（top の直下の階層）ごとの色で塗る。配線は描かない
 proc write_placement_svg {file} {
-    set heights [dict create SLICE 1.0 RAMB18 2.5 DSP48 2.5 RAMB36 5.0]
-    set palette {#4e79a7 #f28e2b #59a14f #e15759 #b07aa1 #76b7b2 #edc948 #9c755f}
-    set cell 4.0
+    set palette {#ff5a5a #4fe05a #4f9dff #f2e94e #ff6bff #3fe0e0 #ffa040 #b38cff #c8c8c8 #ff9eb5}
 
-    set sites [get_sites -regexp {(SLICE|RAMB18|RAMB36|DSP48)_X[0-9]+Y[0-9]+}]
-    set names [get_property NAME $sites]
-    set xs    [get_property RPM_X $sites]
-    set used  [get_property IS_USED $sites]
-
-    # RPM_X の一番小さい間隔を 1 列の幅にする
-    set ux [lsort -unique -integer $xs]
-    set min_x [lindex $ux 0]
-    set step 0
-    for {set i 1} {$i < [llength $ux]} {incr i} {
-        set d [expr {[lindex $ux $i] - [lindex $ux [expr {$i - 1}]]}]
-        if {$step == 0 || $d < $step} { set step $d }
+    # セルの置き場所。サイト -> {{持ち主 部品} ...}
+    set cells [get_cells -hier -quiet -filter {IS_PRIMITIVE}]
+    set used [dict create]
+    set owners {}
+    foreach name [get_property NAME $cells] loc [get_property LOC $cells] bel [get_property BEL $cells] {
+        if {$loc eq ""} { continue }
+        set i [string first "/" $name]
+        set owner [expr {$i < 0 ? "(top)" : [string range $name 0 [expr {$i - 1}]]}]
+        if {$owner ni $owners} { lappend owners $owner }
+        set part [lindex [split $bel .] end]
+        if {[regexp {^([A-D])(6LUT|5LUT)$} $part -> letter]} {
+            set kind "L$letter"
+        } elseif {[regexp {^([A-D])(5?FF)$} $part -> letter]} {
+            set kind "F$letter"
+        } elseif {$part eq "CARRY4" || [regexp {MUX} $part]} {
+            set kind C
+        } else {
+            set kind W
+        }
+        dict lappend used $loc [list $owner $kind]
     }
-    if {$step == 0} { set step 1 }
-    set cols [expr {([lindex $ux end] - $min_x) / $step + 1}]
-
-    set max_row 0.0
-    foreach name $names {
-        regexp {^([A-Z0-9]+)_X[0-9]+Y([0-9]+)$} $name -> kind yi
-        set h [dict get $heights $kind]
-        if {($yi + 1) * $h > $max_row} { set max_row [expr {($yi + 1) * $h}] }
-    }
-
+    set owners [lsort $owners]
     set colors [dict create]
-    set counts [dict create]
-    set n_slice 0
-    set n_slice_used 0
+    set i 0
+    foreach o $owners {
+        dict set colors $o [lindex $palette [expr {$i % [llength $palette]}]]
+        incr i
+    }
+
+    # 列の幅と行の高さ。列はそこにあるタイルの種類で、行は CLB や INT がある行だけ普通の高さ
+    set all [get_tiles]
+    array set colw {}
+    array set rowh {}
+    foreach type [get_property TYPE $all] gx [get_property GRID_POINT_X $all] gy [get_property GRID_POINT_Y $all] {
+        switch -glob -- $type {
+            CLBL* - BRAM_? - DSP_? { set w 14 }
+            *IOB33* { set w 9 }
+            *IOI3 { set w 6 }
+            INT_? { set w 5 }
+            *INTERFACE* { set w 2 }
+            default { set w 1 }
+        }
+        if {![info exists colw($gx)] || $w > $colw($gx)} { set colw($gx) $w }
+        set h [expr {[string match INT_? $type] || [string match CLBL* $type] || [string match *IOB33* $type] ? 10 : 3}]
+        if {![info exists rowh($gy)] || $h > $rowh($gy)} { set rowh($gy) $h }
+    }
+    array set xpos {}
+    set x 0
+    foreach gx [lsort -integer [array names colw]] { set xpos($gx) $x; set x [expr {$x + $colw($gx)}] }
+    set gw $x
+    array set ypos {}
+    set y 0
+    foreach gy [lsort -integer [array names rowh]] { set ypos($gy) $y; set y [expr {$y + $rowh($gy)}] }
+    set gh $y
+
     set body {}
-    foreach name $names x $xs u $used {
-        regexp {^([A-Z0-9]+)_X[0-9]+Y([0-9]+)$} $name -> kind yi
-        if {$kind eq "SLICE"} { incr n_slice }
-        if {!$u && $kind eq "RAMB18"} { continue }
-        set fill "#e6e6e6"
-        if {$u} {
-            set c [lindex [get_cells -quiet -of_objects [get_sites $name]] 0]
-            if {$c eq ""} { continue }
-            set cn [get_property NAME $c]
-            set i [string first "/" $cn]
-            set owner [expr {$i < 0 ? "(top)" : [string range $cn 0 [expr {$i - 1}]]}]
-            if {![dict exists $colors $owner]} {
-                dict set colors $owner [lindex $palette [expr {[dict size $colors] % [llength $palette]}]]
+    set nslice 0
+    set nslice_used 0
+    set slices_of [dict create]
+
+    # 配線の INT タイル（小さい箱だけ）
+    set ints [get_tiles -filter {TYPE == INT_L || TYPE == INT_R}]
+    foreach gx [get_property GRID_POINT_X $ints] gy [get_property GRID_POINT_Y $ints] {
+        lappend body [format {<rect class="i" x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>} \
+                          [expr {$xpos($gx) + 0.8}] [expr {$ypos($gy) + 1.5}] [expr {$colw($gx) - 1.6}] [expr {$rowh($gy) - 3}]]
+    }
+
+    set tiles [get_tiles -filter {TYPE =~ CLBL* || TYPE =~ BRAM_? || TYPE =~ DSP_? || TYPE =~ *IOB33*}]
+    foreach t $tiles type [get_property TYPE $tiles] gx [get_property GRID_POINT_X $tiles] gy [get_property GRID_POINT_Y $tiles] {
+        set x0 $xpos($gx)
+        set cw $colw($gx)
+        set sites [lsort -dictionary [get_property NAME [get_sites -quiet -of_objects $t]]]
+        switch -glob -- $type {
+            CLBL* {
+                # スライスは左右に 2 つ（X の小さい方が左）
+                set k 0
+                foreach s $sites {
+                    incr nslice
+                    set sw [expr {$cw / 2.0 - 1.2}]
+                    set sh [expr {$rowh($gy) - 1.2}]
+                    set sx [expr {$x0 + 0.6 + $k * $cw / 2.0}]
+                    set sy [expr {$ypos($gy) + 0.6}]
+                    lappend body [format {<rect class="s" x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>} $sx $sy $sw $sh]
+                    if {[dict exists $used $s]} {
+                        incr nslice_used
+                        set mine {}
+                        set rh4 [expr {$sh / 4.0}]
+                        foreach u [dict get $used $s] {
+                            lassign $u owner kind
+                            if {$owner ni $mine} {
+                                lappend mine $owner
+                                dict incr slices_of $owner
+                            }
+                            set col [dict get $colors $owner]
+                            # 部品の位置：A が下、D が上。LUT が左、FF が真ん中、CARRY4 と MUX は右端の細い帯
+                            switch -glob -- $kind {
+                                L? - F? {
+                                    set r [string first [string index $kind 1] ABCD]
+                                    set by [expr {$sy + (3 - $r) * $rh4 + 0.15}]
+                                    if {[string index $kind 0] eq "L"} {
+                                        set bx [expr {$sx + 0.3}]
+                                        set bw [expr {$sw * 0.45}]
+                                    } else {
+                                        set bx [expr {$sx + $sw * 0.55}]
+                                        set bw [expr {$sw * 0.25}]
+                                    }
+                                    lappend body [format {<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s"/>} $bx $by $bw [expr {$rh4 - 0.3}] $col]
+                                }
+                                C {
+                                    lappend body [format {<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s"/>} [expr {$sx + $sw * 0.85}] [expr {$sy + 0.15}] [expr {$sw * 0.12}] [expr {$sh - 0.3}] $col]
+                                }
+                                default {
+                                    lappend body [format {<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s" opacity="0.6"/>} $sx $sy $sw $sh $col]
+                                }
+                            }
+                        }
+                    }
+                    incr k
+                }
             }
-            set fill [dict get $colors $owner]
-            if {$kind eq "SLICE"} {
-                incr n_slice_used
-                dict incr counts $owner
+            BRAM_? - DSP_? {
+                # 5 行分の高さ。RAMB18 / DSP48 は Y の偶数が下半分、奇数が上半分。RAMB36 は全体
+                set top [expr {$ypos([expr {$gy - 4}]) + 0.6}]
+                set h [expr {$ypos($gy) + $rowh($gy) - $top - 0.6}]
+                set bx [expr {$x0 + 0.8}]
+                set bw [expr {$cw - 1.6}]
+                lappend body [format {<rect class="b" x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>} $bx $top $bw $h]
+                foreach s $sites {
+                    if {![dict exists $used $s]} { continue }
+                    set col [dict get $colors [lindex [lindex [dict get $used $s] 0] 0]]
+                    if {[regexp {^(RAMB18|DSP48)_X\d+Y(\d+)$} $s -> kind yy]} {
+                        set hy [expr {$yy % 2 ? $top : $top + $h / 2.0}]
+                        lappend body [format {<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>} [expr {$bx + 1}] [expr {$hy + 1}] [expr {$bw - 2}] [expr {$h / 2.0 - 2}] $col]
+                    } else {
+                        lappend body [format {<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>} [expr {$bx + 1}] [expr {$top + 1}] [expr {$bw - 2}] [expr {$h - 2}] $col]
+                    }
+                }
+            }
+            default {
+                # I/O。サイトごとに 1 行（Y の大きい方が上）
+                set n [llength $sites]
+                set k 0
+                foreach s [lsort -dictionary -decreasing $sites] {
+                    set ry [expr {$gy - $n + 1 + $k}]
+                    if {![info exists ypos($ry)]} { set ry $gy }
+                    set cls [expr {[dict exists $used $s] ? "iou" : "io"}]
+                    lappend body [format {<rect class="%s" x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>} $cls [expr {$x0 + 1.5}] [expr {$ypos($ry) + 1.5}] [expr {$cw - 3}] [expr {$rowh($ry) - 3}]]
+                    incr k
+                }
             }
         }
-        set h [dict get $heights $kind]
-        lappend body [format {<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>} \
-                          [expr {($x - $min_x) / double($step) * $cell}] \
-                          [expr {($max_row - ($yi + 1) * $h) * $cell + 30}] \
-                          [expr {$cell - 0.6}] [expr {$h * $cell - 0.6}] $fill]
     }
 
-    set w [expr {$cols * $cell + 260}]
-    set ht [expr {$max_row * $cell + 40}]
+    # クロック領域の境界と名前
+    foreach cr [get_clock_regions] {
+        set tl [get_tiles [get_property TOP_LEFT_TILE $cr]]
+        set br [get_tiles [get_property BOTTOM_RIGHT_TILE $cr]]
+        set tx [get_property GRID_POINT_X $tl]
+        set ty [get_property GRID_POINT_Y $tl]
+        set bx [get_property GRID_POINT_X $br]
+        set by [get_property GRID_POINT_Y $br]
+        set x1 $xpos($tx)
+        set y1 $ypos($ty)
+        set x2 [expr {$xpos($bx) + $colw($bx)}]
+        set y2 [expr {$ypos($by) + $rowh($by)}]
+        lappend body [format {<rect class="cr" x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>} $x1 $y1 [expr {$x2 - $x1}] [expr {$y2 - $y1}]]
+        lappend body [format {<text class="crl" x="%.1f" y="%.1f">%s</text>} [expr {$x1 + 6}] [expr {$y1 + 18}] $cr]
+    }
+
+    set lw 300
+    set w [expr {$gw + $lw}]
+    set h [expr {$gh + 40}]
+
     set fh [open $file w]
-    puts $fh "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"$w\" height=\"$ht\" font-family=\"sans-serif\" font-size=\"13\">"
-    puts $fh "<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>"
-    puts $fh [format {<text x="0" y="18" fill="#222222">backend_top placement: %d / %d slices used (%.1f%%)</text>} \
-                  $n_slice_used $n_slice [expr {$n_slice > 0 ? 100.0 * $n_slice_used / $n_slice : 0}]]
+    fconfigure $fh -encoding utf-8
+    puts $fh "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"$w\" height=\"$h\" viewBox=\"0 0 $w $h\">"
+    puts $fh {<style>
+text{font-family:Segoe UI,Arial,sans-serif}
+.s{fill:#161616;stroke:#3c3c3c;stroke-width:.4}
+.i{fill:#0b0b0b;stroke:#262626;stroke-width:.3}
+.b{fill:#10161c;stroke:#3b4b5b;stroke-width:.6}
+.io{fill:#1a1a1a;stroke:#4a4a4a;stroke-width:.5}
+.iou{fill:#d0d0d0;stroke:#ffffff;stroke-width:.5}
+.cr{fill:none;stroke:#8a8a8a;stroke-width:1.2;stroke-dasharray:8 5}
+.crl{fill:#9a9a9a;font-size:16px}
+.lg{fill:#e0e0e0;font-size:15px}
+.tt{fill:#ffffff;font-size:17px}
+</style>}
+    puts $fh "<rect width=\"100%\" height=\"100%\" fill=\"#000000\"/>"
+    puts $fh "<g transform=\"translate(0,30)\">"
     puts $fh [join $body "\n"]
-    set lx [expr {$cols * $cell + 20}]
-    set ly 50
-    dict for {owner color} $colors {
-        set k [expr {[dict exists $counts $owner] ? [dict get $counts $owner] : 0}]
-        puts $fh "<rect x=\"$lx\" y=\"[expr {$ly - 11}]\" width=\"12\" height=\"12\" fill=\"$color\"/>"
-        puts $fh "<text x=\"[expr {$lx + 18}]\" y=\"$ly\" fill=\"#222222\">$owner ($k slices)</text>"
-        incr ly 20
+    puts $fh "</g>"
+    puts $fh [format {<text class="tt" x="8" y="21">%s: %d / %d slices used (%.1f%%)</text>} \
+                  [get_property TOP [current_design]] $nslice_used $nslice \
+                  [expr {$nslice > 0 ? 100.0 * $nslice_used / $nslice : 0}]]
+    set lx [expr {$gw + 20}]
+    set ly 60
+    foreach o $owners {
+        set k [expr {[dict exists $slices_of $o] ? [dict get $slices_of $o] : 0}]
+        puts $fh "<rect x=\"$lx\" y=\"[expr {$ly - 13}]\" width=\"16\" height=\"16\" fill=\"[dict get $colors $o]\"/>"
+        puts $fh "<text class=\"lg\" x=\"[expr {$lx + 24}]\" y=\"$ly\">$o ($k slices)</text>"
+        incr ly 24
     }
     puts $fh "</svg>"
     close $fh

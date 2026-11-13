@@ -40,7 +40,7 @@ if defined OPEN goto gui
 
 set "ARGS="
 if not "%~1"=="" set "ARGS=-tclargs %*"
-call "%VIVADO%" -mode batch -nojournal -nolog -notrace -source launch\flow.tcl %ARGS%
+call "%VIVADO%" -mode batch -nojournal -nolog -notrace -source launch\boot.tcl %ARGS%
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" exit /b %RC%
 
@@ -49,5 +49,5 @@ if not defined VIEW exit /b 0
 
 :gui
 echo [build] opening the result in the Vivado GUI ...
-start "" /b "%VIVADO%" -mode gui -nojournal -nolog -notrace -source launch\flow.tcl -tclargs %* gui
+start "" /b "%VIVADO%" -mode gui -nojournal -nolog -notrace -source launch\boot.tcl -tclargs %* gui
 exit /b 0

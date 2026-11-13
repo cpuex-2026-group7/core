@@ -101,7 +101,7 @@ make program                   # 全体をビルドしてボードに書き込�
   - `summary.rpt` / `paths.rpt`：Vivado のタイミングレポート
   - `groups.rpt`：違反パスを「始点の FF の束 → 終点の束」でまとめて悪い順に並べたもの
   - `utilization.rpt` / `utilization_hier.rpt`：回路規模
-  - `placement.svg`：配置の図（モジュールごとに色分け）
+  - `placement.svg`：配置の図。Vivado の Device 画面と同じタイルの並びで、使っている LUT / FF などをモジュールごとに色分けする（配線は描かない。ブラウザで拡大するとスライスの中まで見える）
   - `<名前>_synth.dcp` / `<名前>_routed.dcp`：GUI で開ける（`make open <名前>`）
 
 ### lint
@@ -136,7 +136,7 @@ make と同じ書き方で使える（make が入っていなくてよい。中�
 - ボードが見つからないと言われたら、USB ケーブル・電源スイッチ・ドライバを確認する
 - 終了コードは 0 = 成功、1 = 失敗
 - Vivado は PATH にある vivado.bat、無ければ C:\Xilinx などから一番新しいものを探す。別のものを使うときは先に `$env:VIVADO="C:\Xilinx\Vivado\2020.2\bin\vivado.bat"`（コマンドプロンプトなら `set VIVADO=...`）
-- ファイルの構成：`Makefile` と `build.bat` → `launch/cli.ps1`（引数の解釈・ヘルプ・一覧・lint の呼び出し）→ `launch/run.bat`（Vivado を探して起動）→ `launch/flow.tcl`（Vivado の中で動く本体）。lint は `launch/lint.py`
+- ファイルの構成：`Makefile` と `build.bat` → `launch/cli.ps1`（引数の解釈・ヘルプ・一覧・lint の呼び出し）→ `launch/run.bat`（Vivado を探して起動）→ `launch/boot.tcl`（flow.tcl を UTF-8 で読み込むだけ）→ `launch/flow.tcl`（Vivado の中で動く本体）。lint は `launch/lint.py`
 
 # CPU説明
 
