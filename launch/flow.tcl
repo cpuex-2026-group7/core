@@ -1,29 +1,40 @@
-# _build.tcl - Vivado を GUI なしで動かすスクリプト
+# launch/flow.tcl - Vivado を GUI なしで動かすスクリプト（Vivado の中で動く本体）
 #
-# .xpr と同じフォルダに置き、そのフォルダで実行する（普通は build.bat から呼ぶ）:
-#   vivado -mode batch -nojournal -notrace -source _build.tcl -tclargs [モード] [clean]
+# リポジトリ直下の launch/ に置く。普通は make か build.bat（-> launch/run.bat）から呼ぶ:
+#   vivado -mode batch -nojournal -notrace -source launch/flow.tcl -tclargs [モード] [対象] [オプション]
+#
+# 対象（どのモードでも同じ）:
+#   （なし） 全体（top.sv）。.xpr のプロジェクトでビルドする。top と書いても同じ
+#   backend  backend_top だけ
+#   <名前>   そのモジュールだけ（例 iq_top、lsu_top）
+#   backend とモジュールは .xpr を使わず out-of-context で合成・配置配線する。
+#   結果は timing/<名前>/（backend は timing/backend/）に保存（配置の図は placement.svg）
 #
 # モード:
-#   all      （既定）必要ならビットストリームを作り、ボードに書き込む
-#   build    ビットストリームを作るだけ
-#   program  今あるビットストリームをボードに書き込むだけ
-#   errors   前回の実行の ERROR と CRITICAL WARNING を表示（ビルドはしない）
-#   status   各ランの状態とタイミングの概要を表示
+#   all      全体：必要ならビットストリームを作り、ボードに書き込む（全体だけ）
+#   build    全体：ビットストリームを作るだけ。モジュール：合成・配置配線して結果を表示
+#   program  今あるビットストリームをボードに書き込むだけ（全体だけ）
+#   errors   前回の実行の ERROR と CRITICAL WARNING を表示（全体だけ）
+#   status   前回の結果の状態と概要を表示（ビルドはしない）
 #   timing   前回の結果からクリティカルパスを分析して表示（ビルドはしない）
-#            配置配線が終わっていればその結果、無ければ合成の結果を使う
-#            timing 20 のように数を付けるとワースト 20 本（既定 10 本）
-#   ip       IP の状態を表示し、ロックされた IP を更新して、出力ファイルを作り直す
-#   backend  backend_top だけを out-of-context で合成・配置配線し、回路規模とクリティカルパスを表示
-#            .xpr は使わない。結果は timing/backend/ に保存（配置の図は placement.svg）
-#            backend 20 でワースト 20 本
-#            backend 100mhz や backend 10ns でクロックを指定（既定 12.5ns = 80MHz）
-#            backend iq_top のようにモジュール名を付けるとそれを top にする（結果は timing/iq_top/）
-#            backend synth で合成だけ（配線遅延は見積もり）。違反パスのまとめは groups.rpt
-# clean      合成と配置配線を強制的にやり直す
+#            全体は配置配線が終わっていればその結果、無ければ合成の結果を使う
+#            モジュールは配線後と合成後のうち新しい方を使う
+#   ip       IP の状態を表示し、ロックされた IP を更新して、出力ファイルを作り直す（全体だけ）
+#   view     build をして、通ったら結果を Vivado の GUI で開く
+#   open     ビルドせずに前回の結果を Vivado の GUI で開く（launch/run.bat が GUI で起動する）
+#   モードを書かなければ、全体は all、backend とモジュールは build
+#
+# オプション:
+#   synth    合成で止める（配線遅延は見積もり）。build / view で使う
+#   N        クリティカルパスをワースト N 本表示（既定 10 本）
+#   100mhz   クロックを指定（10ns とも書ける。既定 12.5ns = 80MHz）。全体は clk_wiz_0 で決まるので効かない
+#   clean    全体の合成と配置配線を強制的にやり直す
+#   違反パスを「始点の FF の束 -> 終点の束」でまとめた表を groups.rpt に出す
 #
 # 終了コード: 0 = 成功、1 = 失敗（シェルスクリプトから判定に使える）
 
-set script_dir [file dirname [file normalize [info script]]]
+# リポジトリ直下（このスクリプトは launch/ の中にある）
+set root_dir [file dirname [file dirname [file normalize [info script]]]]
 
 proc die {msg} {
     puts stderr "\n*** FAILED: $msg\n"
@@ -172,7 +183,8 @@ proc show_critical_paths {n} {
     } else {
         die "no finished synthesis/implementation. run 'build' first"
     }
-    report_critical_paths $n $stage [file join $::script_dir timing]
+    report_critical_paths $n $stage [file join $::root_dir timing]
+    report_path_groups [file join $::root_dir timing]
 }
 
 # 今開いているデザインのクリティカルパスを表示し、Vivado の詳しいレポートを dir に保存する
@@ -256,7 +268,7 @@ proc report_critical_paths {n stage dir} {
 
 # IP の状態（ロックされているか、その理由）を表示する
 proc show_ip_status {} {
-    set f [file join $::script_dir ip_status.rpt]
+    set f [file join $::root_dir ip_status.rpt]
     report_ip_status -file $f
     set fh [open $f r]
     puts [read $fh]
@@ -292,7 +304,27 @@ proc fix_ips {} {
     if {[llength $still] > 0} {
         die "still locked: $still  (see the status above)"
     }
-    puts "IP OK. now run: build.bat build"
+    puts "IP OK. now run: make build"
+}
+
+# ビルドの前に呼ぶ。ロックされた IP（clone 直後や別の PC で起きる）があれば自動で更新し、
+# IP の出力ファイルが無い、または古いときに備えて作り直しておく
+proc prepare_ips {} {
+    set locked [get_ips -quiet -filter {IS_LOCKED == 1}]
+    if {[llength $locked] > 0} {
+        puts "IP is locked: $locked  -> upgrading automatically"
+        if {[catch {upgrade_ip $locked} err]} {
+            show_ip_status
+            die "upgrade_ip failed: $err"
+        }
+        set still [get_ips -quiet -filter {IS_LOCKED == 1}]
+        if {[llength $still] > 0} {
+            show_ip_status
+            die "still locked: $still  (see the status above)"
+        }
+        puts "IP upgraded: $locked"
+    }
+    regenerate_ips
 }
 
 # ---------------------------------------------------------------
@@ -302,7 +334,7 @@ proc fix_ips {} {
 # src/memory/memory_repository に cpuex-2026-group7/memory を取ってくる。あれば最新版に更新する
 proc fetch_memory_repo {} {
     set url https://github.com/cpuex-2026-group7/memory.git
-    set dir [file join $::script_dir src memory memory_repository]
+    set dir [file join $::root_dir src memory memory_repository]
     section "Fetch memory"
     if {[file isdirectory [file join $dir .git]]} {
         puts "updating $dir"
@@ -321,7 +353,7 @@ proc fetch_memory_repo {} {
 # src/fpu/fpu_repository に cpuex-2026-group7/fpu を取ってくる。あれば最新版に更新する
 proc fetch_fpu_repo {} {
     set url https://github.com/cpuex-2026-group7/fpu.git
-    set dir [file join $::script_dir src fpu fpu_repository]
+    set dir [file join $::root_dir src fpu fpu_repository]
     section "Fetch fpu"
     if {[file isdirectory [file join $dir .git]]} {
         puts "updating $dir"
@@ -347,22 +379,36 @@ proc find_sv_files {dir} {
     return $files
 }
 
-# src/fpu/fpu_repository/src 以下の .sv をプロジェクトに合わせる
-# 増えたものは追加し、無くなったものはプロジェクトから外す
-proc sync_fpu_sources {} {
-    set dir [file normalize [file join $::script_dir src fpu fpu_repository src]]
-    section "Sync fpu sources"
-    if {![file isdirectory $dir]} {
-        puts "WARNING: $dir not found, skip"
-        return
-    }
+# プロジェクトに入れる .sv：src/ の下（src/ip と *_repository の下は除く）と、FPU リポジトリの src/ の下
+proc project_sv_files {} {
+    set src [file normalize [file join $::root_dir src]]
     set want {}
-    foreach f [find_sv_files $dir] { lappend want [file normalize $f] }
+    foreach f [find_sv_files $src] {
+        set f [file normalize $f]
+        if {[string match -nocase "$src/ip/*" $f]} { continue }
+        if {[regexp -nocase {_repository/} $f]} { continue }
+        lappend want $f
+    }
+    set fpu [file join $src fpu fpu_repository src]
+    if {[file isdirectory $fpu]} {
+        foreach f [find_sv_files $fpu] { lappend want [file normalize $f] }
+    } else {
+        puts "WARNING: $fpu not found"
+    }
+    return $want
+}
+
+# プロジェクトの .sv を project_sv_files に合わせる。増えたものは追加し、無くなったものは外す
+# （.xpr を作った後に足したファイルも、GUI で Add Sources しなくてよいように）
+proc sync_sources {} {
+    section "Sync sources"
+    set src [file normalize [file join $::root_dir src]]
+    set want [project_sv_files]
 
     set have {}
-    foreach f [get_files -quiet -of_objects [get_filesets sources_1]] {
+    foreach f [get_files -quiet -of_objects [get_filesets sources_1] -filter {FILE_TYPE == SystemVerilog}] {
         set f [file normalize $f]
-        if {[string match -nocase "$dir/*" $f]} { lappend have $f }
+        if {[string match -nocase "$src/*" $f]} { lappend have $f }
     }
 
     set added {}
@@ -381,7 +427,9 @@ proc sync_fpu_sources {} {
     if {[llength $removed] > 0} {
         remove_files -fileset sources_1 $removed
     }
-    puts "fpu sources: [llength $want] files (added [llength $added], removed [llength $removed])"
+    foreach f $added   { puts "  + [string range $f [expr {[string length $::root_dir] + 1}] end]" }
+    foreach f $removed { puts "  - [string range $f [expr {[string length $::root_dir] + 1}] end]" }
+    puts "sources: [llength $want] files (added [llength $added], removed [llength $removed])"
 }
 
 # ---------------------------------------------------------------
@@ -391,7 +439,7 @@ proc sync_fpu_sources {} {
 # .xpr が無いときに、フォルダ名のプロジェクト（core.xpr）を作る。
 # src/ の .sv（src/ip と *_repository の下は除く）、制約、clk_wiz_0、fib.mem を登録し、top を top にする
 proc create_core_project {board_found} {
-    set dir $::script_dir
+    set dir $::root_dir
     set name [file tail $dir]
     section "Create project $name.xpr"
     # .xpr が無いのに $name.runs などが残っていると作れないので、-force で古い結果ごと作り直す
@@ -436,14 +484,7 @@ proc build_bitstream {force} {
     section "Build"
     update_compile_order -fileset sources_1
 
-    # ロックされた IP があれば理由を表示して止まる（直すのは ip モード）
-    set locked [get_ips -quiet -filter {IS_LOCKED == 1}]
-    if {[llength $locked] > 0} {
-        show_ip_status
-        die "locked IP: $locked  -> run: build.bat ip"
-    }
-    # IP の出力ファイルが無い、または古いときに備えて作り直しておく
-    regenerate_ips
+    prepare_ips
 
     set synth [get_runs synth_1]
     set impl  [get_runs impl_1]
@@ -493,28 +534,170 @@ proc build_bitstream {force} {
 
 # backend_top を top にして out-of-context で合成・配置配線し、回路規模とタイミングを表示する。
 # .xpr は使わず、ファイルを直接読む。ピン配置はしないのでボードには書き込めない
+# ファイルを読んで、行コメント（// から行末）を消したものを返す
+proc read_sv_text {f} {
+    set fh [open $f r]
+    fconfigure $fh -encoding utf-8
+    set text [read $fh]
+    close $fh
+    regsub -all -line {//.*$} $text {} text
+    return $text
+}
+
+# モジュール単位のビルドで読むファイル。top から下の階層で使っているモジュールのファイルと、
+# それらが使っている package（package が使っているものも）を、package を先に import の順で並べて返す。
+# インスタンスは正規表現で拾う（launch/lint.py と同じやり方）。新しいファイルや package も勝手に入る
+proc hierarchy_sv_files {top} {
+    set defs  [dict create]
+    set pkgs  [dict create]
+    set texts [dict create]
+    foreach f [project_sv_files] {
+        set text [read_sv_text $f]
+        dict set texts $f $text
+        foreach {m name} [regexp -all -inline -lineanchor {^\s*module\s+(\w+)} $text] {
+            dict set defs $name $f
+        }
+        if {[regexp -lineanchor {^\s*package\s+(\w+)\s*;} $text -> p]} {
+            set deps {}
+            foreach {m d} [regexp -all -inline {\m(\w+)::} $text] {
+                if {$d ne $p} { lappend deps $d }
+            }
+            dict set pkgs $p [list $f [lsort -unique $deps]]
+        }
+    }
+    if {![dict exists $defs $top]} { die "module $top not found in src/" }
+
+    # top から下のモジュールをたどる
+    set seen {}
+    set files {}
+    set stack [list $top]
+    while {[llength $stack] > 0} {
+        set name [lindex $stack end]
+        set stack [lrange $stack 0 end-1]
+        if {$name in $seen || ![dict exists $defs $name]} { continue }
+        lappend seen $name
+        set f [dict get $defs $name]
+        if {$f ni $files} { lappend files $f }
+        set text [dict get $texts $f]
+        set body $text
+        if {[regexp -lineanchor -indices "^\\s*module\\s+${name}\\M" $text pos]} {
+            set e [string first endmodule $text [lindex $pos 1]]
+            if {$e < 0} { set e end }
+            set body [string range $text [lindex $pos 1] $e]
+        }
+        foreach {m inst} [regexp -all -inline -lineanchor {^\s*(\w+)\s*(?:#\s*\(|\w+\s*(?:\[[^\]]*\]\s*)?\()} $body] {
+            if {[dict exists $defs $inst] && $inst ni $seen} { lappend stack $inst }
+        }
+    }
+
+    # 使っている package
+    set need {}
+    set stack {}
+    foreach f $files {
+        foreach {m d} [regexp -all -inline {\m(\w+)::} [dict get $texts $f]] { lappend stack $d }
+    }
+    while {[llength $stack] > 0} {
+        set p [lindex $stack end]
+        set stack [lrange $stack 0 end-1]
+        if {[dict exists $pkgs $p] && $p ni $need} {
+            lappend need $p
+            lappend stack {*}[lindex [dict get $pkgs $p] 1]
+        }
+    }
+
+    # 使われる側を先に並べる
+    set ordered {}
+    set left $need
+    while {[llength $left] > 0} {
+        set progress 0
+        foreach p $left {
+            set ok 1
+            foreach d [lindex [dict get $pkgs $p] 1] {
+                if {$d in $need && $d ni $ordered} { set ok 0 }
+            }
+            if {$ok} {
+                lappend ordered $p
+                set left [lsearch -all -inline -not -exact $left $p]
+                set progress 1
+            }
+        }
+        if {!$progress} { die "package import loop: $left" }
+    }
+
+    set result {}
+    foreach p $ordered { lappend result [lindex [dict get $pkgs $p] 0] }
+    foreach f $files {
+        if {$f ni $result} { lappend result $f }
+    }
+    puts "$top: [llength $files] module files, [llength $ordered] packages ([join $ordered {, }])"
+    return $result
+}
+
+proc backend_out_dir {top} {
+    return [file join $::root_dir timing [expr {$top eq "backend_top" ? "backend" : $top}]]
+}
+
+# モジュール単位の前回の結果（配線後と合成後のうち新しい方）を開き、どちらを開いたかを返す
+# モジュール単位の前回の結果（配線後と合成後のうち新しい方）の .dcp を {パス 種類} で返す。無ければ空
+proc newest_module_dcp {top} {
+    set dir [backend_out_dir $top]
+    set best {}
+    set best_t -1
+    foreach kind {routed synth} {
+        set f [file join $dir ${top}_$kind.dcp]
+        if {[file exists $f] && [file mtime $f] > $best_t} {
+            set best [list $f $kind]
+            set best_t [file mtime $f]
+        }
+    }
+    return $best
+}
+
+proc open_module_result {top} {
+    set r [newest_module_dcp $top]
+    if {[llength $r] == 0} {
+        die "no result in [backend_out_dir $top]  -> run: build.bat build $top"
+    }
+    lassign $r best best_kind
+    puts "opening $best ([clock format [file mtime $best] -format {%Y-%m-%d %H:%M}])"
+    open_checkpoint $best
+    if {$best_kind eq "routed"} {
+        return "$top, after place & route (out-of-context)"
+    }
+    return "$top, after synthesis - net delays are ESTIMATES"
+}
+
+# モジュール単位の前回の結果の、回路規模とタイミングの概要を表示する
+proc show_module_status {top} {
+    set stage [open_module_result $top]
+    section "Utilization ($stage)"
+    puts [report_utilization -hierarchical -hierarchical_depth 2 -return_string]
+    section "Timing ($stage)"
+    set clk [get_clocks -quiet clk]
+    if {$clk eq ""} {
+        puts "  no clock"
+        return
+    }
+    set period [get_property PERIOD $clk]
+    set p [get_timing_paths -quiet -delay_type max -max_paths 1]
+    set h [get_timing_paths -quiet -delay_type min -max_paths 1]
+    set wns [expr {$p eq "" ? "" : [get_property SLACK $p]}]
+    set whs [expr {$h eq "" ? "" : [get_property SLACK $h]}]
+    set fail [llength [get_timing_paths -quiet -delay_type max -max_paths 100000 -nworst 1 -slack_lesser_than 0]]
+    puts [format "  period %.3f ns, WNS %s ns, WHS %s ns, failing endpoints %d" $period [fmt_ns $wns] [fmt_ns $whs] $fail]
+    if {$wns ne ""} {
+        puts [format "  Fmax(est) %.1f MHz" [expr {1000.0 / ($period - $wns)}]]
+    }
+}
+
 proc synth_backend {n period top synth_only} {
     set part xc7a100tcsg324-1
-    set src [file join $::script_dir src]
-    set out [file join $::script_dir timing [expr {$top eq "backend_top" ? "backend" : $top}]]
+    set src [file join $::root_dir src]
+    set out [backend_out_dir $top]
     set t0 [clock seconds]
 
-    # package は使う側より先に読む
-    set files {}
-    foreach f {types ooo_types isa uop_types} {
-        lappend files [file join $src defs $f.sv]
-    }
-    foreach f {back_types iq_types rr_types ex_types rob_types lsu_types} {
-        lappend files [file join $src backend defs $f.sv]
-    }
-    lappend files {*}[find_sv_files [file join $src common]]
-    lappend files [file join $src backend backend_top.sv]
-    foreach d {iq rf ex lsu} {
-        lappend files {*}[find_sv_files [file join $src backend $d]]
-    }
-    set fpu [file join $src fpu fpu_repository src]
-    if {![file isdirectory $fpu]} { die "$fpu not found" }
-    lappend files {*}[find_sv_files $fpu]
+    # top から下の階層のファイルと、それが使っている package（使われる側が先）を毎回集める
+    set files [hierarchy_sv_files $top]
 
     section "Synthesize $top ([llength $files] files)"
     read_verilog -sv $files
@@ -710,6 +893,27 @@ proc write_placement_svg {file} {
     puts "placement figure: $file"
 }
 
+# プロジェクトの合成（synth_1）だけをする。前回から変わっていなければ飛ばす
+proc build_synth {force} {
+    section "Synthesize (synth_1)"
+    update_compile_order -fileset sources_1
+    prepare_ips
+
+    set synth [get_runs synth_1]
+    if {!$force && ![get_property NEEDS_REFRESH $synth] && [get_property PROGRESS $synth] eq "100%"} {
+        puts "Up to date, skip synthesis"
+        return
+    }
+    catch {reset_run $synth}
+    launch_runs $synth -jobs [cpu_count]
+    wait_on_run $synth
+    if {[run_failed $synth]} {
+        show_run_messages
+        die "synthesis failed"
+    }
+    show_run_messages
+}
+
 # ---------------------------------------------------------------
 # ボードへの書き込み
 # ---------------------------------------------------------------
@@ -759,23 +963,31 @@ proc program_device {bit} {
 # ---------------------------------------------------------------
 # メイン
 # ---------------------------------------------------------------
-set mode  "all"
+set mode  ""
 set force 0
 set npaths 10
 set period 12.5
+set period_given 0
 set synth_only 0
+set gui 0
 set names {}
-set usage "(all|build|program|errors|status|timing \[N\]|ip|backend \[top\] \[synth\] \[N\] \[100mhz|10ns\] \[clean\])"
+set usage "(\[all|build|program|errors|status|timing|ip|view\] \[top|backend|<module>\] \[synth\] \[N\] \[100mhz|10ns\] \[clean\])"
 foreach a $argv {
     switch -- $a {
-        all - build - program - errors - status - timing - ip - backend { set mode $a }
+        all - build - program - errors - status - timing - ip - view - open {
+            if {$mode ne ""} { die "two modes: $mode and $a  $usage" }
+            set mode $a
+        }
+        backend { lappend names backend_top }
         clean   { set force 1 }
         synth   { set synth_only 1 }
+        gui     { set gui 1 }
         default {
             if {[string is integer -strict $a] && $a > 0} {
                 set npaths $a
             } elseif {[regexp -nocase {^([0-9]+\.?[0-9]*)(mhz|ns)$} $a -> v unit] && $v > 0} {
                 set period [expr {[string tolower $unit] eq "ns" ? double($v) : 1000.0 / $v}]
+                set period_given 1
             } elseif {[regexp {^[a-z][a-z0-9_]*$} $a]} {
                 lappend names $a
             } else {
@@ -784,18 +996,71 @@ foreach a $argv {
         }
     }
 }
-if {[llength $names] > 1 || ([llength $names] == 1 && $mode ne "backend")} {
-    die "unknown argument: $names  $usage"
+if {[llength $names] > 1} {
+    die "two targets: $names  $usage"
 }
 
-# backend モードは .xpr を使わない。名前を付けたらそのモジュールを top にする
-if {$mode eq "backend"} {
-    fetch_fpu_repo
-    synth_backend $npaths $period [expr {[llength $names] == 1 ? [lindex $names 0] : "backend_top"}] $synth_only
+# 対象：名前が無いか top なら全体（.xpr のプロジェクト）、backend なら backend_top、
+# それ以外はそのモジュールだけを out-of-context で（.xpr は使わない。結果は timing/<名前>/）
+set target [expr {[llength $names] == 1 ? [lindex $names 0] : "top"}]
+set whole  [expr {$target eq "top"}]
+
+# open（ビルドせずに前回の結果を GUI で開く）は launch/run.bat が GUI で起動したときだけ。中身は view の GUI 側と同じ
+if {$mode eq "open"} {
+    if {!$gui} { die "'open' is started by launch/run.bat in the GUI" }
+    set mode view
+}
+
+# モードを書かなければ、全体は all（ビルドして書き込む）、モジュールは build
+if {$mode eq ""} { set mode [expr {$whole ? "all" : "build"}] }
+
+if {!$whole && $mode in {all program ip errors}} {
+    die "'$mode' is only for the whole design (got target: $target)"
+}
+if {$synth_only && $mode in {all program}} {
+    die "'synth' can't be used with '$mode' (it needs a bitstream)"
+}
+if {$whole && $period_given} {
+    puts "WARNING: the clock of the whole design is set by clk_wiz_0, ignore [format %.3f $period] ns"
+}
+
+# ---------------------------------------------------------------
+# モジュール単位（.xpr を使わない）
+# ---------------------------------------------------------------
+if {!$whole} {
+    # view を gui 付きで呼ぶのは build.bat だけ（ビルドが通った後に GUI で起動する）。
+    # 結果のチェックポイントを開いて終わる。GUI が閉じないよう exit は使わない
+    # 配線後と合成後のうち新しい方を開く（view ならさっき作った方）
+    if {$mode eq "view" && $gui} {
+        set r [newest_module_dcp $target]
+        if {[llength $r] == 0} {
+            puts "*** no result in [backend_out_dir $target]"
+        } else {
+            open_checkpoint [lindex $r 0]
+        }
+        return
+    }
+    switch -- $mode {
+        build - view {
+            fetch_fpu_repo
+            synth_backend $npaths $period $target $synth_only
+        }
+        timing {
+            set stage [open_module_result $target]
+            set dir [backend_out_dir $target]
+            report_critical_paths $npaths $stage $dir
+            report_path_groups $dir
+        }
+        status { show_module_status $target }
+    }
     exit 0
 }
 
-# このスクリプトと同じフォルダにある .xpr を開く。無ければ作る
+# ---------------------------------------------------------------
+# 全体（.xpr のプロジェクト）
+# ---------------------------------------------------------------
+
+# リポジトリ直下の .xpr を開く。無ければ作る
 # バッチ起動時にも Nexys A7 のボード定義を登録する。
 # 候補を上から順に見て、最初に見つかったフォルダを使う（PC ごとに置き場所が違うため）
 set board_repo_candidates [list \
@@ -812,27 +1077,46 @@ if {$board_repo ne ""} {
 } else {
     puts "WARNING: board files not found in: [join $board_repo_candidates {, }]"
 }
-if {$mode eq "all" || $mode eq "build"} {
+set fetch [expr {$mode in {all build} || ($mode eq "view" && !$gui)}]
+if {$fetch} {
     fetch_memory_repo
     fetch_fpu_repo
 }
-set xprs [glob -nocomplain -directory $script_dir *.xpr]
+set xprs [glob -nocomplain -directory $root_dir *.xpr]
 if {[llength $xprs] == 0} {
     create_core_project [expr {$board_repo ne ""}]
-    set xprs [glob -nocomplain -directory $script_dir *.xpr]
+    set xprs [glob -nocomplain -directory $root_dir *.xpr]
 }
 if {[llength $xprs] != 1} {
-    die "expected exactly one .xpr in $script_dir (found [llength $xprs])"
+    die "expected exactly one .xpr in $root_dir (found [llength $xprs])"
 }
 open_project [lindex $xprs 0]
-if {$mode eq "all" || $mode eq "build"} {
-    sync_fpu_sources
+if {$fetch} {
+    sync_sources
+}
+
+# view を GUI で開くときは、結果のランを開いて終わる（GUI が閉じないよう exit しない）
+if {$mode eq "view" && $gui} {
+    # 配置配線が終わっていればその結果、無ければ合成の結果（synth を付けたら合成の結果）
+    set run synth_1
+    set impl [get_runs impl_1]
+    if {!$synth_only && [get_property PROGRESS $impl] eq "100%" && ![run_failed $impl]} {
+        set run impl_1
+    }
+    if {[get_property PROGRESS [get_runs $run]] eq "100%" && ![run_failed [get_runs $run]]} {
+        open_run $run
+    } else {
+        puts "*** $run is not finished"
+    }
+    return
 }
 
 set rc 0
 switch -- $mode {
     all     { program_device [build_bitstream $force] }
-    build   { build_bitstream $force }
+    build - view {
+        if {$synth_only} { build_synth $force } else { build_bitstream $force }
+    }
     program { program_device [bitfile_path] }
     errors  { set rc [expr {[show_run_messages] > 0}]; show_timing }
     status  { show_status; show_timing }
