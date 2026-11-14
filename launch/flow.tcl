@@ -41,6 +41,11 @@
 # リポジトリ直下（このスクリプトは launch/ の中にある）
 set root_dir [file dirname [file dirname [file normalize [info script]]]]
 
+# Vivado はカレントディレクトリにファイルを出す（2025.2 の dfx_runtime.txt など）ので、
+# リポジトリ直下に出ないよう gitignore 済みの timing/ に移っておく
+file mkdir [file join $root_dir timing]
+cd [file join $root_dir timing]
+
 proc die {msg} {
     puts stderr "\n*** FAILED: $msg\n"
     exit 1
@@ -465,7 +470,19 @@ proc create_core_project {board_found} {
     add_files -fileset sources_1 -norecurse $files
     set_property file_type SystemVerilog [get_files $files]
 
-    add_files -fileset sources_1 -norecurse [file join $src ip clk_wiz_0 clk_wiz_0.xci]
+    # xci は Vivado の版で形式が変わるので、無ければここで作る（clk_out1 80MHz、clk_out2 200MHz）
+    set xci [file join $src ip clk_wiz_0 clk_wiz_0.xci]
+    if {[file exists $xci]} {
+        add_files -fileset sources_1 -norecurse $xci
+    } else {
+        file mkdir [file join $src ip]
+        create_ip -name clk_wiz -vendor xilinx.com -library ip -module_name clk_wiz_0 -dir [file join $src ip]
+        set_property -dict {
+            CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 80.000
+            CONFIG.CLKOUT2_USED true
+            CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 200.000
+        } [get_ips clk_wiz_0]
+    }
 
     set mem [file join $dir test fib.mem]
     if {[file exists $mem]} {
@@ -516,12 +533,13 @@ proc build_bitstream {force} {
     puts "Launching synth/impl/write_bitstream (jobs = $jobs) ..."
     launch_runs $impl -to_step write_bitstream -jobs $jobs
 
-    wait_on_run $synth
+    # 2025.2 は失敗した run で wait_on_run がエラーを投げるので、止めずに下で判定する
+    catch {wait_on_run $synth}
     if {[run_failed $synth]} {
         show_run_messages
         die "synthesis failed"
     }
-    wait_on_run $impl
+    catch {wait_on_run $impl}
     if {[run_failed $impl] || ![file exists $bit]} {
         show_run_messages
         die "implementation / bitstream failed"
@@ -796,6 +814,11 @@ proc synth_backend {n period top synth_only impl_strategy synth_strategy} {
     if {$impl_strategy ne ""} { puts "implementation strategy: $impl_strategy -> [join $steps {; }]" }
     set t0 [clock seconds]
 
+    # Vivado はカレントディレクトリにファイルを出す（synth_design の dfx_runtime.txt、
+    # route_design の tight_setup_hold_pins.txt など）ので、出力先に移っておく
+    set cwd [pwd]
+    cd $out
+
     # top から下の階層のファイルと、それが使っている package（使われる側が先）を毎回集める
     set files [hierarchy_sv_files $top]
 
@@ -831,14 +854,12 @@ proc synth_backend {n period top synth_only impl_strategy synth_strategy} {
         puts [report_utilization -hierarchical -hierarchical_depth 2 -return_string]
         report_critical_paths $n "$top, after synthesis - net delays are ESTIMATES" $out
         report_path_groups $out
+        cd $cwd
         return
     }
 
-    # route_design は tight_setup_hold_pins.txt をカレントディレクトリに出すので、出力先に移っておく
     section "Place & route $top"
     set t1 [clock seconds]
-    set cwd [pwd]
-    cd $out
     foreach step $steps {
         puts "> $step"
         if {[catch {{*}$step} err]} {
@@ -1139,7 +1160,7 @@ proc build_synth {force} {
     }
     catch {reset_run $synth}
     launch_runs $synth -jobs [cpu_count]
-    wait_on_run $synth
+    catch {wait_on_run $synth}
     if {[run_failed $synth]} {
         show_run_messages
         die "synthesis failed"
