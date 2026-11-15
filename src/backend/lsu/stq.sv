@@ -67,7 +67,7 @@ module stq
     end
   end
 
-  // commit済みでまだ要求していないものがある
+  // commit済みでまだ要求していないものがある (uartのstoreはstq_headの時のみ)
   assign stq_controller.valid = stq_exec_head != stq_commit_head && !stq_ff[stq_exec_head.stq_idx].st_requested && (stq_ff[stq_exec_head.stq_idx].addr != MMIO_TX_ADDR || stq_exec_head == stq_head);
   assign stq_controller.stq_idx = stq_exec_head.stq_idx;
   assign stq_controller.addr = stq_ff[stq_exec_head.stq_idx].addr;
