@@ -28,15 +28,16 @@
 //
 // MMIO とアドレスの前提（memory の実装に揃える、2026-11-15）
 //   - アドレスはワード単位。D$ のモデルも 1 アドレスに 1 ワード
-//   - TX は TX_ADDR（0xffffffff）への store だけ。RX の MMIO は無い（データは boot のときに memory が DRAM に置く）ので、
-//     MMIO の load は出さず、rob_head_ld は常に 0 にする
-//   - TX の store は D$ のモデルのメモリには書かず、ack のときに UART に出したものとして記録する。
+//   - TX は MMIO_TX_ADDR（0xffffffff）への store だけ。RX の MMIO は無い（データは boot のときに memory が DRAM に置く）ので、
+//     MMIO の load は出さない
+//   - TX の store は D$ のモデルのメモリには書かず、ack のときに UART に出したものとして記録する（nack は出していない）。
 //     出た順番と中身が commit 順の TX の store と一致し、同じ store が 2 回出ないことを確かめる
+//     （コアは TX の store を、前の store が全部 ack されてから出す。でないと前の store の nack で出し直されて 2 回出る）
 //
 // D$ のモデル（test/lsu_top と同じ）
 //   - 要求をでたらめなサイクルに accept し、返事は accept の次のサイクル以降に 1 サイクル 1 つ、順番はでたらめ、ack か nack
 //   - kill された load は次のサイクルから返事をしない（kill のサイクルの返事は出ることがある）
-//   - store は ack のときに書く。同じアドレスの store は accept した順に書く。TX の store は nack しない
+//   - store は ack のときに書く。同じアドレスの store は accept した順に書く。TX の store も nack する
 //
 // LSU が WB に出す load は、kill のサイクル（br_update_ff / flush）に D$ の返事が来るとそのまま WB に出る。
 // EU の WB と違うが、ここではそのサイクルに消えた load のものだけ許して数える。
@@ -95,8 +96,6 @@ module tb_backend_top
   localparam int FREE_TARGET = 16;  // 空きの物理レジスタがこれより少なければ空ける
   localparam int STUCK_LIMIT = 3000;
   localparam int FLUSH_RATE = 600;
-  // lsu_types の MMIO_TX_ADDR はまだ古い値なので、ここで決める
-  localparam addr_t TX_ADDR = 32'hffff_ffff;
 
   // IQ
   localparam int Q_INT = 0;
@@ -211,7 +210,6 @@ module tb_backend_top
   logic            commit_st[COMMIT_W];
   logic [COMMIT_W-1:0] in_commit_ld;
   logic [COMMIT_W-1:0] in_commit_st;
-  logic                in_rob_head_ld;
   for (genvar g = 0; g < COMMIT_W; g++) begin : g_commit
     assign commit_ld[g] = in_commit_ld[g];
     assign commit_st[g] = in_commit_st[g];
@@ -263,7 +261,6 @@ module tb_backend_top
     .load_violation(load_violation),
     .commit_ld(commit_ld),
     .commit_st(commit_st),
-    .rob_head_ld(in_rob_head_ld),
     .dc_req_valid_ff(dc_req_valid_ff),
     .dc_req_we_ff(dc_req_we_ff),
     .dc_req_addr_ff(dc_req_addr_ff),
@@ -1088,7 +1085,7 @@ module tb_backend_top
         u.fu_op = FU_OP_AGU;
         e.addr = a + ref_ext(IMM_C, u.imm);
         // TX は書くだけなので load しない
-        if (e.addr == TX_ADDR) begin
+        if (e.addr == MMIO_TX_ADDR) begin
           e.rs1 = PNONE;
           u.imm = '0;
           e.addr = '0;
@@ -1102,7 +1099,7 @@ module tb_backend_top
         u.is_store = 1'b1;
         e.is_store = 1'b1;
         e.addr = a + ref_ext(IMM_D, u.imm);
-        e.tx = e.addr == TX_ADDR;
+        e.tx = e.addr == MMIO_TX_ADDR;
         e.data = b;
         e.stq = stq_idx_t'(sq_i);
       end
@@ -1468,11 +1465,11 @@ module tb_backend_top
         c_resp_j = j;
         tg = '0;
         if (p_we[j]) begin
-          // 同じアドレスの store は accept 順に書く。TX は nack しないので待たせる
+          // 同じアドレスの store は accept 順に書く
           blocked = 1'b0;
           for (int k = 0; k < j; k++) if (p_we[k] && p_addr[k] == p_addr[j]) blocked = 1'b1;
-          c_resp_ack = !blocked && (p_tx[j] || int'(rnd(100)) >= nack_rate);
-          if (blocked && (p_tx[j] || rnd(2) == 0)) begin
+          c_resp_ack = !blocked && int'(rnd(100)) >= nack_rate;
+          if (blocked && rnd(2) == 0) begin
             c_resp_j = -1;
             n_st_hold++;
           end
@@ -1530,7 +1527,7 @@ module tb_backend_top
           else begin
             if (tbl[id].done) fail($sformatf("WB 済みの load の要求が D$ に出た: %s", ins_str(tbl[id])));
           end
-          if (dc_req_addr_ff == TX_ADDR) fail($sformatf("TX のアドレスの load が D$ に出た（LDQ %0d）", idx));
+          if (dc_req_addr_ff == MMIO_TX_ADDR) fail($sformatf("TX のアドレスの load が D$ に出た（LDQ %0d）", idx));
           for (j = 0; j < p_idx.size(); j++)
             if (!p_we[j] && p_idx[j] == idx) fail($sformatf("返事がまだの load をもう一度 D$ に出した（LDQ %0d）", idx));
           dc_push(1'b0, 1'b0, dc_req_addr_ff, idx, '0, dc_req_brmask_ff & ~dc_br_resolve_mask_ff);
@@ -1547,7 +1544,7 @@ module tb_backend_top
                          cst_addr[idx], cst_data[idx]));
         for (j = 0; j < p_idx.size(); j++)
           if (p_we[j] && p_idx[j] == idx) fail($sformatf("返事がまだの store をもう一度 D$ に出した（STQ %0d）", idx));
-        dc_push(1'b1, dc_req_addr_ff == TX_ADDR, dc_req_addr_ff, idx, dc_req_wdata_ff, '0);
+        dc_push(1'b1, dc_req_addr_ff == MMIO_TX_ADDR, dc_req_addr_ff, idx, dc_req_wdata_ff, '0);
         n_dc_st++;
         if (tr()) $display("  [%0d] D$ accept store STQ %0d addr %h data %h", cyc, idx, dc_req_addr_ff, dc_req_wdata_ff);
       end
@@ -1560,18 +1557,17 @@ module tb_backend_top
                  c_resp_ack, c_resp_rdata);
       if (p_we[j]) begin
         // stale になった store は ack の後でも出し直されるので、控えは STQ が解放したときに消す
-        if (p_tx[j]) begin
+        if (!c_resp_ack) n_st_nack++;
+        else if (p_tx[j]) begin
           // UART に出る。stale で出し直された store がもう一度 ack されると 2 回出る
-          if (!c_resp_ack) fail($sformatf("TX の store が nack された（STQ %0d）", p_idx[j]));
-          else if (tx_exp.size() == 0) fail($sformatf("TX に余計な store が出た（STQ %0d、data %h）", p_idx[j], p_data[j]));
+          if (tx_exp.size() == 0) fail($sformatf("TX に余計な store が出た（STQ %0d、data %h）", p_idx[j], p_data[j]));
           else begin
             if (p_data[j] !== tx_exp[0])
               fail($sformatf("TX に出た %h、commit 順の期待 %h（STQ %0d）", p_data[j], tx_exp[0], p_idx[j]));
             void'(tx_exp.pop_front());
             n_tx_out++;
           end
-        end else if (c_resp_ack) dc_mem[p_addr[j]] = p_data[j];
-        else n_st_nack++;
+        end else dc_mem[p_addr[j]] = p_data[j];
       end else if (!c_resp_ack) n_ld_nack++;
       dc_del(j);
     end
@@ -1784,7 +1780,6 @@ module tb_backend_top
     in_br_tag = '0;
     in_commit_ld = '0;
     in_commit_st = '0;
-    in_rob_head_ld = 1'b0;
     dc_req_accepted = 1'b0;
     dc_resp_valid = 1'b0;
     dc_resp_ack = 1'b0;

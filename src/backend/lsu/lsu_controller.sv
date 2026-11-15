@@ -16,12 +16,9 @@ module lsu_controller
   // EXから
   input wire br_update_t br_update_ff,
 
-  // ROBから
-  input wire logic rob_head_ld,
-
   // LDQ
   input wire ldq_controller_t ldq[LDQ_SIZE],
-  input wire ldq_idx_t ldq_head_idx,  // loadの先頭(MMIO用)
+  input wire ldq_idx_t ldq_head_idx,  // loadの先頭
   output ldq_idx_with_valid_t ld_requested,
   output ldq_idx_with_valid_t ld_nack,
   output ldq_idx_with_valid_t ld_gone_to_wb,
@@ -97,10 +94,6 @@ module lsu_controller
       p = ldq_ptr_dec(p);
       ld_ready = ldq[p.ldq_idx].valid && ldq[p.ldq_idx].addr_valid && !ldq[p.ldq_idx].ld_requested
           && !ldq[p.ldq_idx].gone_to_wb && !br_kill_check(ldq[p.ldq_idx].brmask, br_update_ff);
-      // MMIOはROBの先頭のみ
-      if (ldq[p.ldq_idx].mmio && !(rob_head_ld && p.ldq_idx == ldq_head_idx)) begin
-        ld_ready = 1'b0;
-      end
 
       // flushのときはloadは消す
       if (ld_ready && !flush) begin
@@ -111,7 +104,7 @@ module lsu_controller
           load_req.tag.ldq_idx = p.ldq_idx;
           load_req.brmask = apply_br_resolve(ldq[p.ldq_idx].brmask, br_update_ff);
         end
-        if (ldq[p.ldq_idx].fwd_hit && stq_fwd[ldq[p.ldq_idx].fwd_stq_idx].data_valid && !ldq[p.ldq_idx].mmio) begin
+        if (ldq[p.ldq_idx].fwd_hit && stq_fwd[ldq[p.ldq_idx].fwd_stq_idx].data_valid) begin
           fwd_cand.valid   = 1'b1;
           fwd_cand.ldq_idx = p.ldq_idx;
           fwd_cand.stq_idx = ldq[p.ldq_idx].fwd_stq_idx;

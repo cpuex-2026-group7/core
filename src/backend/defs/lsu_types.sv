@@ -90,9 +90,8 @@ package lsu_types;
   // LSUからWBへ(中身はex_wb_tと同じ)
   typedef ex_types::ex_wb_t lsu_wb_t;
 
-  // MMIO(とりあえず)
-  localparam addr_t MMIO_RX_ADDR = 32'hffff_ffff;  // read
-  localparam addr_t MMIO_TX_ADDR = 32'hffff_fffe;  // write
+  // MMO
+  localparam addr_t MMIO_TX_ADDR = 32'hffff_ffff;
 
   // dispatchからLDQへ
   typedef struct packed {
@@ -120,7 +119,6 @@ package lsu_types;
     logic valid;
     logic addr_valid;
     addr_t addr;
-    logic mmio;  // MMIOのloadはROBの先頭に来るまで待つ
     logic ld_requested;  // NACK来たら落とす
     logic stale;  // D$に出した後に古いstoreとアドレスが一致した。respを捨てて出し直す
     stq_mask_t older_st_mask;  // 自分より古いstoreのmask
@@ -153,7 +151,6 @@ package lsu_types;
     logic     valid;
     logic     addr_valid;
     addr_t    addr;
-    logic     mmio;
     logic     ld_requested;
     logic     stale;
     logic     gone_to_wb;

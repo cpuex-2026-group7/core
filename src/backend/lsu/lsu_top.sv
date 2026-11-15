@@ -38,7 +38,6 @@ module lsu_top
   // ROB
   input wire logic commit_ld[COMMIT_W],  // loadをコミットしたヨ
   input wire logic commit_st[COMMIT_W],  // storeをコミットしたヨ
-  input wire logic rob_head_ld,  // MMIOのloadは取り消されるとまずいのでROBの先頭しか無理
   output complete_t complete_st,  // addressとdata揃ったらcomplete出す
   output logic stq_empty,  // commit済みのstoreも全部D$に書き終わった(halt用)
   output load_violation_t load_violation[COMMIT_W],  // headからk番目のloadまでについて情報提供
@@ -53,7 +52,7 @@ module lsu_top
   // killされたloadは次のサイクル以降validなrespを返さない
   // killが届くまでに出したrespはcore側の責任で無視する
   // 生きている要求にはackかnackをちょうど1回返す
-  // MMIOはacceptしたらnackしない
+  // nackしたら実行していない(TXならUARTに出していない)
   // パラメータとして DC_TAG_WとMAX_BRを渡す
   // clk(coreと同じ)、rst(coreと同じ)D$に渡す
   // 下は全部core側のFF
@@ -176,7 +175,6 @@ module lsu_top
     .rst(rst),
     .flush(flush),
     .br_update_ff(br_update_ff),
-    .rob_head_ld(rob_head_ld),
     .ldq(ldq_controller),
     .ldq_head_idx(ldq_head_idx),
     .head_store(stq_controller),
