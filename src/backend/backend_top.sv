@@ -23,7 +23,7 @@ module backend_top
 ) (
   input wire logic clk,
   input wire logic rst,
-  input wire logic flush, // loadの順序違反でflush
+  input wire logic flush, // loadの順序違反でflush(ROBのFF)
 
   // dispatchからIQへ
   input wire logic disp_valid_int[DISPATCH_W_INT],
@@ -39,10 +39,10 @@ module backend_top
   output logic disp_full_fpu,
 
   // dispatchからLSUへ(スロットが小さい方が古い)
-  input wire disp_lsu_t disp_ld[LSU_DISP_W],
+  input wire disp_ldq_t disp_ld[LSU_DISP_W],
   output ldq_idx_t disp_ldq_idx[LSU_DISP_W],
   output logic disp_ld_full[LSU_DISP_W],
-  input wire disp_lsu_t disp_st[LSU_DISP_W],
+  input wire disp_stq_t disp_st[LSU_DISP_W],
   output stq_idx_t disp_stq_idx[LSU_DISP_W],
   output logic disp_st_full[LSU_DISP_W],
   input wire logic disp_br_valid[LSU_DISP_W],
@@ -54,7 +54,8 @@ module backend_top
   // ROB
   output complete_t complete_idx[5],
   output complete_t complete_st,
-  output load_violation_t load_violation,
+  output logic stq_empty,
+  output load_violation_t load_violation[COMMIT_W],
   input wire logic commit_ld[COMMIT_W],
   input wire logic commit_st[COMMIT_W],
   input wire logic rob_head_ld,
@@ -214,6 +215,7 @@ module backend_top
     .commit_st(commit_st),
     .rob_head_ld(rob_head_ld),
     .complete_st(complete_st),
+    .stq_empty(stq_empty),
     .load_violation(load_violation),
     .wb_mem(wb_mem),
     .slow_wakeup_mem(slow_wakeup_mem),

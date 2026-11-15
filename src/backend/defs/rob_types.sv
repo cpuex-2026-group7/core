@@ -14,7 +14,6 @@ package rob_types;
   } complete_t;
 
   // LSUからROBへ
-  // 一番古いviolationを通知
   typedef struct packed {
     logic     valid;
     rob_idx_t rob_idx;
