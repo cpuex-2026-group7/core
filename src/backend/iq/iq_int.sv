@@ -10,7 +10,8 @@ module iq_int
 #(
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
-  parameter int WAKEUP_W = 5
+  parameter int I_WAKEUP_W = 3,
+  parameter int F_WAKEUP_W = 4
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -24,7 +25,8 @@ module iq_int
   output logic disp_full,
 
   // wakeup bus
-  input wire wakeup_t coming_wakeup[WAKEUP_W],
+  input wire wakeup_t coming_i_wakeup[I_WAKEUP_W],
+  input wire wakeup_t coming_f_wakeup[F_WAKEUP_W],
   output wakeup_t sending_wakeup[1],
 
   // ex_topのFFから
@@ -74,7 +76,12 @@ module iq_int
     .EU_BASE(EU_ALU),
     .SLOW_WAKEUP_FU(4'b0000),
     .BLOCKING_FU(4'b0000),
-    .WAKEUP_W(WAKEUP_W),
+    .I_WAKEUP_W(I_WAKEUP_W),
+    .F_WAKEUP_W(F_WAKEUP_W),
+    .RS1_I(1'b1),
+    .RS1_F(1'b0),
+    .RS2_I(1'b1),
+    .RS2_F(1'b0),
     .PAYLOAD_W(PAYLOAD_W)
   ) u_iq_core_int (
     .clk  (clk),
@@ -86,7 +93,8 @@ module iq_int
     .disp_payload(disp_payload),
     .to_issue_part('{default: 2'b11}),
     .disp_full(disp_full),
-    .coming_wakeup(coming_wakeup),
+    .coming_i_wakeup(coming_i_wakeup),
+    .coming_f_wakeup(coming_f_wakeup),
     .sending_wakeup(sending_wakeup),
     .br_update_ff(br_update_ff),
     .dest_fu_blocked(4'b0000),

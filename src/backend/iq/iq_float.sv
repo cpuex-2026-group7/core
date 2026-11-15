@@ -10,7 +10,8 @@ module iq_float
 #(
   parameter int SIZE = 16,
   parameter int DISPATCH_W = 1,
-  parameter int WAKEUP_W = 5
+  parameter int I_WAKEUP_W = 3,
+  parameter int F_WAKEUP_W = 4
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -24,7 +25,8 @@ module iq_float
   output logic disp_full,
 
   // wakeup bus
-  input wire wakeup_t coming_wakeup[WAKEUP_W],
+  input wire wakeup_t coming_i_wakeup[I_WAKEUP_W],
+  input wire wakeup_t coming_f_wakeup[F_WAKEUP_W],
   output wakeup_t sending_wakeup[3],
 
   // ex_topのFFから
@@ -81,7 +83,12 @@ module iq_float
     .EU_BASE(EU_F_SHORT),
     .SLOW_WAKEUP_FU({4'b0011, 4'b0000, 4'b0000}),  // {F超長, F長, F短}
     .BLOCKING_FU({4'b0011, 4'b0000, 4'b0000}),
-    .WAKEUP_W(WAKEUP_W),
+    .I_WAKEUP_W(I_WAKEUP_W),
+    .F_WAKEUP_W(F_WAKEUP_W),
+    .RS1_I(1'b1),
+    .RS1_F(1'b1),
+    .RS2_I(1'b0),
+    .RS2_F(1'b1),
     .PAYLOAD_W(PAYLOAD_W)
   ) u_iq_core_float (
     .clk  (clk),
@@ -93,7 +100,8 @@ module iq_float
     .disp_payload(disp_payload),
     .to_issue_part('{default: 2'b11}),
     .disp_full(disp_full),
-    .coming_wakeup(coming_wakeup),
+    .coming_i_wakeup(coming_i_wakeup),
+    .coming_f_wakeup(coming_f_wakeup),
     .sending_wakeup(sending_wakeup),
     .br_update_ff(br_update_ff),
     .dest_fu_blocked({{2'b00, fdiv_blocked, fsqrt_blocked}, 4'b0000, 4'b0000}),

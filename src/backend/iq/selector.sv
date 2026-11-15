@@ -10,9 +10,13 @@ module selector #(
 );
 
   always_comb begin
-    grant = req;
     for (int i = 0; i < SIZE; i++) begin
-      if (req[i]) grant &= ~older[i];
+      logic not_this_one;
+      not_this_one = 1'b0;
+      for (int j = 0; j < SIZE; j++) begin
+        not_this_one |= req[j] & older[j][i];
+      end
+      grant[i] = req[i] & ~not_this_one;
     end
   end
 
