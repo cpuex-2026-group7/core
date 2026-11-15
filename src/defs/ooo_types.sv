@@ -15,6 +15,7 @@ package ooo_types;
   localparam int LDQ_SIZE = 8;
   localparam int STQ_SIZE = 8;
   localparam int FTQ_IDX_WIDTH = 5;
+  localparam int DISPATCH_W = 2;
 
   typedef enum logic [1:0] {
     PREG_TYPE_I  = 2'b00,
