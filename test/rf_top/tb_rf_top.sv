@@ -17,7 +17,7 @@
 // テストの前提にしている仕様
 //   - PRF の書き込みは立ち上がりで反映。初期値は 0
 //   - 書き込みポート：wb_alu→I、wb_mem→I/F、wb_fpu[0]→F、wb_fpu[1]→I/F（ftoi は I）、wb_fpu[2]→F。I は 3W。
-//     valid=0、rd.typ が NONE は書かない（分岐や sw は rd が NONE で valid の WB を出す）。
+//     valid=0、rd.typ が NONE は書かない（分岐や sw は rd が NONE で valid の WB を出す。wb_fpu[2] は出さない）。
 //     ポートに無い方の typ（wb_alu の F など）は EU が出さないので作らない
 //   - 読み出し：I は 5R。INT の rs1/rs2 と MEM の rs1 は I。MEM の rs2 と FPU長 の rs1 は typ が F なら F、そうでなければ I
 //     （MEM の rs2 は sw なら I、fsw なら F）。それ以外（FPU短 / FPU長 の rs2 / FPU超長）は F
@@ -244,6 +244,11 @@ module tb_rf_top
       1, 3: return (t == PREG_TYPE_I) ? RI : (t == PREG_TYPE_F) ? RF : -1;
       default: return (t == PREG_TYPE_F) ? RF : -1;
     endcase
+  endfunction
+
+  // rd が NONE の WB を出しうるか（F超長 は fdiv / fsqrt だけなので rd は必ず F）
+  function automatic logic has_none(int w);
+    return w != 4;
   endfunction
 
   // レーン l のソース s（0: rs1, 1: rs2）をどちらの PRF から読むか
@@ -601,6 +606,7 @@ module tb_rf_top
         // ポートに無い typ は EU が出さないので試さない
         if (ti == 0 && wb_file(w, PREG_TYPE_I) < 0) continue;
         if (ti == 1 && wb_file(w, PREG_TYPE_F) < 0) continue;
+        if (ti == 2 && !has_none(w)) continue;
         // 毎回 I[1] と F[1] を既知の値に戻してから書く
         clear_inputs();
         set_wb(0, pi(1), 32'haaaa_0000 + 32'(w * 16 + ti));
@@ -773,6 +779,7 @@ module tb_rf_top
     end
     // rd が NONE の WB（分岐や sw）は、同じ idx を読んでも当たらない
     for (int w = 0; w < NW; w++) begin
+      if (!has_none(w)) continue;
       clear_inputs();
       set_wb(w, mk_preg(PREG_TYPE_NONE, 5), 32'h0bad_cafe);
       set_src(0, pi(5), pi(5));
@@ -1021,7 +1028,8 @@ module tb_rf_top
       for (int w = 0; w < NW; w++) begin
         // rd が NONE（sw や分岐）でも valid なら完了を出す
         wb[w].valid = 1'((r >> w) & 1);
-        wb[w].rd = (r % 3 == 0) ? pn() : (wb_file(w, PREG_TYPE_F) >= 0 ? pf(r * 5 + w) : pi(r * 5 + w));
+        wb[w].rd = (r % 3 == 0 && has_none(w)) ? pn()
+            : (wb_file(w, PREG_TYPE_F) >= 0 ? pf(r * 5 + w) : pi(r * 5 + w));
         wb[w].rob_idx = rob_idx_t'(rnd(ROB_SIZE));
         wb[w].value = rword();
       end
@@ -1082,7 +1090,7 @@ module tb_rf_top
       wb[w].valid = rst ? 1'b0 : (rnd(100) < 60);
       r = rnd(100);
       // 1 割は NONE（分岐や sw）。idx は hot_idx で、読む側と重なるようにする
-      if (r < 90) begin
+      if (r < 90 || !has_none(w)) begin
         case (w)
           0: t = PREG_TYPE_I;
           1, 3: t = (rnd(2) == 0) ? PREG_TYPE_I : PREG_TYPE_F;
