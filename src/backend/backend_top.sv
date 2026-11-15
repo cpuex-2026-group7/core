@@ -58,7 +58,6 @@ module backend_top
   output load_violation_t load_violation[COMMIT_W],
   input wire logic commit_ld[COMMIT_W],
   input wire logic commit_st[COMMIT_W],
-  input wire logic rob_head_ld,
 
   // D$
   output logic dc_req_valid_ff,
@@ -213,7 +212,6 @@ module backend_top
     .br_update_ff(br_update_ff),
     .commit_ld(commit_ld),
     .commit_st(commit_st),
-    .rob_head_ld(rob_head_ld),
     .complete_st(complete_st),
     .stq_empty(stq_empty),
     .load_violation(load_violation),

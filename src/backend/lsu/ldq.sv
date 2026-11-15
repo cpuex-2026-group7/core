@@ -66,7 +66,6 @@ module ldq
       ldq_controller_ff[i].valid = ldq_ff[i].valid;
       ldq_controller_ff[i].addr_valid = ldq_ff[i].addr_valid;
       ldq_controller_ff[i].addr = ldq_ff[i].addr;
-      ldq_controller_ff[i].mmio = ldq_ff[i].mmio;
       ldq_controller_ff[i].ld_requested = ldq_ff[i].ld_requested;
       ldq_controller_ff[i].stale = ldq_ff[i].stale;
       ldq_controller_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
@@ -175,7 +174,6 @@ module ldq
         if (disp_ld[i].valid && !disp_full[i]) begin
           n_ldq_ff[disp_ldq_idx[i]].valid = 1'b1;
           n_ldq_ff[disp_ldq_idx[i]].addr_valid = 1'b0;
-          n_ldq_ff[disp_ldq_idx[i]].mmio = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].ld_requested = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].stale = 1'b0;
           n_ldq_ff[disp_ldq_idx[i]].older_st_mask = older_st[i].older_st_mask; //同じサイクルのreleaseは除外済み
@@ -197,7 +195,6 @@ module ldq
       n_ldq_ff[ex_lsu.ldq_idx].addr = ex_lsu.addr;
       n_ldq_ff[ex_lsu.ldq_idx].fwd_hit = ld_fwd.hit;
       n_ldq_ff[ex_lsu.ldq_idx].fwd_stq_idx = ld_fwd.stq_idx;
-      n_ldq_ff[ex_lsu.ldq_idx].mmio = (ex_lsu.addr == MMIO_RX_ADDR);
     end
     if (ex_lsu.is_store && ex_lsu.addr_valid) begin
       // storeのアドレスが来た場合

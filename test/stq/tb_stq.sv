@@ -19,11 +19,14 @@
 //   - ex_lsu は生きている store のものだけが来る（同じサイクルに kill される store のものは来ない）
 //   - commit は complete の次のサイクル以降で、古い分岐が全部解決した後
 //   - st_requested は stq_controller.valid のときだけ。同じエントリの要求は同時に 1 つ
+//   - TX（MMIO_TX_ADDR）の store は exec_head が head のとき（前の store が全部 ack されて解放された後）だけ出す
 //   - D$ の返事は 1 サイクルに 1 つ。順番は入れ替わるが、同じアドレスの store は accept 順に書く
 //   - nack（stale でない）で exec_head をそこに戻し、戻した範囲で返事がまだのものは stale にして返事を捨てる
 //   - head のエントリが stored なら、次のサイクルに解放して stq_release_mask を出す
 //
 // 通しの確認：STQ が空になったとき、D$ のモデルの中身が「commit した store を順に書いたメモリ」と一致する
+// TX の store は D$ のモデルのメモリには書かず、ack したときに UART に出たものとして、commit 順の TX の store と
+// 順番・中身・回数を比べる（stale になった TX の store が ack されると 2 回出たことになる）
 
 module tb_stq
   import types::*;
@@ -134,6 +137,7 @@ module tb_stq
 
   word_t arch_mem[MEM_N];  // commit した store を順に書いたもの
   word_t dc_mem[MEM_N];  // D$ が ack した順に書いたもの
+  word_t tx_exp[$];  // commit した TX の store のデータ（まだ UART に出ていないもの）
 
   // ---------------- 入力の出し方（一定サイクルごとに変える） ----------------
 
@@ -171,6 +175,7 @@ module tb_stq
 
   int n_disp, n_full, n_commit, n_release, n_mispredict, n_flush, n_kill_disp;
   int n_nack, n_nack_multi, n_stale_resp, n_ooo_resp, n_empty_check, n_wrap;
+  int n_tx, n_tx_out, n_tx_wait;
 
   task automatic err(string msg);
     errors++;
@@ -334,7 +339,9 @@ module tb_stq
     end
 
     // ---- controller と D$ ----
-    exp_ctrl_valid = exec_pos != commit_pos && !m_requested[exec_pos%N];
+    exp_ctrl_valid = exec_pos != commit_pos && !m_requested[exec_pos%N]
+        && (m_addr[exec_pos%N] != MMIO_TX_ADDR || exec_pos == head_pos);
+    if (exec_pos != commit_pos && !m_requested[exec_pos%N] && !exp_ctrl_valid) n_tx_wait++;
     t_st_requested = exp_ctrl_valid && rnd(100) < req_rate;
     t_st_ack.valid = 1'b0;
     t_st_ack.stq_idx = stq_idx_t'(rnd(N));
@@ -480,7 +487,10 @@ module tb_stq
 
     for (int i = 0; i < c; i++) begin
       idx = commit_pos % N;
-      arch_mem[mem_idx(m_addr[idx])] = m_data[idx];
+      if (m_addr[idx] == MMIO_TX_ADDR) begin
+        tx_exp.push_back(m_data[idx]);
+        n_tx++;
+      end else arch_mem[mem_idx(m_addr[idx])] = m_data[idx];
       commit_pos++;
       n_commit++;
     end
@@ -488,8 +498,17 @@ module tb_stq
     if (resp) begin
       idx = infl_idx[j];
       was_stale = m_stale[idx];
-      // D$ は stale かどうかを知らないので、ack したものは書いている
-      if (!resp_nack) dc_mem[mem_idx(infl_addr[j])] = infl_data[j];
+      // D$ は stale かどうかを知らないので、ack したものは書いている（TX なら UART に出ている）
+      if (!resp_nack) begin
+        if (infl_addr[j] != MMIO_TX_ADDR) dc_mem[mem_idx(infl_addr[j])] = infl_data[j];
+        else if (tx_exp.size() == 0) err($sformatf("TX に余計な store が出た（STQ %0d、data %h）", idx, infl_data[j]));
+        else begin
+          if (infl_data[j] != tx_exp[0])
+            err($sformatf("TX に出た %h、commit 順の期待値 %h（STQ %0d）", infl_data[j], tx_exp[0], idx));
+          void'(tx_exp.pop_front());
+          n_tx_out++;
+        end
+      end
     end
 
     if (t_st_requested) begin
@@ -573,6 +592,7 @@ module tb_stq
     if (head_pos == tail_pos) begin
       n_empty_check++;
       if (infl_idx.size() != 0) err("STQ が空なのに D$ に要求が残っている");
+      if (tx_exp.size() != 0) err($sformatf("STQ が空なのに commit した TX の store が %0d 個 UART に出ていない", tx_exp.size()));
       for (int i = 0; i < MEM_N; i++) begin
         if (dc_mem[i] != arch_mem[i])
           err($sformatf("D$ の中身が違う：mem[%0d] = %h、commit 順に書いた値 %h", i, dc_mem[i], arch_mem[i]));
@@ -647,6 +667,7 @@ module tb_stq
     $display("dispatch %0d（満杯で断った %0d、kill のサイクルで捨てた %0d、一周 %0d 回）", n_disp, n_full,
              n_kill_disp, n_wrap);
     $display("commit %0d、解放 %0d、mispredict %0d、flush %0d", n_commit, n_release, n_mispredict, n_flush);
+    $display("TX の store %0d（UART に出た %0d、前の store を待った %0d サイクル）", n_tx, n_tx_out, n_tx_wait);
     $display("nack %0d（後ろも巻き込んだ %0d）、stale の返事 %0d、順番が入れ替わった返事 %0d、空での確認 %0d 回",
              n_nack, n_nack_multi, n_stale_resp, n_ooo_resp, n_empty_check);
     if (errors == 0) $display("PASS");

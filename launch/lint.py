@@ -5,13 +5,17 @@
     make lint iq_top                  iq_top から下の階層だけ（backend は backend_top、top は全体の top）
     make lint iq_top ALL=1 STRICT=1   オプションは ALL=1（-a）、STRICT=1（--strict）、V=1（-v）
 
-    python3 launch/lint.py [モジュール]   WSL で直接
+    make lint ldq.sv                  そのファイルだけ（.sv / .py、ファイル名だけでもよい。複数可）
+
+    python3 launch/lint.py [モジュール | FILE ...]   WSL で直接
     --strict   style も失敗扱いにする
     -a         note（未使用信号など）も表示
     -v         ツールの生の出力も表示
 
+引数が .sv / .py（かファイルのパス）ならファイル指定、それ以外はモジュール名として扱う。
 モジュールを指定したときは、そのモジュールから下の階層のファイルだけを見る
-（.xpr との対応、テストベンチ、Python のチェックはしない）
+（.xpr との対応、テストベンチ、Python のチェックはしない）。
+ファイルを指定したときは、そのファイルから使っているモジュールと package だけを読んで 1 つずつ見る。
 
 チェック内容
   1. Vivado プロジェクト (.xpr) とファイルの対応   追加し忘れ・消し忘れ
@@ -395,32 +399,35 @@ def run_python(rep, verbose, files=None):
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("files", nargs="*", metavar="FILE", help="チェックする .sv / .py（省略時は全体）")
+    ap.add_argument("targets", nargs="*", metavar="モジュール | FILE",
+                    help="モジュール名（そこから下の階層。backend は backend_top）か .sv / .py（省略時は全体）")
     ap.add_argument("--strict", action="store_true", help="style も失敗扱いにする")
     ap.add_argument("-a", "--all", action="store_true", help="note（未使用信号など）も表示")
     ap.add_argument("-v", "--verbose", action="store_true", help="各ツールの生の出力も表示")
-    ap.add_argument("module", nargs="?", help="このモジュールから下の階層だけを見る（backend は backend_top）")
     args = ap.parse_args()
 
+    # .sv / .py かファイルのパスならファイル指定、それ以外はモジュール名
+    names = [t for t in args.targets if os.path.splitext(t)[1] in (".sv", ".py") or os.path.isfile(t)]
+    mods = [t for t in args.targets if t not in names]
+    if mods and names:
+        ap.error("モジュールとファイルは一緒に指定できません")
+    if len(mods) > 1:
+        ap.error(f"モジュールは 1 つだけ指定してください: {' '.join(mods)}")
+    args.module = mods[0] if mods else None
+
     rep = Report()
-    if args.files:
-        files = select_files(ap, args.files)
+    if names:
+        files = select_files(ap, names)
         run_selected_sv(rep, [f for f in files if f.endswith(".sv")], args.verbose)
         python_files = [f for f in files if f.endswith(".py")]
         if python_files:
             run_python(rep, args.verbose, python_files)
-    else:
-        run_all(rep, args.verbose)
-
-    rep.print(args.all)
-    e, w, s, n = (rep.count(x) for x in ("error", "warn", "style", "note"))
-    summary = f"{e} error, {w} warning, {s} style, {n} note" + ("" if args.all or n == 0 else "（note は -a で表示）")
-    failed = e > 0 or w > 0 or (args.strict and s > 0)
-    print(color(("FAIL  " if failed else "OK    ") + summary, "red" if failed else "green"))
-    sys.exit(1 if failed else 0)
+        finish(rep, args)
+    run_all(rep, args)
 
 
-def run_all(rep, verbose):
+def run_all(rep, args):
+    verbose = args.verbose
     src = sv_files("src")
     pkgs, mods = order_packages(src)
     tbs = sv_files("sim")

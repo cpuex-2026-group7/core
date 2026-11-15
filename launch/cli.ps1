@@ -42,7 +42,7 @@ function Show-Help {
     Write-Host '  make' -ForegroundColor Yellow -NoNewline
     Write-Host ' - Vivado のビルド（中身は launch\）'
     Write-Host ''
-    Write-Host '  make <コマンド> [対象] [CLOCK=100] [N=20] [SYNTH=1] [CLEAN=1]' -ForegroundColor White
+    Write-Host '  make <コマンド> [対象] [CLOCK=100] [N=20] [SYNTH=1] [CLEAN=1] [STRATEGY=..] [SYNTH_STRATEGY=..]' -ForegroundColor White
     Write-Host '  .\build.bat <コマンド> [対象] [CLOCK=100] ...（make と同じ書き方）' -ForegroundColor White
     Write-Host ''
     Write-Host '  コマンド' -ForegroundColor Yellow
@@ -68,6 +68,8 @@ function Show-Help {
     Write-Row 'N=20'      'クリティカルパスをワースト 20 本（既定 10 本）' 'Magenta'
     Write-Row 'SYNTH=1'   'view を合成までにする。全体の open は合成の結果を開く' 'Magenta'
     Write-Row 'CLEAN=1'   '全体の合成と配置配線をやり直す' 'Magenta'
+    Write-Row 'STRATEGY=Performance_Explore' '配置配線の strategy（Vivado の名前）。付けなければ既定' 'Magenta'
+    Write-Row 'SYNTH_STRATEGY=Flow_PerfOptimized_high' '合成の strategy。間違った名前なら選べる名前を表示' 'Magenta'
     Write-Row 'ALL=1 STRICT=1 V=1' 'lint で note も表示 / style も失敗にする / 生の出力も表示' 'Magenta'
     Write-Host ''
     Write-Host '  例' -ForegroundColor Yellow
@@ -75,6 +77,7 @@ function Show-Help {
     Write-Row 'make build backend CLOCK=100' 'backend_top を 100MHz で配置配線' 'White'
     Write-Row 'make view iq_top'             'iq_top を配置配線して GUI で開く' 'White'
     Write-Row 'make timing backend N=20'     '前回の backend のワースト 20 本' 'White'
+    Write-Row 'make build backend STRATEGY=Performance_Explore' 'strategy を変えて配置配線' 'White'
     Write-Row 'make list'                    'これまでの結果を並べて比べる' 'White'
     Write-Row 'make program'                 '全体をビルドしてボードに書き込む' 'White'
     Write-Row 'make lint iq_top'             'iq_top から下だけを lint' 'White'
@@ -178,6 +181,8 @@ $Clean = $false
 $All = $false
 $Strict = $false
 $VerboseLint = $false
+$Strategy = ''
+$SynthStrategy = ''
 foreach ($w in $words) {
     if ($w -match '^(\w+)=(.*)$') {
         $key = $Matches[1].ToUpper()
@@ -191,7 +196,15 @@ foreach ($w in $words) {
             'ALL'    { $All = $on }
             'STRICT' { $Strict = $on }
             'V'      { $VerboseLint = $on }
-            default  { Stop-Usage "知らないオプション: $w（CLOCK= N= SYNTH=1 CLEAN=1 ALL=1 STRICT=1 V=1）" }
+            'STRATEGY' {
+                if ($val -notmatch '^\w+$') { Stop-Usage "STRATEGY= は Vivado の strategy の名前（$w）" }
+                $Strategy = $val
+            }
+            'SYNTH_STRATEGY' {
+                if ($val -notmatch '^\w+$') { Stop-Usage "SYNTH_STRATEGY= は Vivado の strategy の名前（$w）" }
+                $SynthStrategy = $val
+            }
+            default  { Stop-Usage "知らないオプション: $w（CLOCK= N= SYNTH=1 CLEAN=1 STRATEGY= SYNTH_STRATEGY= ALL=1 STRICT=1 V=1）" }
         }
     } elseif ($w -match '^\d+$') {
         $Paths = [int]$w
@@ -254,6 +267,13 @@ if ($Synth) { $a += 'synth' }
 if ($Paths -gt 0) { $a += "$Paths" }
 if ($Clock) { $a += (Convert-Clock $Clock) }
 if ($Clean) { $a += 'clean' }
+# strategy はビルドするときだけ渡す（status などで渡すと全体の run の設定を書き換えてしまう）
+if ($mode -in 'build', 'view', 'all') {
+    if ($Strategy) { $a += "strategy:$Strategy" }
+    if ($SynthStrategy) { $a += "synth_strategy:$SynthStrategy" }
+} elseif ($Strategy -or $SynthStrategy) {
+    Write-Host "  STRATEGY= / SYNTH_STRATEGY= はビルドするときだけ効く（$Command では無視）" -ForegroundColor DarkGray
+}
 
 Write-Host "> launch\run.bat $($a -join ' ')" -ForegroundColor DarkGray
 & (Join-Path $Root 'launch\run.bat') @a

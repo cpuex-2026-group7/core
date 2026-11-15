@@ -17,8 +17,7 @@
 //   - 分岐の tag は、そのサイクルの頭に空いているものだけを dispatch に出す
 //   - mispredict で tail を br_update_ff.tag の snapshot に戻し、kill_mask で valid を落とす。
 //     flush は全部の valid を落として tail を head に戻す（同じサイクルの commit も含む。flush が優先）
-//   - ex_lsu は生きている load のものだけが来る。store のもの、addr_valid でないものは無視する。
-//     mmio はアドレスが MMIO_RX_ADDR のときだけ
+//   - ex_lsu は生きている load のものだけが来る。store のもの、addr_valid でないものは無視する
 //   - commit は古い分岐が全部解決した後
 //   - controller からの ld_requested / ld_gone_to_wb / ld_nack は同じサイクルに別のエントリに来る
 //     ld_requested：ld_requested=1
@@ -125,8 +124,7 @@ module tb_ldq
 
   function automatic addr_t rnd_addr();
     case (rnd(6))
-      0: return MMIO_RX_ADDR;
-      1: return MMIO_TX_ADDR;
+      0: return MMIO_TX_ADDR;
       default: return addr_t'($urandom());
     endcase
   endfunction
@@ -134,7 +132,7 @@ module tb_ldq
   // ---------------- モデル ----------------
 
   int head_pos, tail_pos;
-  bit m_addr_valid[N], m_mmio[N], m_req[N], m_stale[N], m_viol[N], m_fwd[N], m_gone[N];
+  bit m_addr_valid[N], m_req[N], m_stale[N], m_viol[N], m_fwd[N], m_gone[N];
   addr_t m_addr[N];
   stq_mask_t m_older[N];
   stq_idx_t m_tail_stq[N];
@@ -183,7 +181,7 @@ module tb_ldq
   int errors;
 
   int n_disp, n_full, n_kill_disp, n_wrap, n_commit, n_mispredict, n_flush;
-  int n_agu, n_mmio, n_req, n_gone, n_nack, n_stale_set, n_viol_out, n_kill_entry;
+  int n_agu, n_req, n_gone, n_nack, n_stale_set, n_viol_out, n_kill_entry;
   int n_fwd_ld, n_fwd_st, n_fwd_rel, n_fwd_rel_same, n_st_agu;
 
   task automatic err(string msg);
@@ -229,8 +227,6 @@ module tb_ldq
         if (ldq_searcher_ff[i].addr != m_addr[i])
           err($sformatf("ldq_searcher_ff[%0d].addr = %h、期待値 %h", i, ldq_searcher_ff[i].addr, m_addr[i]));
       end
-      if (ldq_controller_ff[i].mmio != m_mmio[i])
-        err($sformatf("ldq_controller_ff[%0d].mmio = %0b、期待値 %0b", i, ldq_controller_ff[i].mmio, m_mmio[i]));
       if (ldq_controller_ff[i].ld_requested != m_req[i])
         err($sformatf("ldq_controller_ff[%0d].ld_requested = %0b、期待値 %0b", i, ldq_controller_ff[i].ld_requested,
                       m_req[i]));
@@ -577,9 +573,7 @@ module tb_ldq
       idx = int'(ex.ldq_idx);
       m_addr_valid[idx] = 1'b1;
       m_addr[idx] = ex.addr;
-      m_mmio[idx] = ex.addr == MMIO_RX_ADDR;
       n_agu++;
-      if (m_mmio[idx]) n_mmio++;
       m_fwd[idx] = lf.hit;
       m_fwd_idx[idx] = lf.stq_idx;
       if (lf.hit) n_fwd_ld++;
@@ -613,7 +607,6 @@ module tb_ldq
         if (slot_ld[i]) begin
           idx = tail_pos % N;
           m_addr_valid[idx] = 1'b0;
-          m_mmio[idx] = 1'b0;
           m_req[idx] = 1'b0;
           m_stale[idx] = 1'b0;
           m_viol[idx] = 1'b0;
@@ -698,7 +691,6 @@ module tb_ldq
     for (int i = 0; i < COMMIT_W; i++) t_commit_ld[i] = 1'b0;
     for (int i = 0; i < N; i++) begin
       m_addr_valid[i] = 1'b0;
-      m_mmio[i] = 1'b0;
       m_req[i] = 1'b0;
       m_stale[i] = 1'b0;
       m_viol[i] = 1'b0;
@@ -726,7 +718,7 @@ module tb_ldq
              n_kill_disp, n_wrap);
     $display("commit %0d、mispredict %0d、flush %0d、kill したエントリ %0d", n_commit, n_mispredict, n_flush,
              n_kill_entry);
-    $display("AGU %0d（mmio %0d）、requested %0d、gone_to_wb %0d、nack %0d", n_agu, n_mmio, n_req,
+    $display("AGU %0d、requested %0d、gone_to_wb %0d、nack %0d", n_agu, n_req,
              n_gone, n_nack);
     $display("stale_mask で stale になった %0d、load_violation を出した %0d", n_stale_set, n_viol_out);
     $display("store の AGU %0d、forward 元：load の到着で %0d、store の到着で %0d、解放で消えた %0d（入れたサイクルに %0d）",

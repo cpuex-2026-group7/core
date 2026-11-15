@@ -17,8 +17,7 @@ vivado_pid*.zip
 *webtalk*
 
 # ip
-src/ip/*/*
-!src/ip/*/*.xci
+src/ip/
 *.xpr
 
 .vscode
@@ -35,3 +34,5 @@ sim/obj_dir/
 timing/
 
 # keep: *.xpr, *.srcs/, build.tcl, .gitignore
+
+AGENTS.md

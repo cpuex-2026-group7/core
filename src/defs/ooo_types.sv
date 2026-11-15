@@ -8,7 +8,6 @@ package ooo_types;
   localparam int NUM_PREG_I = 64;
   localparam int NUM_PREG_F = 64;
   localparam int PREG_W = $clog2((NUM_PREG_I > NUM_PREG_F) ? NUM_PREG_I : NUM_PREG_F);
-  localparam int DISPATCH_W = 1;
   localparam int ROB_SIZE = 32;
   localparam int MAX_BR = 8;
   localparam int BR_TAG_W = (MAX_BR > 1) ? $clog2(MAX_BR) : 1;

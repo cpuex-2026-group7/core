@@ -13,9 +13,9 @@
 //
 // テストの前提にしている仕様
 //   - 出せる load：valid、addr_valid、ld_requested でない、gone_to_wb でない、このサイクルに kill されない。
-//     MMIO は rob_head_ld かつ LDQ の head のときだけ。flush のサイクルは出さない
+//     flush のサイクルは出さない
 //   - D$ に出すのは fwd_hit でない load のうち一番古いもの
-//   - forward するのは fwd_hit かつ forward 元の data_valid な load のうち一番古いもの（MMIO は fwd_hit にならない）
+//   - forward するのは fwd_hit かつ forward 元の data_valid な load のうち一番古いもの
 //     fwd_hit で data がまだの load は飛ばす
 //   - dc_req_ff は accept されるまで保持する。load は kill_mask / flush で消し、brmask に resolve を当てる
 //     空いた（valid でない、kill された、accept された）サイクルに次を選ぶ
@@ -45,7 +45,6 @@ module tb_lsu_controller
   logic                rst;
   logic                flush;
   br_update_t          br_update_ff;
-  logic                rob_head_ld;
   ldq_controller_t     ldq            [LN];
   ldq_idx_t            ldq_head_idx;
   ldq_idx_with_valid_t ld_requested;
@@ -70,7 +69,6 @@ module tb_lsu_controller
   // DUT の組合せ回路が評価し直されないことがあるので、立ち下がりで写す
   logic            t_flush;
   br_update_t      t_br_update_ff;
-  logic            t_rob_head_ld;
   ldq_controller_t t_ldq         [LN];
   ldq_idx_t        t_ldq_head_idx;
   stq_controller_t t_head_store;
@@ -83,7 +81,6 @@ module tb_lsu_controller
   always @(negedge clk) begin
     flush <= t_flush;
     br_update_ff <= t_br_update_ff;
-    rob_head_ld <= t_rob_head_ld;
     ldq <= t_ldq;
     ldq_head_idx <= t_ldq_head_idx;
     head_store <= t_head_store;
@@ -121,7 +118,7 @@ module tb_lsu_controller
 
   // ---------------- 入力の出し方 ----------------
 
-  int ready_rate, fwd_rate, data_rate, store_rate, accept_rate, resp_rate, kill_rate, stale_rate, mmio_rate;
+  int ready_rate, fwd_rate, data_rate, store_rate, accept_rate, resp_rate, kill_rate, stale_rate;
 
   task automatic pick_rates();
     ready_rate = rnd(3) == 0 ? 15 : 60;
@@ -132,7 +129,6 @@ module tb_lsu_controller
     resp_rate = rnd(2) == 0 ? 20 : 70;
     kill_rate = rnd(2) == 0 ? 2 : 10;
     stale_rate = rnd(2) == 0 ? 2 : 15;
-    mmio_rate = rnd(2) == 0 ? 5 : 30;
   endtask
 
   // ---------------- 集計 ----------------
@@ -143,7 +139,7 @@ module tb_lsu_controller
   int errors;
 
   int n_ld_req, n_st_req, n_hold, n_kill_req, n_flush_req, n_accept;
-  int n_wb_resp, n_wb_fwd, n_fwd_lost_resp, n_fwd_lost_stale, n_resp_stale, n_nack, n_both, n_skip_wait, n_mmio_req;
+  int n_wb_resp, n_wb_fwd, n_fwd_lost_resp, n_fwd_lost_stale, n_resp_stale, n_nack, n_both, n_skip_wait;
   int n_turn_store;
 
   task automatic err(string msg);
@@ -164,7 +160,7 @@ module tb_lsu_controller
     br_update_t u;
     dc_resp_t rsp;
     ldq_mask_t sm;
-    bit do_flush, head_ld, acc;
+    bit do_flush, acc;
     int head, cnt, idx, ri;
     int dc_cand, fw_cand;
     bit ready, waiting_older;
@@ -190,7 +186,6 @@ module tb_lsu_controller
     u.kill_mask = rnd_brmask(kill_rate);
     u.resolve_mask = rnd_brmask(10) & ~u.kill_mask;
     u.mispredict = |u.kill_mask;
-    head_ld = rnd(2) == 1;
     head = rnd(LN);
     cnt = rnd(SN + 1);
 
@@ -199,7 +194,6 @@ module tb_lsu_controller
       l[i].valid = rnd(8) != 0;
       l[i].addr_valid = rnd(100) < ready_rate + 30;
       l[i].addr = $urandom();
-      l[i].mmio = rnd(100) < mmio_rate;
       case (rnd(100) < ready_rate ? 0 : 1 + rnd(2))
         0: ;
         1: begin
@@ -208,7 +202,7 @@ module tb_lsu_controller
         end
         default: l[i].gone_to_wb = 1'b1;
       endcase
-      l[i].fwd_hit = !l[i].mmio && rnd(100) < fwd_rate;
+      l[i].fwd_hit = rnd(100) < fwd_rate;
       l[i].fwd_stq_idx = stq_idx_t'($urandom());
       l[i].rd.typ = preg_type_t'(rnd(3));
       l[i].rd.idx = preg_idx_t'($urandom());
@@ -248,7 +242,6 @@ module tb_lsu_controller
 
     t_flush = do_flush;
     t_br_update_ff = u;
-    t_rob_head_ld = head_ld;
     t_ldq = l;
     t_ldq_head_idx = ldq_idx_t'(head);
     t_head_store = hs;
@@ -310,7 +303,6 @@ module tb_lsu_controller
       idx = (head + k) % LN;
       ready = l[idx].valid && l[idx].addr_valid && !l[idx].ld_requested && !l[idx].gone_to_wb
           && (l[idx].brmask & u.kill_mask) == '0 && !do_flush;
-      if (l[idx].mmio && !(head_ld && k == 0)) ready = 1'b0;
       if (!ready) continue;
       if (!l[idx].fwd_hit) begin
         if (dc_cand < 0) begin
@@ -353,7 +345,6 @@ module tb_lsu_controller
         n_brmask = l[dc_cand].brmask & ~u.resolve_mask;
         n_turn = cnt < SN / 2;
         n_ld_req++;
-        if (l[dc_cand].mmio) n_mmio_req++;
       end else if (hs.valid) begin
         exp_st_req = 1'b1;
         n_valid = 1'b1;
@@ -450,7 +441,6 @@ module tb_lsu_controller
     rst = 1'b1;
     t_flush = 1'b0;
     t_br_update_ff = '0;
-    t_rob_head_ld = 1'b0;
     for (int i = 0; i < LN; i++) t_ldq[i] = '0;
     t_ldq_head_idx = '0;
     t_head_store = '0;
@@ -476,8 +466,8 @@ module tb_lsu_controller
       one_cycle();
     end
 
-    $display("D$ への要求：load %0d（MMIO %0d、forward 待ちの古い load を飛ばした %0d）、store %0d（load を待たせた %0d）",
-             n_ld_req, n_mmio_req, n_skip_wait, n_st_req, n_turn_store);
+    $display("D$ への要求：load %0d（forward 待ちの古い load を飛ばした %0d）、store %0d（load を待たせた %0d）",
+             n_ld_req, n_skip_wait, n_st_req, n_turn_store);
     $display("accept %0d、accept 待ちで保持 %0d、kill_mask で消えた要求 %0d、flush で消えた load の要求 %0d", n_accept,
              n_hold, n_kill_req, n_flush_req);
     $display("WB：D$ の返事 %0d、forward %0d（同じサイクルに別の load を D$ にも出した %0d）", n_wb_resp, n_wb_fwd,

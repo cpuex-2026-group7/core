@@ -22,7 +22,7 @@
 //
 // 期待値
 //   ld_fwd：load のアドレスが来たときだけ。その load より古い store（seq が [H, T)）で addr_valid かつ
-//     アドレスが ex_lsu.addr と同じもののうち seq が最大のもの。MMIO_RX_ADDR の load は hit にしない
+//     アドレスが ex_lsu.addr と同じもののうち seq が最大のもの
 //   違反：AGU の store より新しい（S < T）、valid かつ addr_valid でアドレスが同じ load について
 //     forward 元の seq が S より大きければ何も立てない。そうでなければ
 //     gone_to_wb なら violation、そうでなければ stale（ld_requested では絞らない。絞るのは LDQ）
@@ -73,7 +73,7 @@ module tb_lsu_searcher
     case (rnd(8))
       0: return 32'h8000_0001;
       1: return 32'h0001_0000;
-      2: return MMIO_RX_ADDR;
+      2: return 32'hffff_ffff;
       default: return addr_t'(rnd(3));
     endcase
   endfunction
@@ -85,7 +85,7 @@ module tb_lsu_searcher
   int unsigned cyc;
   int errors;
 
-  int n_ld_agu, n_fw_hit, n_fw_miss, n_fw_full, n_fw_mmio, n_fw_old_addr;
+  int n_ld_agu, n_fw_hit, n_fw_miss, n_fw_full, n_fw_old_addr;
   int n_st_agu, n_viol, n_stale, n_saved, n_by_old_fw, n_younger_st;
 
   task automatic err(string msg);
@@ -202,10 +202,6 @@ module tb_lsu_searcher
         if (s[q%SN].addr_valid && s[q%SN].addr == ex.addr) best = q;
       end
       if (T[k] - H == SN) n_fw_full++;
-      if (ex.addr == MMIO_RX_ADDR) begin
-        if (best >= 0) n_fw_mmio++;
-        best = -1;
-      end
       if (best < 0) begin
         n_fw_miss++;
         if (ld_fwd.hit)
@@ -271,8 +267,8 @@ module tb_lsu_searcher
 
     for (cyc = 0; cyc < cycles; cyc++) one_case();
 
-    $display("load の AGU %0d：hit %0d（エントリの古い addr と違う %0d）、miss %0d（MMIO なので外した %0d）、STQ が満杯で dispatch された load %0d",
-             n_ld_agu, n_fw_hit, n_fw_old_addr, n_fw_miss, n_fw_mmio, n_fw_full);
+    $display("load の AGU %0d：hit %0d（エントリの古い addr と違う %0d）、miss %0d、STQ が満杯で dispatch された load %0d",
+             n_ld_agu, n_fw_hit, n_fw_old_addr, n_fw_miss, n_fw_full);
     $display("store の AGU %0d：violation %0d、stale %0d（うち古い forward 元を持っていた %0d）、新しい forward 元で免除 %0d",
              n_st_agu, n_viol, n_stale, n_by_old_fw, n_saved);
     $display("load より新しい store なので無視 %0d", n_younger_st);
