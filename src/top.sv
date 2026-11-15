@@ -31,10 +31,9 @@ module top (
 );
 
   // クロック生成
-  logic clk_out1, clk_out2, locked;
-  clk_wiz_0 clk_gen (
+  logic clk_out1, locked;
+  clk_wiz_core clk_gen (
     .clk_out1(clk_out1),
-    .clk_out2(clk_out2),
     .reset(1'b0),
     .locked(locked),
     .clk_in1(CLK100MHZ)

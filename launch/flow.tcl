@@ -28,7 +28,7 @@
 # オプション:
 #   synth    合成で止める（配線遅延は見積もり）。build / view で使う
 #   N        クリティカルパスをワースト N 本表示（既定 10 本）
-#   100mhz   クロックを指定（10ns とも書ける。既定 12.5ns = 80MHz）。全体は clk_wiz_0 で決まるので効かない
+#   100mhz   クロックを指定（10ns とも書ける。既定 12.5ns = 80MHz）。全体は clk_wiz_core で決まるので効かない
 #   clean    全体の合成と配置配線を強制的にやり直す
 #   strategy:<名前>        配置配線の strategy（Vivado の名前。例 Performance_Explore）。無ければ既定
 #   synth_strategy:<名前>  合成の strategy（例 Flow_PerfOptimized_high）。無ければ既定
@@ -273,7 +273,7 @@ proc report_critical_paths {n stage dir} {
 }
 
 # ---------------------------------------------------------------
-# IP（clk_wiz_0 など）
+# IP（clk_wiz_core など）
 # ---------------------------------------------------------------
 
 # IP の状態（ロックされているか、その理由）を表示する
@@ -446,8 +446,146 @@ proc sync_sources {} {
 # プロジェクトの作成
 # ---------------------------------------------------------------
 
+# IP は xci を git に入れず（Vivado の版で形式が変わる）、src/ip/<名前>/ に今の Vivado で作る。
+# clk_wiz_core はクロックを全部作る：clk_out1 = コアと memory（UART も含む）、clk_out2 = MIG 用の 200MHz。
+# 残りは memory の IP で、設定は memory リポジトリの ip/vivado2020_2_ips/create_ips_2020_2.tcl と同じ（版の指定だけ外している）
+set ::ip_specs {
+    {clk_wiz_core clk_wiz {
+        CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 80.000
+        CONFIG.CLKOUT2_USED true
+        CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 200.000
+        CONFIG.CLKOUT3_USED false
+    }}
+    {fifo_generator_0 fifo_generator {
+        CONFIG.Fifo_Implementation Independent_Clocks_Distributed_RAM
+        CONFIG.Performance_Options First_Word_Fall_Through
+        CONFIG.Input_Data_Width 156
+        CONFIG.Input_Depth 16
+        CONFIG.Output_Data_Width 156
+        CONFIG.Output_Depth 16
+        CONFIG.Reset_Pin true
+        CONFIG.Reset_Type Asynchronous_Reset
+        CONFIG.Use_Dout_Reset false
+        CONFIG.Full_Flags_Reset_Value 0
+    }}
+    {fifo_generator_1 fifo_generator {
+        CONFIG.Fifo_Implementation Independent_Clocks_Distributed_RAM
+        CONFIG.Performance_Options First_Word_Fall_Through
+        CONFIG.Input_Data_Width 128
+        CONFIG.Input_Depth 16
+        CONFIG.Output_Data_Width 128
+        CONFIG.Output_Depth 16
+        CONFIG.Reset_Pin true
+        CONFIG.Reset_Type Asynchronous_Reset
+        CONFIG.Use_Dout_Reset false
+        CONFIG.Full_Flags_Reset_Value 0
+    }}
+    {mig_7series_0 mig_7series {
+        CONFIG.XML_INPUT_FILE mig_a.prj
+        CONFIG.RESET_BOARD_INTERFACE Custom
+        CONFIG.MIG_DONT_TOUCH_PARAM Custom
+        CONFIG.BOARD_MIG_PARAM Custom
+    }}
+}
+
+# IP の今の設定が spec と同じか（数は値で、それ以外は大文字小文字を無視して比べる）
+proc ip_matches {ip config} {
+    foreach {k v} $config {
+        set cur [get_property -quiet $k $ip]
+        if {[string is double -strict $v] && [string is double -strict $cur]} {
+            if {abs($cur - $v) > 1e-6} { return 0 }
+        } elseif {![string equal -nocase $cur $v]} {
+            return 0
+        }
+    }
+    return 1
+}
+
+# ip_specs の IP をプロジェクトに揃える。xci があれば登録し、無いか設定が違えば作り直す。
+# ip_specs に無い IP（前のコアの clk_wiz_0 など）はプロジェクトから外して消す
+proc sync_ips {} {
+    section "Sync IP"
+    set ipdir [file join $::root_dir src ip]
+    file mkdir $ipdir
+    set names {}
+    foreach spec $::ip_specs { lappend names [lindex $spec 0] }
+    foreach ip [get_ips -quiet] {
+        if {[lsearch -exact $names $ip] >= 0} { continue }
+        puts "  $ip: not in ip_specs, removing"
+        set xci [get_property IP_FILE $ip]
+        remove_files -quiet [get_files -quiet -all $xci]
+        file delete -force [file dirname $xci]
+    }
+    foreach spec $::ip_specs {
+        lassign $spec name kind config
+        set dir [file join $ipdir $name]
+        set xci [file join $dir $name.xci]
+        if {[llength [get_ips -quiet $name]] == 0 && [file exists $xci]} {
+            add_files -fileset sources_1 -norecurse $xci
+        }
+        set ip [get_ips -quiet $name]
+        if {[llength $ip] > 0 && [ip_matches $ip $config]} {
+            puts "  $name: ok"
+            continue
+        }
+        if {[llength $ip] > 0} {
+            puts "  $name: settings differ, recreating"
+            remove_files -quiet [get_files -quiet -all $xci]
+        } else {
+            puts "  $name: creating"
+        }
+        file delete -force $dir
+        create_ip -name $kind -vendor xilinx.com -library ip -module_name $name -dir $ipdir
+        if {$kind eq "mig_7series"} {
+            set prj [file join $::root_dir src memory memory_repository ip vivado2020_2_ips mig_a.prj]
+            if {![file exists $prj]} { die "$prj not found" }
+            file copy -force $prj [file join $dir mig_a.prj]
+        }
+        set_property -dict $config [get_ips $name]
+    }
+}
+
+# memory リポジトリの constrs/*.xdc を src/constraints/ に写し、src/constraints/*.xdc をプロジェクトに揃える。
+# 中身が同じなら写さない（日付が変わると毎回合成からやり直しになる）
+proc sync_constraints {} {
+    section "Sync constraints"
+    set dst [file join $::root_dir src constraints]
+    set mem [file join $::root_dir src memory memory_repository constrs]
+    if {![file isdirectory $mem]} { puts "WARNING: $mem not found" }
+    foreach f [glob -nocomplain -directory $mem *.xdc] {
+        set to [file join $dst [file tail $f]]
+        set new [read_bytes $f]
+        if {[file exists $to] && [read_bytes $to] eq $new} { continue }
+        file copy -force $f $to
+        puts "  copied [file tail $f]"
+    }
+    set want {}
+    foreach f [glob -nocomplain -directory $dst *.xdc] { lappend want [file normalize $f] }
+    set have {}
+    foreach f [get_files -quiet -of_objects [get_filesets constrs_1]] { lappend have [file normalize $f] }
+    foreach f $want {
+        if {[lsearch -exact -nocase $have $f] < 0} {
+            add_files -fileset constrs_1 -norecurse $f
+            puts "  + [file tail $f]"
+        }
+    }
+    foreach f $have {
+        if {[lsearch -exact -nocase $want $f] < 0} {
+            remove_files -fileset constrs_1 $f
+            puts "  - [file tail $f]"
+        }
+    }
+}
+
+proc read_bytes {f} {
+    set fh [open $f rb]
+    set s [read $fh]
+    close $fh
+    return $s
+}
+
 # .xpr が無いときに、フォルダ名のプロジェクト（core.xpr）を作る。
-# src/ の .sv（src/ip と *_repository の下は除く）、制約、clk_wiz_0、fib.mem を登録し、top を top にする
+# src/ の .sv（src/ip と *_repository の下は除く）、制約、IP、fib.mem を登録し、top を top にする
 proc create_core_project {board_found} {
     set dir $::root_dir
     set name [file tail $dir]
@@ -470,19 +608,7 @@ proc create_core_project {board_found} {
     add_files -fileset sources_1 -norecurse $files
     set_property file_type SystemVerilog [get_files $files]
 
-    # xci は Vivado の版で形式が変わるので、無ければここで作る（clk_out1 80MHz、clk_out2 200MHz）
-    set xci [file join $src ip clk_wiz_0 clk_wiz_0.xci]
-    if {[file exists $xci]} {
-        add_files -fileset sources_1 -norecurse $xci
-    } else {
-        file mkdir [file join $src ip]
-        create_ip -name clk_wiz -vendor xilinx.com -library ip -module_name clk_wiz_0 -dir [file join $src ip]
-        set_property -dict {
-            CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 80.000
-            CONFIG.CLKOUT2_USED true
-            CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 200.000
-        } [get_ips clk_wiz_0]
-    }
+    sync_ips
 
     set mem [file join $dir test fib.mem]
     if {[file exists $mem]} {
@@ -491,7 +617,7 @@ proc create_core_project {board_found} {
         puts "WARNING: $mem not found, i_mem is not initialized"
     }
 
-    add_files -fileset constrs_1 -norecurse [file join $src constraints Nexys-A7-100T-Master.xdc]
+    sync_constraints
 
     set_property top top [get_filesets sources_1]
     update_compile_order -fileset sources_1
@@ -1281,7 +1407,7 @@ if {$synth_only && $mode in {all program}} {
     die "'synth' can't be used with '$mode' (it needs a bitstream)"
 }
 if {$whole && $period_given} {
-    puts "WARNING: the clock of the whole design is set by clk_wiz_0, ignore [format %.3f $period] ns"
+    puts "WARNING: the clock of the whole design is set by clk_wiz_core, ignore [format %.3f $period] ns"
 }
 
 # ---------------------------------------------------------------
@@ -1353,6 +1479,8 @@ if {[llength $xprs] != 1} {
 open_project [lindex $xprs 0]
 if {$fetch} {
     sync_sources
+    sync_ips
+    sync_constraints
     apply_project_strategies $impl_strategy $synth_strategy
 }
 

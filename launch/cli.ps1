@@ -64,7 +64,7 @@ function Show-Help {
     Write-Row 'iq_top, lsu_top ...' 'そのモジュールだけ。結果は timing\<名前>\' 'Green'
     Write-Host ''
     Write-Host '  オプション' -ForegroundColor Yellow
-    Write-Row 'CLOCK=100' 'クロック（100 / 100mhz / 10ns）。既定 80MHz。全体には効かない（clk_wiz_0 で決まる）' 'Magenta'
+    Write-Row 'CLOCK=100' 'クロック（100 / 100mhz / 10ns）。既定 80MHz。全体には効かない（clk_wiz_core で決まる）' 'Magenta'
     Write-Row 'N=20'      'クリティカルパスをワースト 20 本（既定 10 本）' 'Magenta'
     Write-Row 'SYNTH=1'   'view を合成までにする。全体の open は合成の結果を開く' 'Magenta'
     Write-Row 'CLEAN=1'   '全体の合成と配置配線をやり直す' 'Magenta'

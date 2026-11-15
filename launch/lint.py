@@ -52,8 +52,8 @@ OFF_RULES = ["TIMESCALEMOD", "MULTITOP"]
 
 # Vivado IP の代わりにする空モジュール（中身はシミュレーションできないので形だけ）
 IP_STUBS = {
-    "clk_wiz_0": """
-module clk_wiz_0 (
+    "clk_wiz_core": """
+module clk_wiz_core (
   output logic clk_out1, output logic clk_out2, output logic locked,
   input  logic reset,    input  logic clk_in1
 );
