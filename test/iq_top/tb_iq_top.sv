@@ -13,7 +13,7 @@
 // 参照モデルは RTL のカウンタを写さず、busy table も IQ のソースも「何サイクル目から使えるか」を絶対時刻で持つ。
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
 //   - disp_full_*（組み合わせ出力）、各 IQ 内部の issued / issued_dest_fu
-//   - 内部の wakeup バス dut.all_wakeup（外からの分と、各 IQ の issue 時の分）
+//   - 各 IQ の issue 時の wakeup（sending_wakeup）
 //   - 次のサイクルの rr_ff_* / rr_payload_* / rr_issue_part_mem
 //
 // テストの前提にしている仕様
@@ -23,7 +23,10 @@
 //     （ALU=0, MEM=1, F短=2, F長=3, F超長=4。F超長の中は fsqrt=0, fdiv=1）
 //   - MEM は rs1 側（STA / LDA）と rs2 側（STD）を別々に出す。put で rd が NONE かつ rs2 がレジスタなら store
 //     （is_store=1、出す側 2'b11）、そうでなければ load（is_store=0、出す側 2'b01）にする
-//   - wakeup バスは [0, WAKEUP_W) が外から、WAKEUP_W が INT、+1 が MEM、+2〜+4 が FP の port0〜2
+//   - 外からの wakeup は [0] が slow_wakeup_fpu（F だけ）、[1] が slow_wakeup_mem
+//     モデルの wakeup バスは [0, WAKEUP_W) が外から、WAKEUP_W が INT、+1 が MEM、+2〜+4 が FP の port0〜2
+//   - ソースの種類は IQ ごとに決まっている（INT は I、MEM は rs1 が I で rs2 が I か F、FP は rs1 が I か F で rs2 が F）。
+//     DUT は読まない種類の wakeup を見ないので、テストもそれ以外の uop を入れない
 //   - busy table
 //       rst / flush で全部 ready（そのサイクルの dispatch の rd も無視）
 //       dispatch の valid が立った uop の rd（NONE 以外）は結果待ちになる（同じサイクルの wakeup より優先）
@@ -50,7 +53,6 @@ module tb_iq_top
   parameter int DW_INT = 1,
   parameter int DW_MEM = 1,
   parameter int DW_FPU = 1,
-  parameter int WAKEUP_W = 2,
   parameter int BR_UPDATE_W = 1
 );
 
@@ -64,6 +66,9 @@ module tb_iq_top
   localparam int MAXP = 3;
   localparam int MAXF = 4;
   localparam int NPREG = NUM_PREG_I;
+  localparam int WAKEUP_W = 2;
+  localparam int EXT_FPU = 0;
+  localparam int EXT_MEM = 1;
   localparam int BUS_W = WAKEUP_W + 5;
   localparam int ISSUE_TO_FU = 2;
   localparam int MAX_ERRORS = 30;
@@ -219,8 +224,7 @@ module tb_iq_top
     .SIZE_FPU(SIZE_FPU),
     .DISPATCH_W_INT(DW_INT),
     .DISPATCH_W_MEM(DW_MEM),
-    .DISPATCH_W_FPU(DW_FPU),
-    .WAKEUP_W(WAKEUP_W)
+    .DISPATCH_W_FPU(DW_FPU)
   ) dut (
     .clk(clk),
     .rst(d_rst),
@@ -234,7 +238,8 @@ module tb_iq_top
     .disp_valid_fpu(dv_fpu),
     .disp_uop_fpu(du_fpu),
     .disp_full_fpu(full_fpu),
-    .coming_wakeup(d_ext_w),
+    .slow_wakeup_fpu(d_ext_w[EXT_FPU]),
+    .slow_wakeup_mem(d_ext_w[EXT_MEM]),
     .br_update_ff(d_br),
     .fdiv_blocked(d_fdiv_b),
     .fsqrt_blocked(d_fsqrt_b),
@@ -259,6 +264,11 @@ module tb_iq_top
   function automatic dest_fu_t o_fu(int q, int p);
     return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued_dest_fu[0] :
            (q == QM) ? dut.u_iq_mem.u_iq_core_mem.issued_dest_fu[0] : dut.u_iq_float.u_iq_core_float.issued_dest_fu[p];
+  endfunction
+
+  function automatic wakeup_t o_send(int q, int p);
+    return (q == QI) ? dut.u_iq_int.sending_wakeup[0] :
+           (q == QM) ? dut.u_iq_mem.sending_wakeup[0] : dut.u_iq_float.sending_wakeup[p];
   endfunction
 
   function automatic iq_rr_t o_rr(int q, int p);
@@ -509,7 +519,7 @@ module tb_iq_top
         fail($sformatf("disp_full_%s=%0b 期待=%0b（中身 %0d/%0d）", q_name(q), o_full(q), xf, occ(q), q_size(q)));
       for (int p = 0; p < q_ports(q); p++) begin
         checks++;
-        bw = dut.all_wakeup[bus_idx(q, p)];
+        bw = o_send(q, p);
         if (exp_idx[q][p] < 0) begin
           if (o_issued(q, p) !== 1'b0) fail($sformatf("%s port%0d が issue した（期待は issue なし）", q_name(q), p));
           else if (bw.valid !== 1'b0) fail($sformatf("%s port%0d が issue していないのに wakeup を出した", q_name(q), p));
@@ -524,16 +534,11 @@ module tb_iq_top
           fail($sformatf("%s port%0d issued_dest_fu=%0d 期待=%0d", q_name(q), p, o_fu(q, p), e.u.dest_fu));
         xv = !fu_slow(q, gfu(q, e.u)) && e.u.rd.typ != PREG_TYPE_NONE;
         if (bw.valid !== xv)
-          fail($sformatf("%s port%0d の wakeup（バス %0d）valid=%0b 期待=%0b（id %0d）", q_name(q), p, bus_idx(q, p),
-                         bw.valid, xv, e.id));
+          fail($sformatf("%s port%0d の wakeup valid=%0b 期待=%0b（id %0d）", q_name(q), p, bw.valid, xv, e.id));
         else if (xv && (bw.preg !== e.u.rd || bw.latency !== e.u.lat))
           fail($sformatf("%s port%0d の wakeup preg=%h lat=%0d 期待 preg=%h lat=%0d", q_name(q), p, bw.preg, bw.latency,
                          e.u.rd, e.u.lat));
       end
-    end
-    for (int k = 0; k < WAKEUP_W; k++) begin
-      checks++;
-      if (dut.all_wakeup[k] !== d_ext_w[k]) fail($sformatf("wakeup バス %0d が coming_wakeup[%0d] と違う", k, k));
     end
   endtask
 
@@ -869,10 +874,22 @@ module tb_iq_top
     fsqrt_b = 1'b0;
   endtask
 
+  // その IQ のソースがこの種類になりうるか（pos は 1 か 2）
+  function automatic logic src_ok(int q, int pos, preg_t p);
+    if (!is_reg(p)) return 1'b1;
+    if (q == QI) return p.typ == PREG_TYPE_I;
+    if (q == QM) return pos == 2 || p.typ == PREG_TYPE_I;
+    return pos == 1 || p.typ == PREG_TYPE_F;
+  endfunction
+
   task automatic put(int q, int lane, disp_uop_t u);
     int f;
     if (lane >= q_dw(q)) begin
       fail($sformatf("%s のレーン %0d は無い（テストの誤り）", q_name(q), lane));
+      return;
+    end
+    if (!src_ok(q, 1, u.rs1) || !src_ok(q, 2, u.rs2)) begin
+      fail($sformatf("%s に rs1=%h rs2=%h の uop は入らない（テストの誤り）", q_name(q), u.rs1, u.rs2));
       return;
     end
     // mk_uop はテストの中の FU 番号を dest_fu に入れているので直す
@@ -885,6 +902,8 @@ module tb_iq_top
   endtask
 
   task automatic ext(int lane, preg_t p, int lat);
+    if (lane == EXT_FPU && p.typ != PREG_TYPE_F) fail($sformatf("slow_wakeup_fpu に %h は来ない（テストの誤り）", p));
+    if (ext_w[lane].valid) fail($sformatf("外からの wakeup のレーン %0d を 2 回使った（テストの誤り）", lane));
     ext_w[lane].valid = 1'b1;
     ext_w[lane].preg = p;
     ext_w[lane].latency = latency_t'(lat);
@@ -973,7 +992,7 @@ module tb_iq_top
     clear_inputs();
     put(QI, 0, mk_uop(0, pi(1), pi(63), pi(0), 0, '0, a));
     put(QM, 0, mk_uop(0, pn(), pi(17), pf(63), 0, '0, b));
-    put(QF, 0, mk_uop(TF_SHORT, pf(2), pf(0), pi(40), 0, '0, c));
+    put(QF, 0, mk_uop(TF_LONG, pf(2), pi(40), pf(0), 1, '0, c));
     cycle();
     run_idle(3);
     expect_at(a, t0 + 1);
@@ -1026,10 +1045,14 @@ module tb_iq_top
   endfunction
 
   // 生産側を dispatch してから o サイクル目（-1 は生産側と同じサイクル）に消費側を dispatch する
-  task automatic lat_case(int pq, int pfu, preg_t p, int cq, int cf, int which, int lat, int o);
-    int a, c;
+  task automatic lat_case(int pq, int pfu, preg_t p, int cq, int cf, int which_in, int lat, int o);
+    int a, c, which;
     cyc_t t0, tw, d, x;
     if (o == -1 && cq == pq && q_dw(pq) < 2) return;
+    // その IQ が p を読めない位置なら反対側に置く。どちらにも置けない（INT が F を読む）ものは無い組み合わせなので飛ばす
+    which = which_in;
+    if (!src_ok(cq, which, p)) which = 3 - which;
+    if (!src_ok(cq, which, p)) return;
     quiet();
     a  = nid();
     c  = nid();
@@ -1174,7 +1197,7 @@ module tb_iq_top
       expect_at(z, t3 + 2);
       t4 = cyc;
       clear_inputs();
-      ext(0, pf(16), 0);
+      ext(EXT_FPU, pf(16), 0);
       cycle();
       run_idle(2);
       expect_at(z, t4 + 1);
@@ -1210,7 +1233,7 @@ module tb_iq_top
       expect_never(c);
       tx = cyc;
       clear_inputs();
-      ext(WAKEUP_W - 1, pi(30), 0);
+      ext(EXT_MEM, pi(30), 0);
       cycle();
       run_idle(2);
       expect_at(a, tw);
@@ -1228,7 +1251,7 @@ module tb_iq_top
     quiet();
     c = nid();
     clear_inputs();
-    ext(0, pi(31), 3);
+    ext(EXT_MEM, pi(31), 3);
     cycle();
     t1 = cyc;
     clear_inputs();
@@ -1249,7 +1272,7 @@ module tb_iq_top
     cycle();
     run_idle(1);
     clear_inputs();
-    ext(0, pi(32), 3);
+    ext(EXT_MEM, pi(32), 3);
     put(QF, 0, mk_uop(TF_SHORT, pf(1), pi(32), pn(), 0, '0, c2));
     cycle();
     clear_inputs();
@@ -1270,10 +1293,10 @@ module tb_iq_top
     run_idle(2);
     tx = cyc;
     clear_inputs();
-    ext(0, pf(33), 2);
+    ext(EXT_FPU, pf(33), 2);
     cycle();
     clear_inputs();
-    ext(WAKEUP_W - 1, pf(33), 0);
+    ext(EXT_MEM, pf(33), 0);
     put(QF, 0, mk_uop(TF_SHORT, pf(34), pf(33), pn(), 0, '0, c));
     cycle();
     run_idle(4);
@@ -1281,38 +1304,53 @@ module tb_iq_top
     end_test();
   endtask
 
-  task automatic t_ext_lanes();
-    int l, c;
-    cyc_t tx;
-    begin_test("外からの wakeup はどのレーンでも busy table と全部の IQ に当たる（MEM は issue 時に wakeup を出さない）");
-    for (int k = 0; k < WAKEUP_W; k++) begin
-      for (int q = 0; q < NQ; q++) begin
-        quiet();
-        l = nid();
-        c = nid();
-        clear_inputs();
-        put(QM, 0, mk_uop(0, (k % 2) ? pf(40) : pi(40), pi(1), pn(), 0, '0, l));
-        cycle();
-        clear_inputs();
-        put(q, 0, mk_uop((q == QF) ? TF_SHORT : 0, pn(), (k % 2) ? pf(40) : pi(40), pn(), 0, '0, c));
-        cycle();
-        run_idle(4);
-        expect_never(c);
-        tx = cyc;
-        clear_inputs();
-        ext(k, (k % 2) ? pf(40) : pi(40), k % 4);
-        cycle();
-        run_idle(5);
-        expect_at(c, tx + 1 + cyc_t'(k % 4));
+  // p を読むだけの uop（その IQ で p が入れる位置に置く。MEM の F は store の rs2 で、rs1 は ready なもの）
+  function automatic disp_uop_t reader_of(int q, preg_t p, int id);
+    if (q == QI) return mk_uop(0, pn(), p, pn(), 0, '0, id);
+    if (q == QM) return (p.typ == PREG_TYPE_F) ? mk_uop(0, pn(), pi(1), p, 0, '0, id) : mk_uop(0, pn(), p, pn(), 0, '0, id);
+    return (p.typ == PREG_TYPE_F) ? mk_uop(TF_SHORT, pn(), p, pn(), 0, '0, id) : mk_uop(TF_LONG, pn(), p, pn(), 1, '0, id);
+  endfunction
 
-        // busy table 側にも当たっている
-        c = nid();
-        clear_inputs();
-        put(q, 0, mk_uop((q == QF) ? TF_LONG : 0, pn(), pn(), (k % 2) ? pf(40) : pi(40), 0, '0, c));
-        tx = cyc;
-        cycle();
-        run_idle(2);
-        expect_at(c, tx + 1);
+  task automatic t_ext_lanes();
+    int l, c, lat;
+    cyc_t tx;
+    preg_t p;
+    begin_test("外からの wakeup は busy table とその種類を読む全部の IQ に当たる（fpu は F だけ、MEM は issue 時に wakeup を出さない）");
+    for (int k = 0; k < WAKEUP_W; k++) begin
+      for (int t = 0; t < 2; t++) begin
+        if (k == EXT_FPU && t == 0) continue;
+        p = t ? pf(40) : pi(40);
+        lat = 2 * k + t;
+        for (int q = 0; q < NQ; q++) begin
+          if (q == QI && t == 1) continue;
+          quiet();
+          l = nid();
+          c = nid();
+          clear_inputs();
+          put(QM, 0, mk_uop(0, p, pi(1), pn(), 0, '0, l));
+          cycle();
+          clear_inputs();
+          put(q, 0, reader_of(q, p, c));
+          cycle();
+          run_idle(4);
+          // MEM の store は rs1 側だけ先に出る
+          if (!(q == QM && t == 1)) expect_never(c);
+          tx = cyc;
+          clear_inputs();
+          ext(k, p, lat);
+          cycle();
+          run_idle(5);
+          expect_at(c, tx + 1 + cyc_t'(lat));
+
+          // busy table 側にも当たっている
+          c = nid();
+          clear_inputs();
+          put(q, 0, reader_of(q, p, c));
+          tx = cyc;
+          cycle();
+          run_idle(2);
+          expect_at(c, tx + 1);
+        end
       end
     end
     end_test();
@@ -1340,7 +1378,7 @@ module tb_iq_top
       run_idle(1);
       tw = cyc;
       clear_inputs();
-      ext(0, pf(35), 0);
+      ext(EXT_FPU, pf(35), 0);
       cycle();
       clear_inputs();
       fdiv_b = 1'b1;
@@ -1369,7 +1407,7 @@ module tb_iq_top
       run_idle(1);
       tw = cyc;
       clear_inputs();
-      ext(0, pf(36), 0);
+      ext(EXT_FPU, pf(36), 0);
       cycle();
       clear_inputs();
       fsqrt_b = 1'b1;
@@ -1404,7 +1442,7 @@ module tb_iq_top
       run_idle(1);
       tw = cyc;
       clear_inputs();
-      ext(0, pf(37), 0);
+      ext(EXT_FPU, pf(37), 0);
       cycle();
       run_idle(6);
       expect_at(e, tw + 1);
@@ -1436,12 +1474,13 @@ module tb_iq_top
   endtask
 
   task automatic t_all_ports();
-    int l, s, g, v, mm, x, c1, c2, c3;
+    int l, l2, s, g, v, mm, x, c1, c2, c3;
     cyc_t tw, tx;
     if (SIZE_FPU < 4 || SIZE_INT < 2) return;
     begin_test("5 ポートが同じサイクルに issue し、その結果が別の IQ を起こす");
     quiet();
     l  = nid();
+    l2 = nid();
     s  = nid();
     g  = nid();
     v  = nid();
@@ -1454,9 +1493,12 @@ module tb_iq_top
     put(QM, 0, mk_uop(0, pf(40), pi(1), pn(), 0, '0, l));
     cycle();
     clear_inputs();
+    put(QM, 0, mk_uop(0, pi(45), pi(1), pn(), 0, '0, l2));
+    cycle();
+    clear_inputs();
     put(QF, 0, mk_uop(TF_SHORT, pf(41), pf(40), pn(), 0, '0, s));
     put(QM, 0, mk_uop(0, pn(), pi(2), pf(40), 0, '0, mm));
-    put(QI, 0, mk_uop(0, pi(46), pn(), pf(40), 0, '0, x));
+    put(QI, 0, mk_uop(0, pi(46), pn(), pi(45), 0, '0, x));
     cycle();
     clear_inputs();
     put(QF, 0, mk_uop(TF_LONG, pi(42), pf(40), pn(), 3, '0, g));
@@ -1472,7 +1514,8 @@ module tb_iq_top
     run_idle(1);
     tw = cyc;
     clear_inputs();
-    ext(0, pf(40), 0);
+    ext(EXT_FPU, pf(40), 0);
+    ext(EXT_MEM, pi(45), 0);
     cycle();
     run_idle(8);
     expect_at(s, tw + 1);
@@ -1485,7 +1528,7 @@ module tb_iq_top
     expect_never(c3);
     tx = cyc;
     clear_inputs();
-    ext(0, pf(43), 0);
+    ext(EXT_FPU, pf(43), 0);
     cycle();
     run_idle(2);
     expect_at(c3, tx + 1);
@@ -1531,7 +1574,7 @@ module tb_iq_top
     run_idle(1);
     tw = cyc;
     clear_inputs();
-    ext(0, pi(50), 0);
+    ext(EXT_MEM, pi(50), 0);
     cycle();
     run_idle(4);
     expect_never(a);
@@ -1570,7 +1613,7 @@ module tb_iq_top
       run_idle(1);
       tw = cyc;
       clear_inputs();
-      ext(0, pi(55), 0);
+      ext(EXT_MEM, pi(55), 0);
       cycle();
       run_idle(3);
       expect_never(f);
@@ -1596,7 +1639,7 @@ module tb_iq_top
         cycle();
         clear_inputs();
         put(QI, 0, mk_uop(0, pi(52), pi(51), pn(), 0, '0, a));
-        put(QF, 0, mk_uop(TF_LONG, pf(52), pf(1), pi(51), 3, '0, nid()));
+        put(QF, 0, mk_uop(TF_LONG, pf(52), pi(51), pf(1), 3, '0, nid()));
         cycle();
         run_idle(3);
         clear_inputs();
@@ -1652,7 +1695,7 @@ module tb_iq_top
         if (q2 != q) expect_true(o_full(q2) === 1'b0, $sformatf("%s が満杯なだけで %s の disp_full が立った", q_name(q), q_name(q2)));
       tw = cyc;
       clear_inputs();
-      ext(0, pi(54), 0);
+      ext(EXT_MEM, pi(54), 0);
       cycle();
       run_idle(MAXS + 3);
       foreach (fill[k]) expect_true(issued_at.exists(fill[k]), $sformatf("%s の id %0d が出ていない", q_name(q), fill[k]));
@@ -1692,6 +1735,7 @@ module tb_iq_top
     preg_t preg;
     brmask_t bm;
     logic [31:0] id;
+    logic fpu;  // DIV/SQRT の分（slow_wakeup_fpu に流す）。0 なら MEM の分
   } pend_t;
 
   pend_t pend[$];  // これから流す書き込み時の wakeup（MEM と DIV/SQRT の分）
@@ -1917,7 +1961,7 @@ module tb_iq_top
 
   task automatic gen_random(logic dispatch_on, logic events_on);
     logic stall;
-    int used;
+    int lane;
     int i;
     preg_t s;
     disp_uop_t u;
@@ -1938,26 +1982,27 @@ module tb_iq_top
       end
     end
 
-    // 書き込み時の wakeup（最後のレーン以外）。ときどき止めて（長いキャッシュミスのつもり）IQ を満杯にする
+    // 書き込み時の wakeup（MEM の分は mem、DIV/SQRT の分は fpu のレーンに 1 サイクル 1 つ）。
+    // ときどき止めて（長いキャッシュミスのつもり）IQ を満杯にする
     stall = events_on && (cyc % 3000) < 150;
-    used = 0;
     i = 0;
     while (!stall && i < pend.size()) begin
-      if (pend[i].at <= cyc && used < WAKEUP_W - 1) begin
-        ext(used, pend[i].preg, 0);
+      lane = pend[i].fpu ? EXT_FPU : EXT_MEM;
+      if (pend[i].at <= cyc && !ext_w[lane].valid) begin
+        ext(lane, pend[i].preg, 0);
         fate[int'(pend[i].id)] = $sformatf("書き込み wakeup %0d", cyc);
         g_ext.push_back(pend[i].preg);
-        used++;
         pend.delete(i);
       end else begin
         i++;
       end
     end
-    // 生産者のいないレジスタへの余計な wakeup（busy table は結果待ちのものだけ拾う）
+    // 生産者のいないレジスタへの余計な wakeup（busy table は結果待ちのものだけ拾う）。空いているレーンに出す
     if (events_on && rnd(100) < 30) begin
       s = rand_reg(rnd(2) ? PREG_TYPE_I : PREG_TYPE_F);
-      if (!inflight(s) && !in_list(s, g_ext)) begin
-        ext(WAKEUP_W - 1, s, rnd(4));
+      lane = (s.typ == PREG_TYPE_F && (rnd(2) == 0 || ext_w[EXT_MEM].valid)) ? EXT_FPU : EXT_MEM;
+      if (!ext_w[lane].valid && !inflight(s) && !in_list(s, g_ext)) begin
+        ext(lane, s, rnd(4));
         g_ext.push_back(s);
       end
     end
@@ -1994,6 +2039,7 @@ module tb_iq_top
         pe.preg = exp_rr[q][p].u.rd;
         pe.bm = exp_rr[q][p].bm;
         pe.id = exp_rr[q][p].id;
+        pe.fpu = q == QF;
         if (q == QM && is_reg(pe.preg)) begin
           pe.at = t + 2 + cyc_t'(rnd(10));
           pend.push_back(pe);
