@@ -18,7 +18,7 @@ module alloclist #(
     output logic [PREG_W-1:1] out_alloclist_F
 );
 
-  // FF bit vector.
+  // FF. bitvector.
   logic [PREG_W-1:1] alloclist_I[MAX_BR];
   logic [PREG_W-1:1] alloclist_F[MAX_BR];
 

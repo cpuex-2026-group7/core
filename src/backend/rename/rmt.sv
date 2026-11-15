@@ -10,8 +10,10 @@ module rmt #(
     input wire logic rst,
 
     input wire logic mispredict,
-    input wire ooo_types::br_tag_t brtag,
-    input wire ooo_types::preg_t rmt_snapshot[MAX_BR][LREG_COUNT],
+    input wire ooo_types::br_tag_t mis_brtag,
+
+    input wire logic snapshot,
+    input wire ooo_types::br_tag_t ss_brtag,
 
     input wire types::rf_idx_t rd_reqr [DISPATCH_W],
     input wire types::rf_idx_t rs1_reqr[DISPATCH_W],
@@ -28,11 +30,9 @@ module rmt #(
   // assume that LREG_COUNT_I = LREG_COUNT_F
   localparam int LREG_COUNT_I = LREG_COUNT / 2;
 
-  types::rf_idx_t req_read[3 * DISPATCH_W];
-  ooo_types::preg_t resp_read[3 * DISPATCH_W];
-
   // FF array.
   ooo_types::preg_t rmt_entry[LREG_COUNT];
+  ooo_types::preg_t rmt_snapshot[MAX_BR][LREG_COUNT];
 
   always_comb begin : assign_read_result
     for (int i = 0; i < DISPATCH_W; i++) begin
@@ -55,13 +55,16 @@ module rmt #(
       end
     end else if (mispredict) begin
       for (int i = 0; i < LREG_COUNT; i++) begin
-        rmt_entry[i] <= rmt_snapshot[brtag][i];
+        rmt_entry[i] <= rmt_snapshot[mis_brtag][i];
       end
     end else begin
       for (int i = 0; i < DISPATCH_W; i++) begin
         if (valid_reqw[i]) rmt_entry[key_reqw[i]] <= value_reqw[i];
       end
     end
+
+    if (~rst && snapshot)
+      for (int i = 0; i < LREG_COUNT; i++) rmt_snapshot[ss_brtag][i] <= rmt_entry[i];
   end
 
 endmodule
