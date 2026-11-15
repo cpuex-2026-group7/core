@@ -2,6 +2,7 @@
 """リポジトリ内のコードをまとめて静的チェックする
 
     python3 lint.py            ふつうに実行
+    python3 lint.py FILE ...   指定した .sv / .py だけチェック（ファイル名のみも可）
     python3 lint.py --strict   style も失敗扱いにする
     python3 lint.py -a         note（未使用信号など）も表示
     python3 lint.py -v         ツールの生の出力も表示
@@ -99,14 +100,34 @@ def sv_files(subdir):
     return [f for f in files if os.sep + "ip" + os.sep not in f]
 
 
+def select_files(ap, names):
+    files = []
+    for name in names:
+        path = os.path.abspath(name)
+        if not os.path.isfile(path) and os.path.basename(name) == name:
+            matches = [f for subdir in ("src", "sim", "test") for f in sv_files(subdir)
+                       if os.path.basename(f) == name]
+            if len(matches) > 1:
+                ap.error(f"ファイル名が重複しています。パスで指定してください: {', '.join(map(rel, matches))}")
+            if matches:
+                path = matches[0]
+        if not os.path.isfile(path):
+            ap.error(f"ファイルが見つかりません: {name}")
+        if os.path.splitext(path)[1] not in (".sv", ".py"):
+            ap.error(f"対応している拡張子は .sv / .py です: {name}")
+        if path not in files:
+            files.append(path)
+    return files
+
+
 def order_packages(files):
-    """package を import の依存順に並べ、その後ろに残りのファイルを置く"""
+    """package を import / pkg:: の依存順に並べ、残りのファイルを分ける。"""
     pkgs, others = {}, []
     for f in files:
         text = open(f, encoding="utf-8", errors="replace").read()
         m = re.search(r"^\s*package\s+(\w+)\s*;", text, re.M)
         if m:
-            deps = set(re.findall(r"\bimport\s+(\w+)::", text)) - {m.group(1)}
+            deps = set(re.findall(r"\b(\w+)::", text)) - {m.group(1)}
             pkgs[m.group(1)] = (f, deps)
         else:
             others.append(f)
@@ -182,7 +203,8 @@ def run_verilator(rep, files, label, extra, verbose):
     vlt = os.path.join(ROOT, "lint.vlt")
     if os.path.exists(vlt):
         cmd.insert(1, vlt)
-    out = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT).stderr
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    out = result.stdout + result.stderr
     if verbose:
         print(color(f"$ {' '.join(cmd)}", "dim"))
         print(out)
@@ -206,6 +228,59 @@ def run_verilator(rep, files, label, extra, verbose):
             level = "warn"
         tool = f"verilator:{label}" + (f" {rule}" if rule else "")
         rep.add(level, tool, file, int(lno) if lno else None, msg)
+    if result.returncode and not seen:
+        rep.add("error", "verilator", None, None,
+                f"終了コード {result.returncode}: {out.strip() or '診断出力なし'}")
+
+
+def run_selected_sv(rep, files, verbose):
+    """依存モジュールはライブラリとして必要なものだけ読む。"""
+    if not files:
+        return
+    for target in files:
+        # test のモデルは同名の合成用モジュールより優先する。
+        local = sv_files(os.path.dirname(target))
+        sources = list(dict.fromkeys(local + sv_files("src") + [target]))
+        texts, definitions = {}, {}
+        for source in sources:
+            text = open(source, encoding="utf-8", errors="replace").read()
+            text = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
+            texts[source] = text
+            for name in re.findall(r"^\s*(?:module|interface|package)\s+(\w+)", text, re.M):
+                definitions.setdefault(name, source)
+        # 到達するモジュールの package だけを先読みし、無関係な未完成 RTL を避ける。
+        needed, pending = set(), [target]
+        while pending:
+            source = pending.pop()
+            if source in needed:
+                continue
+            needed.add(source)
+            pending.extend(definitions[name] for name in set(re.findall(r"\b\w+\b", texts[source]))
+                           if name in definitions and definitions[name] not in needed)
+        pkgs, _ = order_packages([f for f in sources if f in needed])
+        mods = [f for f in sources if not re.search(r"^\s*package\s", texts[f], re.M)]
+        with tempfile.TemporaryDirectory() as library:
+            for source in mods:
+                text = texts[source]
+                for name in re.findall(r"^\s*(?:module|interface)\s+(\w+)", text, re.M):
+                    alias = os.path.join(library, name + ".sv")
+                    if not os.path.exists(alias):
+                        with open(alias, "w", encoding="utf-8") as fh:
+                            include = os.path.relpath(source, ROOT).replace(os.sep, "/")
+                            fh.write(f'`include "{include}"\n')
+            for name, body in IP_STUBS.items():
+                alias = os.path.join(library, name + ".sv")
+                if not os.path.exists(alias):
+                    with open(alias, "w", encoding="utf-8") as fh:
+                        fh.write(body)
+            include_dirs = sorted({os.path.dirname(f) for f in sources})
+            extra = ["-y", library, f"-I{ROOT}", *[f"-I{d}" for d in include_dirs]]
+            subdir = rel(target).split(os.sep)[0]
+            if subdir in ("sim", "test"):
+                extra += ["--timing", "-Wno-INITIALDLY"]
+            run_verilator(rep, list(dict.fromkeys(pkgs + [target])), rel(target), extra, verbose)
+    check_conventions(rep, files)
+    run_verible(rep, files, verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +313,10 @@ def run_verible(rep, files, verbose):
 # ---------------------------------------------------------------------------
 # 5. Python
 # ---------------------------------------------------------------------------
-def run_python(rep, verbose):
-    files = [f for f in glob.glob(os.path.join(ROOT, "**", "*.py"), recursive=True)
-             if not re.search(r"(obj_dir|\.runs|\.cache|\.sim|\.Xil|__pycache__)", f)]
+def run_python(rep, verbose, files=None):
+    if files is None:
+        files = [f for f in glob.glob(os.path.join(ROOT, "**", "*.py"), recursive=True)
+                 if not re.search(r"(obj_dir|\.runs|\.cache|\.sim|\.Xil|__pycache__)", f)]
     for f in files:
         r = subprocess.run([sys.executable, "-m", "py_compile", f], capture_output=True, text=True)
         if r.returncode:
@@ -260,12 +336,31 @@ def run_python(rep, verbose):
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("files", nargs="*", metavar="FILE", help="チェックする .sv / .py（省略時は全体）")
     ap.add_argument("--strict", action="store_true", help="style も失敗扱いにする")
     ap.add_argument("-a", "--all", action="store_true", help="note（未使用信号など）も表示")
     ap.add_argument("-v", "--verbose", action="store_true", help="各ツールの生の出力も表示")
     args = ap.parse_args()
 
     rep = Report()
+    if args.files:
+        files = select_files(ap, args.files)
+        run_selected_sv(rep, [f for f in files if f.endswith(".sv")], args.verbose)
+        python_files = [f for f in files if f.endswith(".py")]
+        if python_files:
+            run_python(rep, args.verbose, python_files)
+    else:
+        run_all(rep, args.verbose)
+
+    rep.print(args.all)
+    e, w, s, n = (rep.count(x) for x in ("error", "warn", "style", "note"))
+    summary = f"{e} error, {w} warning, {s} style, {n} note" + ("" if args.all or n == 0 else "（note は -a で表示）")
+    failed = e > 0 or w > 0 or (args.strict and s > 0)
+    print(color(("FAIL  " if failed else "OK    ") + summary, "red" if failed else "green"))
+    sys.exit(1 if failed else 0)
+
+
+def run_all(rep, verbose):
     src = sv_files("src")
     pkgs, mods = order_packages(src)
     tbs = sv_files("sim")
@@ -285,7 +380,7 @@ def main():
                 stubs.append(p)
 
         # 合成対象：トップが複数あっても全部チェックされる
-        run_verilator(rep, pkgs + mods + stubs, "src", [], args.verbose)
+        run_verilator(rep, pkgs + mods + stubs, "src", [], verbose)
 
         # テストベンチ：1 本ずつトップにして（合成できない書き方も許す）
         for tb in tbs:
@@ -293,17 +388,10 @@ def main():
             m = re.search(r"^\s*module\s+(\w+)", text, re.M)
             if m:
                 run_verilator(rep, pkgs + mods + stubs + [tb], os.path.basename(tb),
-                              ["--timing", "--top-module", m.group(1), "-Wno-INITIALDLY"], args.verbose)
+                              ["--timing", "--top-module", m.group(1), "-Wno-INITIALDLY"], verbose)
 
-    run_verible(rep, src + tbs, args.verbose)
-    run_python(rep, args.verbose)
-
-    rep.print(args.all)
-    e, w, s, n = (rep.count(x) for x in ("error", "warn", "style", "note"))
-    summary = f"{e} error, {w} warning, {s} style, {n} note" + ("" if args.all or n == 0 else "（note は -a で表示）")
-    failed = e > 0 or w > 0 or (args.strict and s > 0)
-    print(color(("FAIL  " if failed else "OK    ") + summary, "red" if failed else "green"))
-    sys.exit(1 if failed else 0)
+    run_verible(rep, src + tbs, verbose)
+    run_python(rep, verbose)
 
 
 if __name__ == "__main__":
