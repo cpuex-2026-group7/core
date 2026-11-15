@@ -22,15 +22,21 @@
 // それに依存する命令や分岐も間違った値を出しうるので、WB / ex_lsu / br_update_ff で値が違っても NG にはせず記録だけして、
 // その命令が commit したら NG にする。
 //   - load の期待値は dispatch の時点で決める：「commit 順に書いたメモリ」に、生きている（自分より古い）store を
-//     古い順に上書きした値。MMIO（MMIO_RX_ADDR）の load は、受け取る順番（commit 順）の通し番号の値
+//     古い順に上書きした値
 //   - commit する load が load_violation（rob_idx が一致）に出ていたら commit せず、次のサイクルに flush を出す
-//   - rob_head_ld は先頭が load のとき。MMIO の load は先頭のときだけ D$ に出ることを確かめる
 //   - 最後に STQ が空になってから、D$ のモデルの中身と「commit 順に書いたメモリ」を比べる
+//
+// MMIO とアドレスの前提（memory の実装に揃える、2026-11-15）
+//   - アドレスはワード単位。D$ のモデルも 1 アドレスに 1 ワード
+//   - TX は TX_ADDR（0xffffffff）への store だけ。RX の MMIO は無い（データは boot のときに memory が DRAM に置く）ので、
+//     MMIO の load は出さず、rob_head_ld は常に 0 にする
+//   - TX の store は D$ のモデルのメモリには書かず、ack のときに UART に出したものとして記録する。
+//     出た順番と中身が commit 順の TX の store と一致し、同じ store が 2 回出ないことを確かめる
 //
 // D$ のモデル（test/lsu_top と同じ）
 //   - 要求をでたらめなサイクルに accept し、返事は accept の次のサイクル以降に 1 サイクル 1 つ、順番はでたらめ、ack か nack
 //   - kill された load は次のサイクルから返事をしない（kill のサイクルの返事は出ることがある）
-//   - store は ack のときに書く。同じアドレスの store は accept した順に書く。MMIO の load は nack しない
+//   - store は ack のときに書く。同じアドレスの store は accept した順に書く。TX の store は nack しない
 //
 // LSU が WB に出す load は、kill のサイクル（br_update_ff / flush）に D$ の返事が来るとそのまま WB に出る。
 // EU の WB と違うが、ここではそのサイクルに消えた load のものだけ許して数える。
@@ -89,6 +95,8 @@ module tb_backend_top
   localparam int FREE_TARGET = 16;  // 空きの物理レジスタがこれより少なければ空ける
   localparam int STUCK_LIMIT = 3000;
   localparam int FLUSH_RATE = 600;
+  // lsu_types の MMIO_TX_ADDR はまだ古い値なので、ここで決める
+  localparam addr_t TX_ADDR = 32'hffff_ffff;
 
   // IQ
   localparam int Q_INT = 0;
@@ -464,7 +472,7 @@ module tb_backend_top
     word_t     data;
     ldq_idx_t  ldq;
     stq_idx_t  stq;
-    logic      mmio;
+    logic      tx;  // TX への store
   } ins_t;
 
   ins_t tbl[int];  // 生きている命令
@@ -493,8 +501,7 @@ module tb_backend_top
   // メモリ
   word_t arch_mem[addr_t];  // commit 順に書いたもの
   word_t dc_mem[addr_t];  // D$ のモデル
-  int mmio_commit_n;
-  int mmio_acc_n;
+  word_t tx_exp[$];  // commit した TX の store のデータ（まだ UART に出ていないもの）
   // commit して D$ に書く前の store（STQ の番号ごと）
   logic  cst_valid[STQ_SIZE];
   addr_t cst_addr[STQ_SIZE];
@@ -502,7 +509,7 @@ module tb_backend_top
 
   // D$ が accept して返事をしていない要求（accept 順）
   logic    p_we[$];
-  logic    p_mmio[$];
+  logic    p_tx[$];
   addr_t   p_addr[$];
   int      p_idx[$];
   int      p_cyc[$];
@@ -562,7 +569,8 @@ module tb_backend_top
   int n_commit;
   int n_viol_flush;   // 順序違反の flush
   int n_bad_killed;   // 値が違ったが commit せずに消えた
-  int n_mmio;
+  int n_tx;
+  int n_tx_out;
   int n_wb_killed;    // 消えたサイクルに WB に出た load
   int n_dc_ld, n_dc_st, n_dc_drop, n_dc_kill, n_ld_nack, n_st_nack, n_st_hold;
   int n_ld_fwd_like;  // D$ の返事と別のサイクルに WB に出た load（forward）
@@ -603,28 +611,12 @@ module tb_backend_top
     return init_val(a);
   endfunction
 
-  function automatic word_t mmio_val(int n);
-    return 32'hcafe_0000 + word_t'(n);
-  endfunction
-
   // dispatch の時点の load の値（生きている命令は全部自分より古い）
   function automatic word_t spec_load(addr_t a);
     word_t v;
-    int n;
-    if (a == MMIO_RX_ADDR) begin
-      n = 0;
-      foreach (tbl[k]) if (tbl[k].kind == K_LW && tbl[k].mmio) n++;
-      return mmio_val(mmio_commit_n + n);
-    end
     v = arch_get(a);
     foreach (tbl[k]) if (tbl[k].kind == K_SW && tbl[k].addr == a) v = tbl[k].data;
     return v;
-  endfunction
-
-  // 一番古い命令。無ければ -1
-  function automatic int head_id();
-    foreach (tbl[k]) return k;
-    return -1;
   endfunction
 
   function automatic int typ_i(preg_t p);
@@ -845,14 +837,13 @@ module tb_backend_top
     rob_free_at[e.rob] = cyc + 1;
     if (e.kind == K_LW) begin
       ldq_owner[e.ldq] = -1;
-      if (e.mmio) begin
-        mmio_commit_n++;
-        n_mmio++;
-      end
     end
     if (e.kind == K_SW) begin
       stq_owner[e.stq] = -1;
-      arch_mem[e.addr] = e.data;
+      if (e.tx) begin
+        tx_exp.push_back(e.data);
+        n_tx++;
+      end else arch_mem[e.addr] = e.data;
       if (cst_valid[e.stq]) fail($sformatf("STQ %0d に D$ に書いていない store がまだある: %s", e.stq, ins_str(e)));
       cst_valid[e.stq] = 1'b1;
       cst_addr[e.stq] = e.addr;
@@ -975,8 +966,8 @@ module tb_backend_top
       u.imm = rnd_imm_raw();
       if (mem_small) begin
         u.imm = '0;
-        // MMIO：load は RX、store は TX
-        if (rnd(12) == 0) u.imm[14:0] = (k == K_LW) ? 15'h7fff : 15'h7ffe;
+        // TX（x0 - 1）への store
+        if (k == K_SW && rnd(12) == 0) u.imm[14:0] = 15'h7fff;
         else u.imm[14:0] = 15'(rnd(6));
       end else if (mem_near) begin
         u.imm = '0;
@@ -1096,8 +1087,13 @@ module tb_backend_top
         u.imm_type = IMM_C;
         u.fu_op = FU_OP_AGU;
         e.addr = a + ref_ext(IMM_C, u.imm);
+        // TX は書くだけなので load しない
+        if (e.addr == TX_ADDR) begin
+          e.rs1 = PNONE;
+          u.imm = '0;
+          e.addr = '0;
+        end
         e.ldq = ldq_idx_t'(lq_i);
-        e.mmio = e.addr == MMIO_RX_ADDR;
         e.value = spec_load(e.addr);
       end
       default: begin  // K_SW
@@ -1106,12 +1102,7 @@ module tb_backend_top
         u.is_store = 1'b1;
         e.is_store = 1'b1;
         e.addr = a + ref_ext(IMM_D, u.imm);
-        // RX のアドレスには store しない（RX は読むだけ）
-        if (e.addr == MMIO_RX_ADDR) begin
-          e.rs1 = PNONE;
-          u.imm = '0;
-          e.addr = '0;
-        end
+        e.tx = e.addr == TX_ADDR;
         e.data = b;
         e.stq = stq_idx_t'(sq_i);
       end
@@ -1424,13 +1415,8 @@ module tb_backend_top
   task automatic do_commit();
     ins_t e;
     logic viol;
-    int h;
     in_commit_ld = '0;
     in_commit_st = '0;
-    h = head_id();
-    in_rob_head_ld = 1'b0;
-    // && の右でも連想配列を読むとエントリを作るので if を分ける
-    if (!flush && h >= 0) in_rob_head_ld = tbl[h].kind == K_LW;
     if (flush) return;
     cm_ids.delete();
     foreach (tbl[k]) begin
@@ -1482,19 +1468,19 @@ module tb_backend_top
         c_resp_j = j;
         tg = '0;
         if (p_we[j]) begin
-          // 同じアドレスの store は accept 順に書く
+          // 同じアドレスの store は accept 順に書く。TX は nack しないので待たせる
           blocked = 1'b0;
           for (int k = 0; k < j; k++) if (p_we[k] && p_addr[k] == p_addr[j]) blocked = 1'b1;
-          c_resp_ack = !blocked && int'(rnd(100)) >= nack_rate;
-          if (blocked && rnd(2) == 0) begin
+          c_resp_ack = !blocked && (p_tx[j] || int'(rnd(100)) >= nack_rate);
+          if (blocked && (p_tx[j] || rnd(2) == 0)) begin
             c_resp_j = -1;
             n_st_hold++;
           end
           tg.is_store = 1'b1;
           tg.stq_idx = stq_idx_t'(p_idx[j]);
         end else begin
-          c_resp_ack = p_mmio[j] || int'(rnd(100)) >= nack_rate;
-          c_resp_rdata = p_mmio[j] ? p_data[j] : dc_get(p_addr[j]);
+          c_resp_ack = int'(rnd(100)) >= nack_rate;
+          c_resp_rdata = dc_get(p_addr[j]);
           tg.ldq_idx = ldq_idx_t'(p_idx[j]);
         end
       end
@@ -1508,7 +1494,7 @@ module tb_backend_top
 
   task automatic dc_del(int j);
     p_we.delete(j);
-    p_mmio.delete(j);
+    p_tx.delete(j);
     p_addr.delete(j);
     p_idx.delete(j);
     p_cyc.delete(j);
@@ -1516,9 +1502,9 @@ module tb_backend_top
     p_brmask.delete(j);
   endtask
 
-  task automatic dc_push(logic we, logic mmio, addr_t a, int idx, word_t d, brmask_t m);
+  task automatic dc_push(logic we, logic tx, addr_t a, int idx, word_t d, brmask_t m);
     p_we.push_back(we);
-    p_mmio.push_back(mmio);
+    p_tx.push_back(tx);
     p_addr.push_back(a);
     p_idx.push_back(idx);
     p_cyc.push_back(cyc);
@@ -1528,7 +1514,7 @@ module tb_backend_top
 
   task automatic dc_post();
     lsu_tag_t tg;
-    logic dkill, mm;
+    logic dkill;
     int idx, id, j;
     // accept
     tg = lsu_tag_t'(dc_req_tag_ff);
@@ -1543,14 +1529,11 @@ module tb_backend_top
           if (id < 0 || !tbl.exists(id)) fail($sformatf("生きていない load の要求を D$ が accept した（LDQ %0d）", idx));
           else begin
             if (tbl[id].done) fail($sformatf("WB 済みの load の要求が D$ に出た: %s", ins_str(tbl[id])));
-            if (dc_req_addr_ff == MMIO_RX_ADDR && head_id() != id)
-              fail($sformatf("先頭でない MMIO の load が D$ に出た: %s", ins_str(tbl[id])));
           end
+          if (dc_req_addr_ff == TX_ADDR) fail($sformatf("TX のアドレスの load が D$ に出た（LDQ %0d）", idx));
           for (j = 0; j < p_idx.size(); j++)
             if (!p_we[j] && p_idx[j] == idx) fail($sformatf("返事がまだの load をもう一度 D$ に出した（LDQ %0d）", idx));
-          mm = dc_req_addr_ff == MMIO_RX_ADDR;
-          dc_push(1'b0, mm, dc_req_addr_ff, idx, mmio_val(mmio_acc_n), dc_req_brmask_ff & ~dc_br_resolve_mask_ff);
-          if (mm) mmio_acc_n++;
+          dc_push(1'b0, 1'b0, dc_req_addr_ff, idx, '0, dc_req_brmask_ff & ~dc_br_resolve_mask_ff);
           n_dc_ld++;
           if (tr()) $display("  [%0d] D$ accept load LDQ %0d addr %h（rob の持ち主 %0d）", cyc, idx, dc_req_addr_ff, id);
         end
@@ -1564,7 +1547,7 @@ module tb_backend_top
                          cst_addr[idx], cst_data[idx]));
         for (j = 0; j < p_idx.size(); j++)
           if (p_we[j] && p_idx[j] == idx) fail($sformatf("返事がまだの store をもう一度 D$ に出した（STQ %0d）", idx));
-        dc_push(1'b1, 1'b0, dc_req_addr_ff, idx, dc_req_wdata_ff, '0);
+        dc_push(1'b1, dc_req_addr_ff == TX_ADDR, dc_req_addr_ff, idx, dc_req_wdata_ff, '0);
         n_dc_st++;
         if (tr()) $display("  [%0d] D$ accept store STQ %0d addr %h data %h", cyc, idx, dc_req_addr_ff, dc_req_wdata_ff);
       end
@@ -1577,7 +1560,17 @@ module tb_backend_top
                  c_resp_ack, c_resp_rdata);
       if (p_we[j]) begin
         // stale になった store は ack の後でも出し直されるので、控えは STQ が解放したときに消す
-        if (c_resp_ack) dc_mem[p_addr[j]] = p_data[j];
+        if (p_tx[j]) begin
+          // UART に出る。stale で出し直された store がもう一度 ack されると 2 回出る
+          if (!c_resp_ack) fail($sformatf("TX の store が nack された（STQ %0d）", p_idx[j]));
+          else if (tx_exp.size() == 0) fail($sformatf("TX に余計な store が出た（STQ %0d、data %h）", p_idx[j], p_data[j]));
+          else begin
+            if (p_data[j] !== tx_exp[0])
+              fail($sformatf("TX に出た %h、commit 順の期待 %h（STQ %0d）", p_data[j], tx_exp[0], p_idx[j]));
+            void'(tx_exp.pop_front());
+            n_tx_out++;
+          end
+        end else if (c_resp_ack) dc_mem[p_addr[j]] = p_data[j];
         else n_st_nack++;
       end else if (!c_resp_ack) n_ld_nack++;
       dc_del(j);
@@ -1592,7 +1585,6 @@ module tb_backend_top
     for (j = p_we.size() - 1; j >= 0; j--) begin
       if (p_we[j]) continue;
       if ((p_brmask[j] & dc_br_kill_mask_ff) != '0 || dc_kill_all_ff) begin
-        if (p_mmio[j]) fail("accept した MMIO の load が kill された");
         dc_del(j);
         n_dc_kill++;
       end else begin
@@ -1616,17 +1608,11 @@ module tb_backend_top
   // ---------------- 1 サイクル ----------------
 
   task automatic tick();
-    int h;
-    logic head_mmio;
     @(negedge clk);
     cyc++;
     killed_now.delete();
     check_br_update();
-    // 先頭の MMIO の load は D$ に出すと取り消せないので、でたらめな flush はしない
-    h = head_id();
-    head_mmio = 1'b0;
-    if (h >= 0) head_mmio = tbl[h].kind == K_LW && tbl[h].mmio;
-    flush = flush_pending || ((mode == M_RANDOM) && flush_en && (rnd(FLUSH_RATE) == 0) && !head_mmio);
+    flush = flush_pending || ((mode == M_RANDOM) && flush_en && (rnd(FLUSH_RATE) == 0));
     flush_pending = 1'b0;
     if (flush) do_flush();
     dc_decide();
@@ -1805,8 +1791,7 @@ module tb_backend_top
     dc_resp_rdata = '0;
     dc_resp_tag = '0;
     flush_pending = 1'b0;
-    mmio_commit_n = 0;
-    mmio_acc_n = 0;
+    tx_exp.delete();
     acc_rate = 100;
     resp_rate = 100;
     nack_rate = 0;
@@ -1850,7 +1835,8 @@ module tb_backend_top
     n_commit = 0;
     n_viol_flush = 0;
     n_bad_killed = 0;
-    n_mmio = 0;
+    n_tx = 0;
+    n_tx_out = 0;
     n_wb_killed = 0;
     n_dc_ld = 0;
     n_dc_st = 0;
@@ -1897,6 +1883,7 @@ module tb_backend_top
       if (dc_get(a) !== arch_mem[a]) fail($sformatf("最後の D$ の mem[%h]=%h、commit 順に書いた値 %h", a, dc_get(a), arch_mem[a]));
     foreach (dc_mem[a])
       if (dc_mem[a] !== arch_get(a)) fail($sformatf("最後の D$ の mem[%h]=%h、commit 順に書いた値 %h", a, dc_mem[a], arch_get(a)));
+    if (tx_exp.size() != 0) fail($sformatf("commit した TX の store のうち %0d 個が UART に出ていない", tx_exp.size()));
 
     $display("定型テストの間隔 %0d 個", n_dir);
     for (int k = 0; k < NK; k++)
@@ -1904,8 +1891,8 @@ module tb_backend_top
     $display("  分岐の resolve %0d、mispredict %0d（同じサイクルに 2 本 %0d）、flush %0d、消えた命令 %0d", n_br, n_mis,
              n_two_mis, n_flush, n_killed);
     $display("  同じサイクルに dispatch した命令の rd を読んだ %0d", n_same_cycle);
-    $display("  commit %0d、順序違反の flush %0d、値が違ったが commit せずに消えた命令 %0d、MMIO の load %0d", n_commit,
-             n_viol_flush, n_bad_killed, n_mmio);
+    $display("  commit %0d、順序違反の flush %0d、値が違ったが commit せずに消えた命令 %0d、TX の store %0d（UART に出た %0d）",
+             n_commit, n_viol_flush, n_bad_killed, n_tx, n_tx_out);
     $display("  load の WB のうち forward %0d、消えたサイクルに WB に出た load %0d", n_ld_fwd_like, n_wb_killed);
     $display("  D$：load の accept %0d（accept と同時に kill %0d、後から kill %0d、nack %0d）、store の accept %0d（nack %0d、同じアドレス待ち %0d）",
              n_dc_ld, n_dc_drop, n_dc_kill, n_ld_nack, n_dc_st, n_st_nack, n_st_hold);
