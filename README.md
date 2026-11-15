@@ -11,6 +11,35 @@ LED[15]だけSW[15]に対応して光る
 
 リセットボタンでPCリセット
 
+# lint
+
+リポジトリ直下で、ファイルのパスまたは名前を指定する。複数指定もできる。
+
+```sh
+python3 lint.py src/common/find_empty_slot.sv
+python3 lint.py find_empty_slot.sv lint.py
+python3 lint.py --strict src/common/find_empty_slot.sv
+python3 lint.py lint.py
+python3 lint.py                              # 省略すると従来どおり全体チェック
+```
+
+Windows の PowerShell / コマンドプロンプトでは `lint.bat` を使える。相対パスはリポジトリ直下を基準とし、`\` と `/` の両方に対応する。
+
+```powershell
+.\lint.bat find_empty_slot.sv
+.\lint.bat src\common\find_empty_slot.sv
+.\lint.bat --strict find_empty_slot.sv lint.py
+.\lint.bat                                   # 全体チェック
+```
+
+`lint.bat` は WSL 内の Python 3 を使い、lint の終了コードをそのまま返す。
+SystemVerilog のチェックには Verilator が必要。Verible と pyflakes はインストールされていれば使う。
+対応拡張子は `.sv` と `.py`。ファイル名だけの指定は `src/`・`sim/`・`test/` の `.sv` を検索し、同名が複数あればパス指定を求める。
+
+ファイル指定時は対象と必要な依存をチェックし、Vivado プロジェクトとの照合は行わない。
+`sim/`・`test/` のテストベンチにはタイミング構文を許可する。依存 RTL は `src/` と対象ファイル配下のディレクトリから解決する。
+終了コードは成功が 0、error / warning があれば 1、ファイル指定などの引数不正は 2。`--strict` は style も失敗扱いにし、`-a` は note、`-v` はツールの生出力を表示する。
+
 # Verilator
 
 WSL2 の Ubuntu で sim/ に入って make する。make のたびに命令シミュレータ（cpuex-2026-group7/sim）を sim/sim_repository に取得・更新してビルドし、同じプログラムを RTL と命令シミュレータの両方で動かす。
