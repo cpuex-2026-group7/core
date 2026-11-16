@@ -69,10 +69,10 @@ module backend_top
 
   input wire logic dc_req_accepted,
 
-  input wire logic dc_resp_valid,
-  input wire logic dc_resp_ack,
-  input wire logic [31:0] dc_resp_rdata,
-  input wire logic [DC_TAG_W-1:0] dc_resp_tag,
+  input wire logic dc_resp_valid_ff,
+  input wire logic dc_resp_ack_ff,
+  input wire logic [31:0] dc_resp_rdata_ff,
+  input wire logic [DC_TAG_W-1:0] dc_resp_tag_ff,
 
   output logic [MAX_BR-1:0] dc_br_kill_mask_ff,
   output logic [MAX_BR-1:0] dc_br_resolve_mask_ff,
@@ -220,10 +220,10 @@ module backend_top
     .dc_req_tag_ff(dc_req_tag_ff),
     .dc_req_brmask_ff(dc_req_brmask_ff),
     .dc_req_accepted(dc_req_accepted),
-    .dc_resp_valid(dc_resp_valid),
-    .dc_resp_ack(dc_resp_ack),
-    .dc_resp_rdata(dc_resp_rdata),
-    .dc_resp_tag(dc_resp_tag),
+    .dc_resp_valid_ff(dc_resp_valid_ff),
+    .dc_resp_ack_ff(dc_resp_ack_ff),
+    .dc_resp_rdata_ff(dc_resp_rdata_ff),
+    .dc_resp_tag_ff(dc_resp_tag_ff),
     .dc_br_kill_mask_ff(dc_br_kill_mask_ff),
     .dc_br_resolve_mask_ff(dc_br_resolve_mask_ff),
     .dc_kill_all_ff(dc_kill_all_ff)

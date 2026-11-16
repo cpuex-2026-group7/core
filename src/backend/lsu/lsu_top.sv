@@ -65,10 +65,10 @@ module lsu_top
 
   input wire logic dc_req_accepted,
 
-  input wire logic dc_resp_valid,
-  input wire logic dc_resp_ack,  // 1:ack, 0:nack (acceptした後)
-  input wire logic [31:0] dc_resp_rdata,
-  input wire logic [DC_TAG_W-1:0] dc_resp_tag,
+  input wire logic dc_resp_valid_ff,
+  input wire logic dc_resp_ack_ff,  // 1:ack, 0:nack (acceptした後)
+  input wire logic [31:0] dc_resp_rdata_ff,
+  input wire logic [DC_TAG_W-1:0] dc_resp_tag_ff,
 
   output logic [MAX_BR-1:0] dc_br_kill_mask_ff,  // 予測ミスしていてkillすべき分岐のmask
   output logic [MAX_BR-1:0] dc_br_resolve_mask_ff,  // 予測あっていてbitを落とすべき分岐のmask
@@ -85,10 +85,10 @@ module lsu_top
   assign dc_req_tag_ff = dc_req_ff.tag;
   assign dc_req_brmask_ff = dc_req_ff.brmask;
 
-  assign dc_resp.valid = dc_resp_valid;
-  assign dc_resp.tag = lsu_tag_t'(dc_resp_tag);
-  assign dc_resp.ack = dc_resp_ack;
-  assign dc_resp.rdata = dc_resp_rdata;
+  assign dc_resp.valid = dc_resp_valid_ff;
+  assign dc_resp.tag = lsu_tag_t'(dc_resp_tag_ff);
+  assign dc_resp.ack = dc_resp_ack_ff;
+  assign dc_resp.rdata = dc_resp_rdata_ff;
 
   assign dc_br_kill_mask_ff = br_update_ff.kill_mask;
   assign dc_br_resolve_mask_ff = br_update_ff.resolve_mask;

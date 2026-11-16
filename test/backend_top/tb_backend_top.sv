@@ -225,10 +225,10 @@ module tb_backend_top
   logic [MAX_BR-1:0]   dc_br_resolve_mask_ff;
   logic                dc_kill_all_ff;
   logic                dc_req_accepted;
-  logic                dc_resp_valid;
-  logic                dc_resp_ack;
-  logic [31:0]         dc_resp_rdata;
-  logic [DC_TAG_W-1:0] dc_resp_tag;
+  logic                dc_resp_valid_ff;
+  logic                dc_resp_ack_ff;
+  logic [31:0]         dc_resp_rdata_ff;
+  logic [DC_TAG_W-1:0] dc_resp_tag_ff;
 
   backend_top #(
     .LSU_DISP_W(LSU_DISP_W),
@@ -268,10 +268,10 @@ module tb_backend_top
     .dc_req_tag_ff(dc_req_tag_ff),
     .dc_req_brmask_ff(dc_req_brmask_ff),
     .dc_req_accepted(dc_req_accepted),
-    .dc_resp_valid(dc_resp_valid),
-    .dc_resp_ack(dc_resp_ack),
-    .dc_resp_rdata(dc_resp_rdata),
-    .dc_resp_tag(dc_resp_tag),
+    .dc_resp_valid_ff(dc_resp_valid_ff),
+    .dc_resp_ack_ff(dc_resp_ack_ff),
+    .dc_resp_rdata_ff(dc_resp_rdata_ff),
+    .dc_resp_tag_ff(dc_resp_tag_ff),
     .dc_br_kill_mask_ff(dc_br_kill_mask_ff),
     .dc_br_resolve_mask_ff(dc_br_resolve_mask_ff),
     .dc_kill_all_ff(dc_kill_all_ff)
@@ -1333,7 +1333,7 @@ module tb_backend_top
       end
       fail($sformatf("レーン %0d の WB rd=%h value=%h rob=%0d は生きている命令のものではない", lane, w.rd, w.value, w.rob_idx));
       if (tr()) begin
-        $display("    D$ の返事 valid=%b tag=%h ack=%b、返事待ち %0d 個", dc_resp_valid, dc_resp_tag, dc_resp_ack, p_we.size());
+        $display("    D$ の返事 valid=%b tag=%h ack=%b、返事待ち %0d 個", dc_resp_valid_ff, dc_resp_tag_ff, dc_resp_ack_ff, p_we.size());
         foreach (ldq_owner[i]) $display("    ldq_owner[%0d]=%0d", i, ldq_owner[i]);
       end
       return;
@@ -1483,10 +1483,10 @@ module tb_backend_top
       end
     end
     dc_req_accepted = c_acc;
-    dc_resp_valid = c_resp_j >= 0;
-    dc_resp_ack = c_resp_ack;
-    dc_resp_rdata = c_resp_rdata;
-    dc_resp_tag = tg;
+    dc_resp_valid_ff = c_resp_j >= 0;
+    dc_resp_ack_ff = c_resp_ack;
+    dc_resp_rdata_ff = c_resp_rdata;
+    dc_resp_tag_ff = tg;
   endtask
 
   task automatic dc_del(int j);
@@ -1781,10 +1781,10 @@ module tb_backend_top
     in_commit_ld = '0;
     in_commit_st = '0;
     dc_req_accepted = 1'b0;
-    dc_resp_valid = 1'b0;
-    dc_resp_ack = 1'b0;
-    dc_resp_rdata = '0;
-    dc_resp_tag = '0;
+    dc_resp_valid_ff = 1'b0;
+    dc_resp_ack_ff = 1'b0;
+    dc_resp_rdata_ff = '0;
+    dc_resp_tag_ff = '0;
     flush_pending = 1'b0;
     tx_exp.delete();
     acc_rate = 100;
