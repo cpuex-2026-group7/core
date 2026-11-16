@@ -155,6 +155,19 @@ module tb_iq_core
     for (int x = 0; x < EXT_W; x++) coming_wakeup[ISSUE_W+x] = d_ext_wakeup[x];
   end
 
+  // DUT には I / F のバスに分けて渡す（バスでは idx しか比べないので、種類の違うものは valid を落とす）
+  // RS1_I などは既定（全部 1）のまま。ソースはどちらの種類にもなる
+  wakeup_t coming_i_wakeup[WAKEUP_W];
+  wakeup_t coming_f_wakeup[WAKEUP_W];
+  always_comb begin
+    for (int k = 0; k < WAKEUP_W; k++) begin
+      coming_i_wakeup[k] = coming_wakeup[k];
+      coming_i_wakeup[k].valid = coming_wakeup[k].valid && coming_wakeup[k].preg.typ == PREG_TYPE_I;
+      coming_f_wakeup[k] = coming_wakeup[k];
+      coming_f_wakeup[k].valid = coming_wakeup[k].valid && coming_wakeup[k].preg.typ == PREG_TYPE_F;
+    end
+  end
+
   assign d_dut_fu_blocked = to_port_fu(d_dest_fu_blocked);
 
   iq_core #(
@@ -164,7 +177,8 @@ module tb_iq_core
     .EU_BASE(dest_eu_t'(EU_BASE)),
     .SLOW_WAKEUP_FU(DUT_SLOW),
     .BLOCKING_FU(DUT_BLOCKING),
-    .WAKEUP_W(WAKEUP_W),
+    .I_WAKEUP_W(WAKEUP_W),
+    .F_WAKEUP_W(WAKEUP_W),
     .PAYLOAD_W(PAYLOAD_W),
     .ALLOW_SPLIT_ISSUE(ALLOW_SPLIT_ISSUE)
   ) dut (
@@ -176,7 +190,8 @@ module tb_iq_core
     .disp_payload(d_disp_payload),
     .to_issue_part(d_disp_part),
     .disp_full(disp_full),
-    .coming_wakeup(coming_wakeup),
+    .coming_i_wakeup(coming_i_wakeup),
+    .coming_f_wakeup(coming_f_wakeup),
     .sending_wakeup(sending_wakeup),
     .br_update_ff(d_br_update),
     .dest_fu_blocked(d_dut_fu_blocked),

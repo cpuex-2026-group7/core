@@ -14,7 +14,12 @@ module iq_core
   parameter dest_eu_t EU_BASE = '0,  // EU=EU_BASE+port
   parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] SLOW_WAKEUP_FU = '0,
   parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] BLOCKING_FU = '0,
-  parameter int WAKEUP_W = 5,
+  parameter int I_WAKEUP_W = 3,
+  parameter int F_WAKEUP_W = 4,
+  parameter bit RS1_I = 1'b1,  // rs1/rs2がI/Fのどちらになりえるか
+  parameter bit RS1_F = 1'b1,
+  parameter bit RS2_I = 1'b1,
+  parameter bit RS2_F = 1'b1,
   parameter int PAYLOAD_W = 64,
   parameter bit ALLOW_SPLIT_ISSUE = 1'b0  // STA/STDを分けてissueできるようにする
 ) (
@@ -30,7 +35,8 @@ module iq_core
   output logic disp_full,
 
   // wakeup bus
-  input wire wakeup_t coming_wakeup[WAKEUP_W],
+  input wire wakeup_t coming_i_wakeup[I_WAKEUP_W],
+  input wire wakeup_t coming_f_wakeup[F_WAKEUP_W],
   output wakeup_t sending_wakeup[ISSUE_W],
 
   // ex_topのFFから
@@ -257,12 +263,26 @@ module iq_core
   end
 
   // まだwakeupされてないソースにだけ当てる
-  function automatic src_reg_t apply_wakeup(input src_reg_t r, input wakeup_t w[WAKEUP_W]);
+  function automatic src_reg_t apply_wakeup(input src_reg_t r, input bit use_i, input bit use_f);
     src_reg_t ret = r;
-    for (int i = 0; i < WAKEUP_W; i++) begin
-      if (w[i].valid && !r.st.counting && w[i].preg == r.preg) begin
-        ret.st.counting = 1'b1;
-        ret.st.cnt      = w[i].latency;
+    logic is_i = !use_f || r.preg.typ == PREG_TYPE_I;
+    logic is_f = !use_i || r.preg.typ == PREG_TYPE_F;
+    // iのwakeupを見る
+    if (use_i) begin
+      for (int i = 0; i < I_WAKEUP_W; i++) begin
+        if (coming_i_wakeup[i].valid && is_i && !r.st.counting && coming_i_wakeup[i].preg.idx == r.preg.idx) begin
+          ret.st.counting = 1'b1;
+          ret.st.cnt      = coming_i_wakeup[i].latency;
+        end
+      end
+    end
+    // fのwakeupを見る
+    if (use_f) begin
+      for (int i = 0; i < F_WAKEUP_W; i++) begin
+        if (coming_f_wakeup[i].valid && is_f && !r.st.counting && coming_f_wakeup[i].preg.idx == r.preg.idx) begin
+          ret.st.counting = 1'b1;
+          ret.st.cnt      = coming_f_wakeup[i].latency;
+        end
       end
     end
     return ret;
@@ -274,8 +294,8 @@ module iq_core
     for (int i = 0; i < SIZE; i++) begin
       if (iq_ff[i].rs1.st.counting && iq_ff[i].rs1.st.cnt > 0) n_iq_ff[i].rs1.st.cnt = iq_ff[i].rs1.st.cnt - 1;
       if (iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt > 0) n_iq_ff[i].rs2.st.cnt = iq_ff[i].rs2.st.cnt - 1;
-      n_iq_ff[i].rs1 = apply_wakeup(n_iq_ff[i].rs1, coming_wakeup);
-      n_iq_ff[i].rs2 = apply_wakeup(n_iq_ff[i].rs2, coming_wakeup);
+      n_iq_ff[i].rs1 = apply_wakeup(n_iq_ff[i].rs1, RS1_I, RS1_F);
+      n_iq_ff[i].rs2 = apply_wakeup(n_iq_ff[i].rs2, RS2_I, RS2_F);
       n_iq_ff[i].brmask = apply_br_resolve(iq_ff[i].brmask, br_update_ff);
     end
 
@@ -288,8 +308,8 @@ module iq_core
           n_iq_ff[alloc_slot[i]].rs1.st.cnt = disp_entry[i].rs1.st.cnt - 1;
         if (disp_entry[i].rs2.st.counting && disp_entry[i].rs2.st.cnt > 0)
           n_iq_ff[alloc_slot[i]].rs2.st.cnt = disp_entry[i].rs2.st.cnt - 1;
-        n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, coming_wakeup);
-        n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, coming_wakeup);
+        n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, RS1_I, RS1_F);
+        n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, RS2_I, RS2_F);
         n_iq_ff[alloc_slot[i]].brmask = apply_br_resolve(disp_entry[i].brmask, br_update_ff);
       end
     end

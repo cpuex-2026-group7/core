@@ -15,8 +15,7 @@ module iq_top
   parameter int SIZE_FPU = 16,
   parameter int DISPATCH_W_INT = 1,
   parameter int DISPATCH_W_MEM = 1,
-  parameter int DISPATCH_W_FPU = 1,
-  parameter int WAKEUP_W = 2
+  parameter int DISPATCH_W_FPU = 1
 ) (
   input wire logic clk,
   input wire logic rst,
@@ -35,8 +34,9 @@ module iq_top
   input wire disp_uop_t disp_uop_fpu[DISPATCH_W_FPU],
   output logic disp_full_fpu,
 
-  // wakeup bus
-  input wire wakeup_t coming_wakeup[WAKEUP_W],
+  // slow wakeup
+  input wire wakeup_t slow_wakeup_mem,
+  input wire wakeup_t slow_wakeup_fpu,
 
   // ex_topのFFから
   input wire br_update_t br_update_ff,
@@ -57,9 +57,31 @@ module iq_top
   output float_payload_t rr_payload_fpu_ff[3]
 );
 
-  localparam int ALL_WAKEUP_W = WAKEUP_W + 5;
-  wakeup_t all_wakeup[ALL_WAKEUP_W];
-  assign all_wakeup[0+:WAKEUP_W] = coming_wakeup;
+  // MEMとF超長はissue時にwakeupを出さない(slow_wakeupで来る)
+  wakeup_t int_wakeup[1];
+  wakeup_t fpu_wakeup[3];  // {F短, F長, F超長}
+
+  // ALUはI、F短とfdiv,fsqrtはFにしかならないのでそのまま入れる
+  localparam int I_WAKEUP_W = 3;
+  localparam int F_WAKEUP_W = 4;
+  wakeup_t i_wakeup[I_WAKEUP_W];
+  wakeup_t f_wakeup[F_WAKEUP_W];
+
+  function automatic wakeup_t type_check(input wakeup_t w, input preg_type_t typ);
+    type_check = w;
+    type_check.valid = w.valid && w.preg.typ == typ;
+  endfunction
+
+  always_comb begin
+    i_wakeup[0] = int_wakeup[0];
+    i_wakeup[1] = type_check(slow_wakeup_mem, PREG_TYPE_I);
+    i_wakeup[2] = type_check(fpu_wakeup[1], PREG_TYPE_I);
+
+    f_wakeup[0] = type_check(slow_wakeup_mem, PREG_TYPE_F);
+    f_wakeup[1] = fpu_wakeup[0];
+    f_wakeup[2] = type_check(fpu_wakeup[1], PREG_TYPE_F);
+    f_wakeup[3] = slow_wakeup_fpu;
+  end
 
   src_state_t i_preg_state  [I_PREG_NUM];
   src_state_t f_preg_state  [F_PREG_NUM];
@@ -77,10 +99,10 @@ module iq_top
         end
       end else begin
         // wakeupが来たらカウント開始
-        for (int j = 0; j < ALL_WAKEUP_W; j++) begin
-          if (all_wakeup[j].valid && all_wakeup[j].preg.typ == PREG_TYPE_I && all_wakeup[j].preg.idx == preg_idx_t'(i)) begin
+        for (int j = 0; j < I_WAKEUP_W; j++) begin
+          if (i_wakeup[j].valid && i_wakeup[j].preg.idx == preg_idx_t'(i)) begin
             n_i_preg_state[i].counting = 1'b1;
-            n_i_preg_state[i].cnt = all_wakeup[j].latency;
+            n_i_preg_state[i].cnt = i_wakeup[j].latency;
           end
         end
       end
@@ -109,10 +131,10 @@ module iq_top
           n_f_preg_state[i].cnt = f_preg_state[i].cnt - 1;
         end
       end else begin
-        for (int j = 0; j < ALL_WAKEUP_W; j++) begin
-          if (all_wakeup[j].valid && all_wakeup[j].preg.typ == PREG_TYPE_F && all_wakeup[j].preg.idx == preg_idx_t'(i)) begin
+        for (int j = 0; j < F_WAKEUP_W; j++) begin
+          if (f_wakeup[j].valid && f_wakeup[j].preg.idx == preg_idx_t'(i)) begin
             n_f_preg_state[i].counting = 1'b1;
-            n_f_preg_state[i].cnt = all_wakeup[j].latency;
+            n_f_preg_state[i].cnt = f_wakeup[j].latency;
           end
         end
       end
@@ -204,7 +226,8 @@ module iq_top
   iq_int #(
     .SIZE(SIZE_INT),
     .DISPATCH_W(DISPATCH_W_INT),
-    .WAKEUP_W(ALL_WAKEUP_W)
+    .I_WAKEUP_W(I_WAKEUP_W),
+    .F_WAKEUP_W(F_WAKEUP_W)
   ) u_iq_int (
     .clk  (clk),
     .rst  (rst),
@@ -218,8 +241,9 @@ module iq_top
     .disp_full(disp_full_int),
 
     // wakeup bus
-    .coming_wakeup (all_wakeup),
-    .sending_wakeup(all_wakeup[WAKEUP_W+:1]),
+    .coming_i_wakeup(i_wakeup),
+    .coming_f_wakeup(f_wakeup),
+    .sending_wakeup (int_wakeup),
 
     // ex_topのFFから
     .br_update_ff(br_update_ff),
@@ -232,7 +256,8 @@ module iq_top
   iq_mem #(
     .SIZE(SIZE_MEM),
     .DISPATCH_W(DISPATCH_W_MEM),
-    .WAKEUP_W(ALL_WAKEUP_W)
+    .I_WAKEUP_W(I_WAKEUP_W),
+    .F_WAKEUP_W(F_WAKEUP_W)
   ) u_iq_mem (
     .clk  (clk),
     .rst  (rst),
@@ -246,8 +271,9 @@ module iq_top
     .disp_full(disp_full_mem),
 
     // wakeup bus
-    .coming_wakeup (all_wakeup),
-    .sending_wakeup(all_wakeup[WAKEUP_W+1+:1]),
+    .coming_i_wakeup(i_wakeup),
+    .coming_f_wakeup(f_wakeup),
+    .sending_wakeup (),
 
     // ex_topのFFから
     .br_update_ff(br_update_ff),
@@ -261,7 +287,8 @@ module iq_top
   iq_float #(
     .SIZE(SIZE_FPU),
     .DISPATCH_W(DISPATCH_W_FPU),
-    .WAKEUP_W(ALL_WAKEUP_W)
+    .I_WAKEUP_W(I_WAKEUP_W),
+    .F_WAKEUP_W(F_WAKEUP_W)
   ) u_iq_float (
     .clk  (clk),
     .rst  (rst),
@@ -275,8 +302,9 @@ module iq_top
     .disp_full(disp_full_fpu),
 
     // wakeup bus
-    .coming_wakeup (all_wakeup),
-    .sending_wakeup(all_wakeup[WAKEUP_W+2+:3]),
+    .coming_i_wakeup(i_wakeup),
+    .coming_f_wakeup(f_wakeup),
+    .sending_wakeup (fpu_wakeup),
 
     // ex_topのFFから
     .br_update_ff(br_update_ff),

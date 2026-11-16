@@ -109,10 +109,6 @@ module backend_top
   logic fdiv_blocked;
   logic fsqrt_blocked;
 
-  wakeup_t coming_wakeup[2];
-  assign coming_wakeup[0] = slow_wakeup_fpu;
-  assign coming_wakeup[1] = slow_wakeup_mem;
-
   iq_top #(
     .I_PREG_NUM(NUM_PREG_I),
     .F_PREG_NUM(NUM_PREG_F),
@@ -121,8 +117,7 @@ module backend_top
     .SIZE_FPU(SIZE_FPU),
     .DISPATCH_W_INT(DISPATCH_W_INT),
     .DISPATCH_W_MEM(DISPATCH_W_MEM),
-    .DISPATCH_W_FPU(DISPATCH_W_FPU),
-    .WAKEUP_W(2)
+    .DISPATCH_W_FPU(DISPATCH_W_FPU)
   ) u_iq_top (
     .clk(clk),
     .rst(rst),
@@ -136,7 +131,8 @@ module backend_top
     .disp_valid_fpu(disp_valid_fpu),
     .disp_uop_fpu(disp_uop_fpu),
     .disp_full_fpu(disp_full_fpu),
-    .coming_wakeup(coming_wakeup),
+    .slow_wakeup_fpu(slow_wakeup_fpu),
+    .slow_wakeup_mem(slow_wakeup_mem),
     .br_update_ff(br_update_ff),
     .fdiv_blocked(fdiv_blocked),
     .fsqrt_blocked(fsqrt_blocked),
