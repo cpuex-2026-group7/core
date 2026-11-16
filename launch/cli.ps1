@@ -59,12 +59,12 @@ function Show-Help {
     Write-Row 'errors'  '前回の全体のビルドのエラーと警告'
     Write-Host ''
     Write-Host '  対象' -ForegroundColor Yellow
-    Write-Row '（なし） / top'      '全体（top.sv）。.xpr のプロジェクトでビルド' 'Green'
+    Write-Row '（なし） / top'      '全体（core_top.sv）。.xpr のプロジェクトでビルド' 'Green'
     Write-Row 'backend'             'backend_top だけ' 'Green'
-    Write-Row 'iq_top, lsu_top ...' 'そのモジュールだけ。結果は timing\<名前>\' 'Green'
+    Write-Row 'iq_top, lsu_top ...' 'そのモジュールだけ。結果は build_report\<名前>\' 'Green'
     Write-Host ''
     Write-Host '  オプション' -ForegroundColor Yellow
-    Write-Row 'CLOCK=100' 'クロック（100 / 100mhz / 10ns）。既定 80MHz。全体には効かない（clk_wiz_core で決まる）' 'Magenta'
+    Write-Row 'CLOCK=100' 'クロック（100 / 100mhz / 10ns）。既定 80MHz。全体は clk_wiz_core と core_top の CLK_HZ に入る' 'Magenta'
     Write-Row 'N=20'      'クリティカルパスをワースト 20 本（既定 10 本）' 'Magenta'
     Write-Row 'SYNTH=1'   'view を合成までにする。全体の open は合成の結果を開く' 'Magenta'
     Write-Row 'CLEAN=1'   '全体の合成と配置配線をやり直す' 'Magenta'
@@ -117,13 +117,13 @@ function Read-Result([string]$name, [string]$summary, [string]$util, [string]$dc
 function Show-List {
     $rows = @()
     $impl = Join-Path $Root 'core.runs\impl_1'
-    if (Test-Path (Join-Path $impl 'top_routed.dcp')) {
-        $rows += Read-Result 'top' (Join-Path $impl 'top_timing_summary_routed.rpt') `
-            (Join-Path $impl 'top_utilization_placed.rpt') (Join-Path $impl 'top_routed.dcp') 'routed'
+    if (Test-Path (Join-Path $impl 'core_top_routed.dcp')) {
+        $rows += Read-Result 'top' (Join-Path $impl 'core_top_timing_summary_routed.rpt') `
+            (Join-Path $impl 'core_top_utilization_placed.rpt') (Join-Path $impl 'core_top_routed.dcp') 'routed'
     }
-    $timing = Join-Path $Root 'timing'
-    if (Test-Path $timing) {
-        foreach ($d in Get-ChildItem $timing -Directory) {
+    $reports = Join-Path $Root 'build_report'
+    if (Test-Path $reports) {
+        foreach ($d in Get-ChildItem $reports -Directory) {
             $top = if ($d.Name -eq 'backend') { 'backend_top' } else { $d.Name }
             $best = $null
             foreach ($kind in 'routed', 'synth') {

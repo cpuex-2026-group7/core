@@ -93,10 +93,10 @@ module tb_lsu_top
   logic            [DC_TAG_W-1:0] dc_req_tag_ff;
   logic            [MAX_BR-1:0] dc_req_brmask_ff;
   logic                         dc_req_accepted;
-  logic                         dc_resp_valid;
-  logic                         dc_resp_ack;
-  logic            [      31:0] dc_resp_rdata;
-  logic            [DC_TAG_W-1:0] dc_resp_tag;
+  logic                         dc_resp_valid_ff;
+  logic                         dc_resp_ack_ff;
+  logic            [      31:0] dc_resp_rdata_ff;
+  logic            [DC_TAG_W-1:0] dc_resp_tag_ff;
   logic            [MAX_BR-1:0] dc_br_kill_mask_ff;
   logic            [MAX_BR-1:0] dc_br_resolve_mask_ff;
   logic                         dc_kill_all_ff;
@@ -136,10 +136,10 @@ module tb_lsu_top
     commit_ld <= t_commit_ld;
     commit_st <= t_commit_st;
     dc_req_accepted <= t_dc_req_accepted;
-    dc_resp_valid <= t_dc_resp_valid;
-    dc_resp_ack <= t_dc_resp_ack;
-    dc_resp_rdata <= t_dc_resp_rdata;
-    dc_resp_tag <= t_dc_resp_tag;
+    dc_resp_valid_ff <= t_dc_resp_valid;
+    dc_resp_ack_ff <= t_dc_resp_ack;
+    dc_resp_rdata_ff <= t_dc_resp_rdata;
+    dc_resp_tag_ff <= t_dc_resp_tag;
   end
 
   // ---------------- 乱数とアドレス ----------------

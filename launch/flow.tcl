@@ -5,11 +5,11 @@
 #   vivado -mode batch -nojournal -notrace -source launch/boot.tcl -tclargs [モード] [対象] [オプション]
 #
 # 対象（どのモードでも同じ）:
-#   （なし） 全体（top.sv）。.xpr のプロジェクトでビルドする。top と書いても同じ
+#   （なし） 全体（core_top.sv）。.xpr のプロジェクトでビルドする。top と書いても同じ
 #   backend  backend_top だけ
 #   <名前>   そのモジュールだけ（例 iq_top、lsu_top）
 #   backend とモジュールは .xpr を使わず out-of-context で合成・配置配線する。
-#   結果は timing/<名前>/（backend は timing/backend/）に保存（配置の図は placement.svg）
+#   結果は build_report/<名前>/（backend は build_report/backend/）に保存（配置の図は placement.svg）
 #
 # モード:
 #   all      全体：必要ならビットストリームを作り、ボードに書き込む（全体だけ）
@@ -28,7 +28,7 @@
 # オプション:
 #   synth    合成で止める（配線遅延は見積もり）。build / view で使う
 #   N        クリティカルパスをワースト N 本表示（既定 10 本）
-#   100mhz   クロックを指定（10ns とも書ける。既定 12.5ns = 80MHz）。全体は clk_wiz_core で決まるので効かない
+#   100mhz   クロックを指定（10ns とも書ける。既定 12.5ns = 80MHz）。全体は clk_wiz_core の clk_out1 と core_top の CLK_HZ に入れる
 #   clean    全体の合成と配置配線を強制的にやり直す
 #   strategy:<名前>        配置配線の strategy（Vivado の名前。例 Performance_Explore）。無ければ既定
 #   synth_strategy:<名前>  合成の strategy（例 Flow_PerfOptimized_high）。無ければ既定
@@ -42,9 +42,9 @@
 set root_dir [file dirname [file dirname [file normalize [info script]]]]
 
 # Vivado はカレントディレクトリにファイルを出す（2025.2 の dfx_runtime.txt など）ので、
-# リポジトリ直下に出ないよう gitignore 済みの timing/ に移っておく
-file mkdir [file join $root_dir timing]
-cd [file join $root_dir timing]
+# リポジトリ直下に出ないよう gitignore 済みの build_report/ に移っておく
+file mkdir [file join $root_dir build_report]
+cd [file join $root_dir build_report]
 
 proc die {msg} {
     puts stderr "\n*** FAILED: $msg\n"
@@ -181,20 +181,32 @@ proc path_by_module {cells} {
     return $groups
 }
 
-proc show_critical_paths {n} {
+# 全体の前回の結果を開く（配置配線が終わっていればその結果、無ければ合成の結果）。どちらを開いたかを返す
+proc open_whole_result {} {
     set synth [get_runs synth_1]
     set impl  [get_runs impl_1]
     if {[get_property PROGRESS $impl] eq "100%" && ![run_failed $impl]} {
         open_run impl_1
-        set stage "after place & route (impl_1)"
+        return "after place & route (impl_1)"
     } elseif {[get_property PROGRESS $synth] eq "100%" && ![run_failed $synth]} {
         open_run synth_1
-        set stage "after synthesis (synth_1) - net delays are ESTIMATES"
-    } else {
-        die "no finished synthesis/implementation. run 'build' first"
+        return "after synthesis (synth_1) - net delays are ESTIMATES"
     }
-    report_critical_paths $n $stage [file join $::root_dir timing]
-    report_path_groups [file join $::root_dir timing]
+    die "no finished synthesis/implementation. run 'build' first"
+}
+
+# 全体の前回の結果の、階層ごとの回路規模を表示し、build_report/utilization_hier.rpt に保存する
+proc show_whole_utilization {} {
+    set stage [open_whole_result]
+    section "Utilization ($stage)"
+    report_utilization -hierarchical -file [file join $::root_dir build_report utilization_hier.rpt]
+    puts [report_utilization -hierarchical -hierarchical_depth 3 -return_string]
+}
+
+proc show_critical_paths {n} {
+    set stage [open_whole_result]
+    report_critical_paths $n $stage [file join $::root_dir build_report]
+    report_path_groups [file join $::root_dir build_report]
 }
 
 # 今開いているデザインのクリティカルパスを表示し、Vivado の詳しいレポートを dir に保存する
@@ -389,7 +401,7 @@ proc find_sv_files {dir} {
     return $files
 }
 
-# プロジェクトに入れる .sv：src/ の下（src/ip と *_repository の下は除く）と、FPU リポジトリの src/ の下
+# プロジェクトに入れる .sv：src/ の下（src/ip と *_repository の下は除く）と、FPU リポジトリの src/、memory リポジトリの rtl/ の下
 proc project_sv_files {} {
     set src [file normalize [file join $::root_dir src]]
     set want {}
@@ -404,6 +416,12 @@ proc project_sv_files {} {
         foreach f [find_sv_files $fpu] { lappend want [file normalize $f] }
     } else {
         puts "WARNING: $fpu not found"
+    }
+    set mem [file join $src memory memory_repository rtl]
+    if {[file isdirectory $mem]} {
+        foreach f [find_sv_files $mem] { lappend want [file normalize $f] }
+    } else {
+        puts "WARNING: $mem not found"
     }
     return $want
 }
@@ -440,6 +458,10 @@ proc sync_sources {} {
     foreach f $added   { puts "  + [string range $f [expr {[string length $::root_dir] + 1}] end]" }
     foreach f $removed { puts "  - [string range $f [expr {[string length $::root_dir] + 1}] end]" }
     puts "sources: [llength $want] files (added [llength $added], removed [llength $removed])"
+    if {[get_property top [get_filesets sources_1]] ne "core_top"} {
+        set_property top core_top [get_filesets sources_1]
+        puts "  top -> core_top"
+    }
 }
 
 # ---------------------------------------------------------------
@@ -448,10 +470,11 @@ proc sync_sources {} {
 
 # IP は xci を git に入れず（Vivado の版で形式が変わる）、src/ip/<名前>/ に今の Vivado で作る。
 # clk_wiz_core はクロックを全部作る：clk_out1 = コアと memory（UART も含む）、clk_out2 = MIG 用の 200MHz。
+# clk_out1 の CORE_MHZ は sync_ips が ::core_mhz（CLOCK の指定、無ければ 80MHz）に置き換える。
 # 残りは memory の IP で、設定は memory リポジトリの ip/vivado2020_2_ips/create_ips_2020_2.tcl と同じ（版の指定だけ外している）
 set ::ip_specs {
     {clk_wiz_core clk_wiz {
-        CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 80.000
+        CONFIG.CLKOUT1_REQUESTED_OUT_FREQ CORE_MHZ
         CONFIG.CLKOUT2_USED true
         CONFIG.CLKOUT2_REQUESTED_OUT_FREQ 200.000
         CONFIG.CLKOUT3_USED false
@@ -518,6 +541,7 @@ proc sync_ips {} {
     }
     foreach spec $::ip_specs {
         lassign $spec name kind config
+        set config [string map [list CORE_MHZ $::core_mhz] $config]
         set dir [file join $ipdir $name]
         set xci [file join $dir $name.xci]
         if {[llength [get_ips -quiet $name]] == 0 && [file exists $xci]} {
@@ -545,14 +569,15 @@ proc sync_ips {} {
     }
 }
 
-# memory リポジトリの constrs/*.xdc を src/constraints/ に写し、src/constraints/*.xdc をプロジェクトに揃える。
+# memory リポジトリの constrs/ddr2_pins.xdc を src/constraints/ に写し、src/constraints/*.xdc をプロジェクトに揃える。
 # 中身が同じなら写さない（日付が変わると毎回合成からやり直しになる）
 proc sync_constraints {} {
     section "Sync constraints"
     set dst [file join $::root_dir src constraints]
     set mem [file join $::root_dir src memory memory_repository constrs]
     if {![file isdirectory $mem]} { puts "WARNING: $mem not found" }
-    foreach f [glob -nocomplain -directory $mem *.xdc] {
+    # ボードのピンは Nexys-A7-100T-Master.xdc に書くので、memory からは DDR2 のピンだけ持ってくる
+    foreach f [glob -nocomplain -directory $mem ddr2_pins.xdc] {
         set to [file join $dst [file tail $f]]
         set new [read_bytes $f]
         if {[file exists $to] && [read_bytes $to] eq $new} { continue }
@@ -585,7 +610,7 @@ proc read_bytes {f} {
 }
 
 # .xpr が無いときに、フォルダ名のプロジェクト（core.xpr）を作る。
-# src/ の .sv（src/ip と *_repository の下は除く）、制約、IP、fib.mem を登録し、top を top にする
+# src/ の .sv（src/ip と *_repository の下は除く）、制約、IP、fib.mem を登録し、core_top を top にする
 proc create_core_project {board_found} {
     set dir $::root_dir
     set name [file tail $dir]
@@ -619,7 +644,7 @@ proc create_core_project {board_found} {
 
     sync_constraints
 
-    set_property top top [get_filesets sources_1]
+    set_property top core_top [get_filesets sources_1]
     update_compile_order -fileset sources_1
     puts "[llength $files] sources added"
     close_project
@@ -783,7 +808,7 @@ proc hierarchy_sv_files {top} {
 }
 
 proc backend_out_dir {top} {
-    return [file join $::root_dir timing [expr {$top eq "backend_top" ? "backend" : $top}]]
+    return [file join $::root_dir build_report [expr {$top eq "backend_top" ? "backend" : $top}]]
 }
 
 # モジュール単位の前回の結果（配線後と合成後のうち新しい方）を開き、どちらを開いたかを返す
@@ -849,6 +874,17 @@ proc check_strategy {run name} {
         error "unknown strategy for [get_property NAME $run]: $name\n  choose from: [join $names {, }]"
     }
     return $name
+}
+
+# core_top の CLK_HZ（UART のボーレートなどに使う）を clk_wiz_core の clk_out1 と同じ周波数にする
+proc apply_core_clock {} {
+    set fs [get_filesets sources_1]
+    set want "CLK_HZ=[expr {round($::core_mhz * 1e6)}]"
+    puts "core clock: $::core_mhz MHz ($want)"
+    if {[get_property generic $fs] ne $want} {
+        set_property generic $want $fs
+        catch {reset_run [get_runs synth_1]}
+    }
 }
 
 # 全体：synth_1 / impl_1 の strategy を設定する（指定が無ければ既定に戻す）。変わった run はやり直す
@@ -1387,7 +1423,7 @@ if {[llength $names] > 1} {
 }
 
 # 対象：名前が無いか top なら全体（.xpr のプロジェクト）、backend なら backend_top、
-# それ以外はそのモジュールだけを out-of-context で（.xpr は使わない。結果は timing/<名前>/）
+# それ以外はそのモジュールだけを out-of-context で（.xpr は使わない。結果は build_report/<名前>/）
 set target [expr {[llength $names] == 1 ? [lindex $names 0] : "top"}]
 set whole  [expr {$target eq "top"}]
 
@@ -1406,9 +1442,8 @@ if {!$whole && $mode in {all program ip errors}} {
 if {$synth_only && $mode in {all program}} {
     die "'synth' can't be used with '$mode' (it needs a bitstream)"
 }
-if {$whole && $period_given} {
-    puts "WARNING: the clock of the whole design is set by clk_wiz_core, ignore [format %.3f $period] ns"
-}
+# 全体のクロック（MHz）。CLOCK を付けなければ 80MHz
+set ::core_mhz [format %.3f [expr {$whole && $period_given ? 1000.0 / $period : 80.0}]]
 
 # ---------------------------------------------------------------
 # モジュール単位（.xpr を使わない）
@@ -1480,6 +1515,7 @@ open_project [lindex $xprs 0]
 if {$fetch} {
     sync_sources
     sync_ips
+    apply_core_clock
     sync_constraints
     apply_project_strategies $impl_strategy $synth_strategy
 }
@@ -1508,7 +1544,7 @@ switch -- $mode {
     }
     program { program_device [bitfile_path] }
     errors  { set rc [expr {[show_run_messages] > 0}]; show_timing }
-    status  { show_status; show_timing }
+    status  { show_status; show_timing; show_whole_utilization }
     timing  { show_critical_paths $npaths }
     ip      { fix_ips }
 }

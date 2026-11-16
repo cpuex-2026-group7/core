@@ -31,7 +31,7 @@ sim/obj_dir/
 *.fst
 *.dump
 
-timing/
+build_report/
 
 # keep: *.xpr, *.srcs/, build.tcl, .gitignore
 
