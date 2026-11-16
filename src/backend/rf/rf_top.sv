@@ -54,6 +54,30 @@ module rf_top
   localparam int R_INT = 5;
   localparam int W_INT = 3;
 
+  localparam int ENTRY_WIDTH_FLOAT = 32;
+  localparam int R_FLOAT = 7;
+  localparam int W_FLOAT = 4;
+
+  // 書き込みをI/Fに分ける
+  ex_wb_t wb_i[  W_INT];
+  ex_wb_t wb_f[W_FLOAT];
+
+  function automatic ex_wb_t type_check(input ex_wb_t w, input preg_type_t typ);
+    type_check = w;
+    type_check.valid = w.valid && w.rd.typ == typ;
+  endfunction
+
+  always_comb begin
+    wb_i[0] = type_check(wb_alu[0], PREG_TYPE_I);
+    wb_i[1] = type_check(wb_mem[0], PREG_TYPE_I);
+    wb_i[2] = type_check(wb_fpu[1], PREG_TYPE_I);
+
+    wb_f[0] = type_check(wb_mem[0], PREG_TYPE_F);
+    wb_f[1] = type_check(wb_fpu[0], PREG_TYPE_F);
+    wb_f[2] = type_check(wb_fpu[1], PREG_TYPE_F);
+    wb_f[3] = wb_fpu[2];
+  end
+
   word_t r_data_int[R_INT];
   // INT
   multi_port_ram #(
@@ -63,24 +87,14 @@ module rf_top
     .W(W_INT)
   ) u_rf_int (
     .clk(clk),
-    .w_en(
-    '{
-      wb_alu[0].valid & wb_alu[0].rd.typ == PREG_TYPE_I,
-      wb_mem[0].valid & wb_mem[0].rd.typ == PREG_TYPE_I,
-      wb_fpu[1].valid & wb_fpu[1].rd.typ == PREG_TYPE_I
-    }
-    ),
-    .w_addr('{wb_alu[0].rd.idx, wb_mem[0].rd.idx, wb_fpu[1].rd.idx}),
-    .w_data('{wb_alu[0].value, wb_mem[0].value, wb_fpu[1].value}),
+    .w_en('{wb_i[0].valid, wb_i[1].valid, wb_i[2].valid}),
+    .w_addr('{wb_i[0].rd.idx, wb_i[1].rd.idx, wb_i[2].rd.idx}),
+    .w_data('{wb_i[0].value, wb_i[1].value, wb_i[2].value}),
     .r_addr(
     '{rr_int_ff[0].rs1.idx, rr_int_ff[0].rs2.idx, rr_mem_ff[0].rs1.idx, rr_mem_ff[0].rs2.idx, rr_fpu_ff[1].rs1.idx}
     ),
     .r_data(r_data_int)
   );
-
-  localparam int ENTRY_WIDTH_FLOAT = 32;
-  localparam int R_FLOAT = 7;
-  localparam int W_FLOAT = 4;
 
   word_t r_data_float[R_FLOAT];
   // FLOAT
@@ -91,16 +105,9 @@ module rf_top
     .W(W_FLOAT)
   ) u_rf_float (
     .clk(clk),
-    .w_en(
-    '{
-      wb_mem[0].valid & wb_mem[0].rd.typ == PREG_TYPE_F,
-      wb_fpu[0].valid & wb_fpu[0].rd.typ == PREG_TYPE_F,
-      wb_fpu[1].valid & wb_fpu[1].rd.typ == PREG_TYPE_F,
-      wb_fpu[2].valid & wb_fpu[2].rd.typ == PREG_TYPE_F
-    }
-    ),
-    .w_addr('{wb_mem[0].rd.idx, wb_fpu[0].rd.idx, wb_fpu[1].rd.idx, wb_fpu[2].rd.idx}),
-    .w_data('{wb_mem[0].value, wb_fpu[0].value, wb_fpu[1].value, wb_fpu[2].value}),
+    .w_en('{wb_f[0].valid, wb_f[1].valid, wb_f[2].valid, wb_f[3].valid}),
+    .w_addr('{wb_f[0].rd.idx, wb_f[1].rd.idx, wb_f[2].rd.idx, wb_f[3].rd.idx}),
+    .w_data('{wb_f[0].value, wb_f[1].value, wb_f[2].value, wb_f[3].value}),
     .r_addr(
     '{
       rr_mem_ff[0].rs2.idx,
@@ -115,34 +122,51 @@ module rf_top
     .r_data(r_data_float)
   );
 
-  // WBで書いている値からバイパス
-  ex_wb_t wb_all[5];
-  assign wb_all = '{wb_alu[0], wb_mem[0], wb_fpu[0], wb_fpu[1], wb_fpu[2]};
-
-  function automatic word_t apply_type_none_and_bypass(preg_t preg, word_t val);
-    if (preg.typ == PREG_TYPE_NONE) begin
-      return '0;
-    end else begin
-      // WBからのbypassを適用
-      for (int i = 0; i < 5; i++) begin
-        if (wb_all[i].valid && wb_all[i].rd == preg) begin
-          return wb_all[i].value;
-        end
+  // WBとEXからのバイパス
+  function automatic word_t apply_bypass_i(preg_idx_t idx, word_t val);
+    // 書き込みから
+    for (int i = 0; i < W_INT; i++) begin
+      if (wb_i[i].valid && wb_i[i].rd.idx == idx) begin
+        return wb_i[i].value;
       end
-      // EXからのbypassを適用
-      if (preg.typ == PREG_TYPE_F) begin
-        for (int i = 0; i < 2; i++) begin
-          if (bypass_fpu_f[i].valid && bypass_fpu_f[i].rd == preg) begin
-            return bypass_fpu_f[i].value;
-          end
-        end
-      end else begin
-        if (bypass_fpu_i[0].valid && bypass_fpu_i[0].rd == preg) begin
-          return bypass_fpu_i[0].value;
-        end
-      end
-      return val;
     end
+    // EXから
+    if (bypass_fpu_i[0].valid && bypass_fpu_i[0].rd.idx == idx) begin
+      return bypass_fpu_i[0].value;
+    end
+    return val;
+  endfunction
+
+  function automatic word_t apply_bypass_f(preg_idx_t idx, word_t val);
+    // 書き込みから
+    for (int i = 0; i < W_FLOAT; i++) begin
+      if (wb_f[i].valid && wb_f[i].rd.idx == idx) begin
+        return wb_f[i].value;
+      end
+    end
+    // EXから
+    for (int i = 0; i < 2; i++) begin
+      if (bypass_fpu_f[i].valid && bypass_fpu_f[i].rd.idx == idx) begin
+        return bypass_fpu_f[i].value;
+      end
+    end
+    return val;
+  endfunction
+
+  function automatic word_t get_val_i(preg_t preg, word_t val);
+    return preg.typ == PREG_TYPE_NONE ? '0 : apply_bypass_i(preg.idx, val);
+  endfunction
+
+  function automatic word_t get_val_f(preg_t preg, word_t val);
+    return preg.typ == PREG_TYPE_NONE ? '0 : apply_bypass_f(preg.idx, val);
+  endfunction
+
+  function automatic word_t get_val_i_or_f(preg_t preg, word_t i_val, word_t f_val);
+    case (preg.typ)
+      PREG_TYPE_I: return apply_bypass_i(preg.idx, i_val);
+      PREG_TYPE_F: return apply_bypass_f(preg.idx, f_val);
+      default: return '0;  // PREG_TYPE_NONE
+    endcase
   endfunction
 
   always_comb begin
@@ -151,8 +175,8 @@ module rf_top
     rr_ex_int[0].common.rd = rr_int_ff[0].rd;
     rr_ex_int[0].common.rs1 = rr_int_ff[0].rs1;
     rr_ex_int[0].common.rs2 = rr_int_ff[0].rs2;
-    rr_ex_int[0].common.rs1_val = apply_type_none_and_bypass(rr_int_ff[0].rs1, r_data_int[0]);
-    rr_ex_int[0].common.rs2_val = apply_type_none_and_bypass(rr_int_ff[0].rs2, r_data_int[1]);
+    rr_ex_int[0].common.rs1_val = get_val_i(rr_int_ff[0].rs1, r_data_int[0]);
+    rr_ex_int[0].common.rs2_val = get_val_i(rr_int_ff[0].rs2, r_data_int[1]);
     rr_ex_int[0].common.dest_fu = rr_int_ff[0].dest_fu;
     rr_ex_int[0].common.brmask = apply_br_resolve(rr_int_ff[0].brmask, br_update_ff);
     rr_ex_int[0].payload = rr_payload_int_ff[0];
@@ -162,9 +186,8 @@ module rf_top
     rr_ex_mem[0].common.rd = rr_mem_ff[0].rd;
     rr_ex_mem[0].common.rs1 = rr_mem_ff[0].rs1;
     rr_ex_mem[0].common.rs2 = rr_mem_ff[0].rs2;
-    rr_ex_mem[0].common.rs1_val = apply_type_none_and_bypass(rr_mem_ff[0].rs1, r_data_int[2]);
-    rr_ex_mem[0].common.rs2_val = apply_type_none_and_bypass(
-      rr_mem_ff[0].rs2, rr_mem_ff[0].rs2.typ == PREG_TYPE_F ? r_data_float[0] : r_data_int[3]);
+    rr_ex_mem[0].common.rs1_val = get_val_i(rr_mem_ff[0].rs1, r_data_int[2]);
+    rr_ex_mem[0].common.rs2_val = get_val_i_or_f(rr_mem_ff[0].rs2, r_data_int[3], r_data_float[0]);
     rr_ex_mem[0].common.dest_fu = rr_mem_ff[0].dest_fu;
     rr_ex_mem[0].common.brmask = apply_br_resolve(rr_mem_ff[0].brmask, br_update_ff);
     rr_ex_mem[0].payload = rr_payload_mem_ff[0];
@@ -175,8 +198,8 @@ module rf_top
     rr_ex_fpu[0].common.rd = rr_fpu_ff[0].rd;
     rr_ex_fpu[0].common.rs1 = rr_fpu_ff[0].rs1;
     rr_ex_fpu[0].common.rs2 = rr_fpu_ff[0].rs2;
-    rr_ex_fpu[0].common.rs1_val = apply_type_none_and_bypass(rr_fpu_ff[0].rs1, r_data_float[1]);
-    rr_ex_fpu[0].common.rs2_val = apply_type_none_and_bypass(rr_fpu_ff[0].rs2, r_data_float[2]);
+    rr_ex_fpu[0].common.rs1_val = get_val_f(rr_fpu_ff[0].rs1, r_data_float[1]);
+    rr_ex_fpu[0].common.rs2_val = get_val_f(rr_fpu_ff[0].rs2, r_data_float[2]);
     rr_ex_fpu[0].common.dest_fu = rr_fpu_ff[0].dest_fu;
     rr_ex_fpu[0].common.brmask = apply_br_resolve(rr_fpu_ff[0].brmask, br_update_ff);
     rr_ex_fpu[0].payload = rr_payload_fpu_ff[0];
@@ -186,9 +209,8 @@ module rf_top
     rr_ex_fpu[1].common.rd = rr_fpu_ff[1].rd;
     rr_ex_fpu[1].common.rs1 = rr_fpu_ff[1].rs1;
     rr_ex_fpu[1].common.rs2 = rr_fpu_ff[1].rs2;
-    rr_ex_fpu[1].common.rs1_val = apply_type_none_and_bypass(
-      rr_fpu_ff[1].rs1, rr_fpu_ff[1].rs1.typ == PREG_TYPE_F ? r_data_float[3] : r_data_int[4]);
-    rr_ex_fpu[1].common.rs2_val = apply_type_none_and_bypass(rr_fpu_ff[1].rs2, r_data_float[4]);
+    rr_ex_fpu[1].common.rs1_val = get_val_i_or_f(rr_fpu_ff[1].rs1, r_data_int[4], r_data_float[3]);
+    rr_ex_fpu[1].common.rs2_val = get_val_f(rr_fpu_ff[1].rs2, r_data_float[4]);
     rr_ex_fpu[1].common.dest_fu = rr_fpu_ff[1].dest_fu;
     rr_ex_fpu[1].common.brmask = apply_br_resolve(rr_fpu_ff[1].brmask, br_update_ff);
     rr_ex_fpu[1].payload = rr_payload_fpu_ff[1];
@@ -198,8 +220,8 @@ module rf_top
     rr_ex_fpu[2].common.rd = rr_fpu_ff[2].rd;
     rr_ex_fpu[2].common.rs1 = rr_fpu_ff[2].rs1;
     rr_ex_fpu[2].common.rs2 = rr_fpu_ff[2].rs2;
-    rr_ex_fpu[2].common.rs1_val = apply_type_none_and_bypass(rr_fpu_ff[2].rs1, r_data_float[5]);
-    rr_ex_fpu[2].common.rs2_val = apply_type_none_and_bypass(rr_fpu_ff[2].rs2, r_data_float[6]);
+    rr_ex_fpu[2].common.rs1_val = get_val_f(rr_fpu_ff[2].rs1, r_data_float[5]);
+    rr_ex_fpu[2].common.rs2_val = get_val_f(rr_fpu_ff[2].rs2, r_data_float[6]);
     rr_ex_fpu[2].common.dest_fu = rr_fpu_ff[2].dest_fu;
     rr_ex_fpu[2].common.brmask = apply_br_resolve(rr_fpu_ff[2].brmask, br_update_ff);
     rr_ex_fpu[2].payload = rr_payload_fpu_ff[2];

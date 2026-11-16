@@ -20,13 +20,13 @@ CYCLES ?= 200000
 SEED   ?= 1
 CXXOPT ?= -Os
 
-# 構成: SIZE_INT SIZE_MEM SIZE_FPU DW_INT DW_MEM DW_FPU WAKEUP_W BR_UPDATE_W
-CFG_base  := 16 16 16 1 1 1 2 1
-CFG_d2    := 16 16 16 2 2 2 2 1
-CFG_small := 4 2 4 2 1 2 2 1
-CFG_br2   := 8 8 8 1 2 1 3 2
-CFG_mix   := 16 4 8 2 1 2 3 1
-CFG_tiny  := 2 2 2 1 1 1 2 1
+# 構成: SIZE_INT SIZE_MEM SIZE_FPU DW_INT DW_MEM DW_FPU BR_UPDATE_W
+CFG_base  := 16 16 16 1 1 1 1
+CFG_d2    := 16 16 16 2 2 2 1
+CFG_small := 4 2 4 2 1 2 1
+CFG_br2   := 8 8 8 1 2 1 2
+CFG_mix   := 16 4 8 2 1 2 1
+CFG_tiny  := 2 2 2 1 1 1 1
 CONFIGS := base d2 small br2 mix tiny
 
 TEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
@@ -61,7 +61,7 @@ VFLAGS := --binary --timing --build-jobs 0 --verilate-jobs 1 --top-module tb_iq_
           -MAKEFLAGS OPT_FAST=$(CXXOPT) -MAKEFLAGS OPT_SLOW=$(CXXOPT) -MAKEFLAGS OPT_GLOBAL=$(CXXOPT)
 
 gparams = -GSIZE_INT=$(word 1,$(1)) -GSIZE_MEM=$(word 2,$(1)) -GSIZE_FPU=$(word 3,$(1)) -GDW_INT=$(word 4,$(1)) \
-          -GDW_MEM=$(word 5,$(1)) -GDW_FPU=$(word 6,$(1)) -GWAKEUP_W=$(word 7,$(1)) -GBR_UPDATE_W=$(word 8,$(1))
+          -GDW_MEM=$(word 5,$(1)) -GDW_FPU=$(word 6,$(1)) -GBR_UPDATE_W=$(word 7,$(1))
 
 .DEFAULT_GOAL := all
 # 1 構成のビルドで CPU を使い切る（--build-jobs 0）ので、構成は 1 つずつ回す。
