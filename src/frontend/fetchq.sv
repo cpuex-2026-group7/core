@@ -7,11 +7,11 @@ module fetchq #(
     input wire logic clk,
     input wire logic rst,
 
-    input wire isa::instr_t din,
+    input wire frontend_pkg::fetch_packet_t din,
     input wire logic push,
 
-    output isa::instr_t dout,
-    input  wire logic   pop,
+    output isa::frontend_pkg::fetch_packet_t dout,
+    input wire logic pop,
 
     output logic ready,
     output logic valid
@@ -19,8 +19,7 @@ module fetchq #(
 
   localparam int NENTRY = 2 ** IDX_WIDTH;
 
-  // TODO: Use fetch_packet_t as the queue entry type.
-  isa::instr_t data[NENTRY];
+  frontend_pkg::fetch_packet_t data[NENTRY];
 
   assign dout = data[ptr_head];
 
