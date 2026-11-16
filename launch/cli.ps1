@@ -59,7 +59,7 @@ function Show-Help {
     Write-Row 'errors'  '前回の全体のビルドのエラーと警告'
     Write-Host ''
     Write-Host '  対象' -ForegroundColor Yellow
-    Write-Row '（なし） / top'      '全体（top.sv）。.xpr のプロジェクトでビルド' 'Green'
+    Write-Row '（なし） / top'      '全体（core_top.sv）。.xpr のプロジェクトでビルド' 'Green'
     Write-Row 'backend'             'backend_top だけ' 'Green'
     Write-Row 'iq_top, lsu_top ...' 'そのモジュールだけ。結果は timing\<名前>\' 'Green'
     Write-Host ''

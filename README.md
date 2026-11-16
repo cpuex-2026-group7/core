@@ -100,7 +100,7 @@ make <コマンド> [対象] [オプション]
 
 | 対象 | 意味 |
 | --- | --- |
-| なし（か `top`） | 全体（top.sv）。core.xpr のプロジェクトでビルドする |
+| なし（か `top`） | 全体（core_top.sv）。core.xpr のプロジェクトでビルドする |
 | `backend` | backend_top だけ |
 | モジュール名（`iq_top`、`lsu_top` など） | そのモジュールだけ |
 

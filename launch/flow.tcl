@@ -5,7 +5,7 @@
 #   vivado -mode batch -nojournal -notrace -source launch/boot.tcl -tclargs [モード] [対象] [オプション]
 #
 # 対象（どのモードでも同じ）:
-#   （なし） 全体（top.sv）。.xpr のプロジェクトでビルドする。top と書いても同じ
+#   （なし） 全体（core_top.sv）。.xpr のプロジェクトでビルドする。top と書いても同じ
 #   backend  backend_top だけ
 #   <名前>   そのモジュールだけ（例 iq_top、lsu_top）
 #   backend とモジュールは .xpr を使わず out-of-context で合成・配置配線する。
@@ -389,7 +389,7 @@ proc find_sv_files {dir} {
     return $files
 }
 
-# プロジェクトに入れる .sv：src/ の下（src/ip と *_repository の下は除く）と、FPU リポジトリの src/ の下
+# プロジェクトに入れる .sv：src/ の下（src/ip と *_repository の下は除く）と、FPU リポジトリの src/、memory リポジトリの rtl/ の下
 proc project_sv_files {} {
     set src [file normalize [file join $::root_dir src]]
     set want {}
@@ -404,6 +404,12 @@ proc project_sv_files {} {
         foreach f [find_sv_files $fpu] { lappend want [file normalize $f] }
     } else {
         puts "WARNING: $fpu not found"
+    }
+    set mem [file join $src memory memory_repository rtl]
+    if {[file isdirectory $mem]} {
+        foreach f [find_sv_files $mem] { lappend want [file normalize $f] }
+    } else {
+        puts "WARNING: $mem not found"
     }
     return $want
 }
@@ -440,6 +446,10 @@ proc sync_sources {} {
     foreach f $added   { puts "  + [string range $f [expr {[string length $::root_dir] + 1}] end]" }
     foreach f $removed { puts "  - [string range $f [expr {[string length $::root_dir] + 1}] end]" }
     puts "sources: [llength $want] files (added [llength $added], removed [llength $removed])"
+    if {[get_property top [get_filesets sources_1]] ne "core_top"} {
+        set_property top core_top [get_filesets sources_1]
+        puts "  top -> core_top"
+    }
 }
 
 # ---------------------------------------------------------------
@@ -545,14 +555,15 @@ proc sync_ips {} {
     }
 }
 
-# memory リポジトリの constrs/*.xdc を src/constraints/ に写し、src/constraints/*.xdc をプロジェクトに揃える。
+# memory リポジトリの constrs/ddr2_pins.xdc を src/constraints/ に写し、src/constraints/*.xdc をプロジェクトに揃える。
 # 中身が同じなら写さない（日付が変わると毎回合成からやり直しになる）
 proc sync_constraints {} {
     section "Sync constraints"
     set dst [file join $::root_dir src constraints]
     set mem [file join $::root_dir src memory memory_repository constrs]
     if {![file isdirectory $mem]} { puts "WARNING: $mem not found" }
-    foreach f [glob -nocomplain -directory $mem *.xdc] {
+    # ボードのピンは Nexys-A7-100T-Master.xdc に書くので、memory からは DDR2 のピンだけ持ってくる
+    foreach f [glob -nocomplain -directory $mem ddr2_pins.xdc] {
         set to [file join $dst [file tail $f]]
         set new [read_bytes $f]
         if {[file exists $to] && [read_bytes $to] eq $new} { continue }
@@ -585,7 +596,7 @@ proc read_bytes {f} {
 }
 
 # .xpr が無いときに、フォルダ名のプロジェクト（core.xpr）を作る。
-# src/ の .sv（src/ip と *_repository の下は除く）、制約、IP、fib.mem を登録し、top を top にする
+# src/ の .sv（src/ip と *_repository の下は除く）、制約、IP、fib.mem を登録し、core_top を top にする
 proc create_core_project {board_found} {
     set dir $::root_dir
     set name [file tail $dir]
@@ -619,7 +630,7 @@ proc create_core_project {board_found} {
 
     sync_constraints
 
-    set_property top top [get_filesets sources_1]
+    set_property top core_top [get_filesets sources_1]
     update_compile_order -fileset sources_1
     puts "[llength $files] sources added"
     close_project

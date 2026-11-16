@@ -62,6 +62,51 @@ module clk_wiz_core (
   assign locked   = ~reset;
 endmodule
 """,
+    "fifo_generator_0": """
+module fifo_generator_0 (
+  input  logic rst, input logic wr_clk, input logic rd_clk,
+  input  logic [155:0] din, input logic wr_en, input logic rd_en,
+  output logic [155:0] dout, output logic full, output logic empty
+);
+  assign dout = '0;
+  assign full = 1'b0;
+  assign empty = 1'b1;
+endmodule
+""",
+    "fifo_generator_1": """
+module fifo_generator_1 (
+  input  logic rst, input logic wr_clk, input logic rd_clk,
+  input  logic [127:0] din, input logic wr_en, input logic rd_en,
+  output logic [127:0] dout, output logic full, output logic empty
+);
+  assign dout = '0;
+  assign full = 1'b0;
+  assign empty = 1'b1;
+endmodule
+""",
+    "mig_7series_0": """
+module mig_7series_0 (
+  output wire [12:0] ddr2_addr, output wire [2:0] ddr2_ba, output wire ddr2_cas_n,
+  output wire [0:0] ddr2_ck_n, output wire [0:0] ddr2_ck_p, output wire [0:0] ddr2_cke,
+  output wire ddr2_ras_n, output wire ddr2_we_n, inout wire [15:0] ddr2_dq,
+  inout wire [1:0] ddr2_dqs_n, inout wire [1:0] ddr2_dqs_p, output wire [0:0] ddr2_cs_n,
+  output wire [1:0] ddr2_dm, output wire [0:0] ddr2_odt,
+  input  logic [26:0] app_addr, input logic [2:0] app_cmd, input logic app_en, output logic app_rdy,
+  input  logic [127:0] app_wdf_data, input logic app_wdf_end, input logic [15:0] app_wdf_mask,
+  input  logic app_wdf_wren, output logic app_wdf_rdy,
+  output logic [127:0] app_rd_data, output logic app_rd_data_end, output logic app_rd_data_valid,
+  input  logic app_sr_req, input logic app_ref_req, input logic app_zq_req,
+  output logic app_sr_active, output logic app_ref_ack, output logic app_zq_ack,
+  output logic init_calib_complete, output logic ui_clk, output logic ui_clk_sync_rst,
+  input  logic sys_clk_i, input logic sys_rst
+);
+  assign {ddr2_addr, ddr2_ba, ddr2_cas_n, ddr2_ck_n, ddr2_ck_p, ddr2_cke, ddr2_ras_n, ddr2_we_n} = '0;
+  assign {ddr2_cs_n, ddr2_dm, ddr2_odt} = '0;
+  assign {app_rdy, app_wdf_rdy, app_rd_data, app_rd_data_end, app_rd_data_valid} = '0;
+  assign {app_sr_active, app_ref_ack, app_zq_ack, init_calib_complete, ui_clk_sync_rst} = '0;
+  assign ui_clk = sys_clk_i;
+endmodule
+""",
 }
 
 USE_COLOR = sys.stdout.isatty()
@@ -106,14 +151,19 @@ class Report:
 # ---------------------------------------------------------------------------
 # ファイル集め
 # ---------------------------------------------------------------------------
-# ビルドに使っていない他の班員のリポジトリ（中身は向こうの担当なので見ない）
-SKIP_DIRS = ["memory_repository"]
+# memory リポジトリは rtl/ の下だけ読む（archive/ や test/ はビルドに使わない）
+MEMORY_DIR = os.sep + "memory_repository" + os.sep
 
 
 def sv_files(subdir):
     files = sorted(glob.glob(os.path.join(ROOT, subdir, "**", "*.sv"), recursive=True))
     return [f for f in files if os.sep + "ip" + os.sep not in f
-            and not any(os.sep + d + os.sep in f for d in SKIP_DIRS)]
+            and (MEMORY_DIR not in f or MEMORY_DIR + "rtl" + os.sep in f)]
+
+
+def own_files(files):
+    """規約とスタイルを見るファイル（memory リポジトリは向こうの担当なので見ない）"""
+    return [f for f in files if MEMORY_DIR not in f]
 
 
 def select_files(ap, names):
@@ -168,7 +218,7 @@ def module_defs(files):
     """モジュール名 -> 定義しているファイル"""
     defs = {}
     for f in files:
-        for m in re.findall(r"^\s*module\s+(\w+)", open(f, encoding="utf-8", errors="replace").read(), re.M):
+        for m in re.findall(r"^\s*(?:module|interface)\s+(\w+)", open(f, encoding="utf-8", errors="replace").read(), re.M):
             defs[m] = f
     return defs
 
@@ -266,7 +316,15 @@ def run_verilator(rep, files, label, extra, verbose):
     vlt = os.path.join(ROOT, "lint.vlt")
     if os.path.exists(vlt):
         cmd.insert(1, vlt)
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    # memory リポジトリの警告は向こうの担当なので出さない（エラーは出す）
+    with tempfile.NamedTemporaryFile("w", suffix=".vlt", delete=False) as fh:
+        fh.write('`verilator_config\nlint_off -file "*/memory_repository/*"\n')
+        mem_vlt = fh.name
+    cmd.insert(1, mem_vlt)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    finally:
+        os.remove(mem_vlt)
     out = result.stdout + result.stderr
     if verbose:
         print(color(f"$ {' '.join(cmd)}", "dim"))
@@ -434,12 +492,12 @@ def run_all(rep, args):
 
     if args.module:
         top = "backend_top" if args.module == "backend" else args.module
-        defs = module_defs(mods)
+        defs = module_defs(pkgs + mods)
         if top not in defs:
             raise SystemExit(f"モジュール {top} が src/ に無い")
         files = hierarchy_files(top, defs)
         print(color(f"{top} から下: {len(files)} ファイル（package {len(used_packages(pkgs, files))} 個）", "dim"))
-        check_conventions(rep, files)
+        check_conventions(rep, own_files(files))
         with tempfile.TemporaryDirectory() as tmp:
             stubs = []
             for name, body in IP_STUBS.items():
@@ -449,12 +507,13 @@ def run_all(rep, args):
                         fh.write(f"// verilator lint_off UNUSEDSIGNAL\n// verilator lint_off DECLFILENAME\n{body}")
                     stubs.append(p)
             # top から下のファイルだけを渡す（関係ないファイルの書きかけで止まらないように）
-            run_verilator(rep, used_packages(pkgs, files) + files + stubs, top, ["--top-module", top], args.verbose)
-        run_verible(rep, files, args.verbose)
+            run_verilator(rep, list(dict.fromkeys(used_packages(pkgs, files) + files)) + stubs, top,
+                          ["--top-module", top], args.verbose)
+        run_verible(rep, own_files(files), args.verbose)
         finish(rep, args)
 
     check_xpr(rep)
-    check_conventions(rep, src)
+    check_conventions(rep, own_files(src))
 
     with tempfile.TemporaryDirectory() as tmp:
         defined = {m for f in mods for m in re.findall(r"^\s*module\s+(\w+)",
@@ -478,7 +537,7 @@ def run_all(rep, args):
                 run_verilator(rep, pkgs + mods + stubs + [tb], os.path.basename(tb),
                               ["--timing", "--top-module", m.group(1), "-Wno-INITIALDLY"], verbose)
 
-    run_verible(rep, src + tbs, args.verbose)
+    run_verible(rep, own_files(src + tbs), args.verbose)
     run_python(rep, args.verbose)
     finish(rep, args)
 

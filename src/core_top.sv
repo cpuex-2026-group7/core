@@ -1,7 +1,10 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module core_top (
+module core_top #(
+  parameter int CLK_HZ = 80_000_000,  // コアで使う周波数
+  parameter bit SIM_MODE = 1'b0  // memory用
+) (
   input  wire logic CLK100MHZ,
   input  wire logic CPU_RESETN,
   input  wire logic UART_TXD_IN,
@@ -23,9 +26,8 @@ module core_top (
   output wire [ 1:0] ddr2_dm,
   output wire [ 0:0] ddr2_odt
 );
-  localparam int CLK_HZ = 80_000_000;  // clk_wiz_core の clk_out1
   localparam int DC_TAG_W = lsu_types::DC_TAG_W;
-  localparam int MAX_BR = ooo_types::MAX_BR;
+  localparam int MAX_BR   = ooo_types::MAX_BR;
 
   // クロック生成
   logic clk, mig_clk, locked;
@@ -92,7 +94,7 @@ module core_top (
     .CORE_CLK_HZ(CLK_HZ),
     .DC_TAG_W(DC_TAG_W),
     .MAX_BR(MAX_BR),
-    .SIM_MODE(0)
+    .SIM_MODE(SIM_MODE)
   ) u_mem_top (
     .ddr2_addr(ddr2_addr),
     .ddr2_ba(ddr2_ba),
