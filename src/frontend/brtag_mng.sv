@@ -12,8 +12,11 @@ module brtag_mng #(
     output ooo_types::br_tag_t resp[DISPATCH_W],
     output logic [DISPATCH_W-1:0] resp_valid,
 
+    // squashed_brtag_mask[i] = |(brmask[i] & kill_mask)
+    // return_mask = resolve_mask | kill_mask | squashed_brtag_mask
     input wire logic [MAX_BR-1:0] return_mask,
 
+    output logic [MAX_BR-1:0] brmask[DISPATCH_W],
     output logic empty
 );
 
@@ -25,11 +28,15 @@ module brtag_mng #(
   assign empty = ~(|brtag_freelist);
 
   always_comb begin : find_entry
-    remaining = brtag_freelist;
+    remaining  = brtag_freelist;
+    resp_valid = '0;
     for (int i = 0; i < DISPATCH_W; i++) begin
-      selected_onehot[i] = remaining & (~remaining + 1);
-      remaining = remaining & ~selected_onehot[i];
-      resp_valid[i] = |selected_onehot[i];
+      brmask[i] = ~remaining;
+      if (req[i]) begin
+        selected_onehot[i] = remaining & (~remaining + 1);
+        remaining = remaining & ~selected_onehot[i];
+        resp_valid[i] = |selected_onehot[i];
+      end
     end
   end
 

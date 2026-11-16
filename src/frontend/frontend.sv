@@ -2,7 +2,12 @@
 `default_nettype none
 
 // TODO
-// br_tag management
+// fetch w >= 2 support
+// fetch_W and dispatch_W are mixed in frontend.
+// they should be fetch_w. need fix.
+// pc should be 16 bit. use types::pc_t
+
+// next: fetch_packet_t, ftq_data_t
 
 module frontend #(
     parameter int BTB_TAG_WIDTH = 9,

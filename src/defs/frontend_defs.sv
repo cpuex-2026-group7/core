@@ -23,7 +23,12 @@ package frontend_pkg;
     PCSRCF0_BRD
   } pc_src_F0_t;
 
-  typedef struct packed {branch_type_t btype;} ftq_bp_data_t;
+  typedef struct packed {
+    branch_type_t btype;
+    logic predict_taken;
+    logic actually_taken;
+    logic actually_taken_valid;
+  } ftq_bp_data_t;
   typedef struct packed {
     types::addr_t pc;
     ftq_bp_data_t bp_data;
@@ -31,6 +36,11 @@ package frontend_pkg;
 
   typedef struct packed {
     isa::instr_t instr[FETCH_W];
+    ooo_types::ftq_idx_t ftq_idx[FETCH_W];
+    logic [FETCH_W-1:0] ftq_idx_valid;
+    ooo_types::brmask_t brmask[FETCH_W];
+    ooo_types::br_tag_t brtag[FETCH_W];
+    logic [FETCH_W-1:0] brtag_valid;
   } fetch_packet_t;
 
 endpackage
