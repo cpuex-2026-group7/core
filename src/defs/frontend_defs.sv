@@ -41,6 +41,9 @@ package frontend_pkg;
     ooo_types::brmask_t brmask[FETCH_W];
     ooo_types::br_tag_t brtag[FETCH_W];
     logic [FETCH_W-1:0] brtag_valid;
+    types::pc_t pc_head;
+    types::pc_t predict_pc[FETCH_W];
+    logic [FETCH_W-1:0] predict_pc_valid;
   } fetch_packet_t;
 
 endpackage

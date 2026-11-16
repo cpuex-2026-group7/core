@@ -15,8 +15,8 @@ module decoder #(
   // - pc
   // - predict_pc
   // - ftq_idx
-  // - brmask? (frontend does not support brtag management for now 11/12.)
-  // - br_tag? (frontend does not support brtag management for now 11/12.)
+  // - brmask
+  // - br_tag
 
   // decoderが構成する情報
   // - imm_type
