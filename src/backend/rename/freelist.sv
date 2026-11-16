@@ -5,8 +5,6 @@
 
 // 1'b1 represents free slot.
 
-// TODO alloc list support
-
 // assumes NUM_PREG_I = NUM_PREG_F
 // if you want to let them be different,
 // just disable entries by assigning zeros to freelist.
@@ -24,14 +22,14 @@ module freelist #(
     input wire logic br_alive[MAX_BR],
 
     input wire ooo_types::preg_type_t req_alloc[DISPATCH_W],
-    output wire ooo_types::preg_t resp_alloc[DISPATCH_W],
-    output wire logic [DISPATCH_W-1:0] resp_valid,
+    output ooo_types::preg_t resp_alloc[DISPATCH_W],
+    output logic [DISPATCH_W-1:0] resp_valid,
 
     // idk if DISPATCH_W is suitable here.
     input wire ooo_types::preg_t req_return[DISPATCH_W],
 
-    output wire logic empty_I,
-    output wire logic empty_F
+    output logic empty_I,
+    output logic empty_F
 );
 
   logic [PREG_W-1:1] alloc_list_I;
@@ -80,13 +78,13 @@ module freelist #(
     for (int i = 0; i < DISPATCH_W; ++i) begin
       unique case (req_alloc[i])
         ooo_types::PREG_TYPE_I: begin
-          selected_onehot[i] = remaining_I & (~remaining_I + 1'b1);
+          selected_onehot[i] = remaining_I & (~remaining_I + 1);
           remaining_I = remaining_I & ~selected_onehot[i];
           resp_valid[i] = |selected_onehot[i];
           alloc_preg_I = alloc_preg_F | selected_onehot[i];
         end
         ooo_types::PREG_TYPE_F: begin
-          selected_onehot[i] = remaining_F & (~remaining_F + 1'b1);
+          selected_onehot[i] = remaining_F & (~remaining_F + 1);
           remaining_F = remaining_F & ~selected_onehot[i];
           resp_valid[i] = |selected_onehot[i];
           alloc_preg_F = alloc_preg_F | selected_onehot[i];
