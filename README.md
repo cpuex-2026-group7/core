@@ -106,7 +106,7 @@ make <コマンド> [対象] [オプション]
 
 | オプション | 意味 |
 | --- | --- |
-| `CLOCK=100` | クロック（`100` / `100mhz` / `10ns`）。既定は 80MHz。全体は clk_wiz_0 で決まるので効かない |
+| `CLOCK=100` | クロック（`100` / `100mhz` / `10ns`）。既定は 80MHz。全体は clk_wiz_core の clk_out1 と core_top の `CLK_HZ` に入る |
 | `N=20` | クリティカルパスを何本表示するか（既定 10 本） |
 | `SYNTH=1` | view を合成までにする。全体の open は合成の結果を開く |
 | `CLEAN=1` | 全体の合成と配置配線を強制的にやり直す |
@@ -126,7 +126,7 @@ make program                   # 全体をビルドしてボードに書き込�
 
 - .xpr を使わず、out-of-context で合成・配置配線する。ピンを割り当てないので、ボードには書き込めない（回路規模とクロックを見る用）
 - ポートの外は遅延 0 とみなす（入力から FF、FF から出力のパスも見る）
-- 結果は `timing/<名前>/`（backend は `timing/backend/`）に出る。git には入れない
+- 結果は `build_report/<名前>/`（backend は `build_report/backend/`）に出る。git には入れない
   - `summary.rpt` / `paths.rpt`：Vivado のタイミングレポート
   - `groups.rpt`：違反パスを「始点の FF の束 → 終点の束」でまとめて悪い順に並べたもの
   - `utilization.rpt` / `utilization_hier.rpt`：回路規模
