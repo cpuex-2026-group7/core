@@ -47,7 +47,8 @@
 // テストベンチは rename / dispatch / ROB の代わりをする
 //   - 物理レジスタは I / F それぞれ 64 本を自分で割り当てる（rename はしない）。rd には空いているものを取り、
 //     読み手がもういなくなった書き込み済みのものを空ける。ソースは書き込み済みか、生きている命令が書く予定のものから選ぶ
-//   - 命令はプログラム順に、1 サイクルに各 IQ に 1 つまで出す。出せない命令が来たらそのサイクルはそこで止める
+//   - 命令はプログラム順に、1 サイクルに DISPATCH_W 個まで出す（同じ IQ にも DISPATCH_W 個まで、IQ のレーンはプログラム順）。
+//     出せない命令が来たらそのサイクルはそこで止める
 //     mispredict（br_update_ff）と flush のサイクルは dispatch しない（LSU が受け付けないので）
 //   - LSU にはそのサイクルに出した順のスロットで load / store / 分岐（tail の snapshot 用）を出す
 //   - rob_idx / br_tag は生きている命令の中で重ならないように割り当てる。ldq_idx / stq_idx は LSU が返すもの
@@ -90,8 +91,9 @@ module tb_backend_top
 ();
 
   localparam int MAX_ERRORS = 30;
-  localparam int LSU_DISP_W = 3;  // 1 サイクルに出す命令は 3 つまで
-  localparam int COMMIT_W = 2;
+  localparam int DW = DISPATCH_W;  // 1 サイクルに出す命令の数（1 つの IQ にもこの数まで）。本番と同じ
+  localparam int LSU_DISP_W = DW;
+  localparam int COMMIT_W = DW;
   localparam int NPREG = 64;
   localparam int FREE_TARGET = 16;  // 空きの物理レジスタがこれより少なければ空ける
   localparam int STUCK_LIMIT = 3000;
@@ -158,29 +160,31 @@ module tb_backend_top
   logic rst;
   logic flush;
 
-  logic      disp_valid_int[1];
-  disp_uop_t disp_uop_int[1];
+  logic      disp_valid_int[DW];
+  disp_uop_t disp_uop_int[DW];
   logic      disp_full_int;
-  logic      disp_valid_mem[1];
-  disp_uop_t disp_uop_mem[1];
+  logic      disp_valid_mem[DW];
+  disp_uop_t disp_uop_mem[DW];
   logic      disp_full_mem;
-  logic      disp_valid_fpu[1];
-  disp_uop_t disp_uop_fpu[1];
+  logic      disp_valid_fpu[DW];
+  disp_uop_t disp_uop_fpu[DW];
   logic      disp_full_fpu;
 
   // unpacked 配列の要素に always から直接書くと DUT の中の組合せ回路が評価し直されないので、packed の信号から入れる
-  disp_uop_t in_uop_int;
-  disp_uop_t in_uop_mem;
-  disp_uop_t in_uop_fpu;
-  logic      in_valid_int;
-  logic      in_valid_mem;
-  logic      in_valid_fpu;
-  assign disp_valid_int[0] = in_valid_int;
-  assign disp_valid_mem[0] = in_valid_mem;
-  assign disp_valid_fpu[0] = in_valid_fpu;
-  assign disp_uop_int[0]   = in_uop_int;
-  assign disp_uop_mem[0]   = in_uop_mem;
-  assign disp_uop_fpu[0]   = in_uop_fpu;
+  disp_uop_t [DW-1:0] in_uop_int;
+  disp_uop_t [DW-1:0] in_uop_mem;
+  disp_uop_t [DW-1:0] in_uop_fpu;
+  logic      [DW-1:0] in_valid_int;
+  logic      [DW-1:0] in_valid_mem;
+  logic      [DW-1:0] in_valid_fpu;
+  for (genvar g = 0; g < DW; g++) begin : g_iq_disp
+    assign disp_valid_int[g] = in_valid_int[g];
+    assign disp_valid_mem[g] = in_valid_mem[g];
+    assign disp_valid_fpu[g] = in_valid_fpu[g];
+    assign disp_uop_int[g]   = in_uop_int[g];
+    assign disp_uop_mem[g]   = in_uop_mem[g];
+    assign disp_uop_fpu[g]   = in_uop_fpu[g];
+  end
 
   disp_ldq_t disp_ld[LSU_DISP_W];
   ldq_idx_t  disp_ldq_idx[LSU_DISP_W];
@@ -524,6 +528,24 @@ module tb_backend_top
   logic     g_ld_full, g_st_full;
   ldq_idx_t g_ldq_idx;
   stq_idx_t g_stq_idx;
+  int       g_n_ld, g_n_st;  // このサイクルに入れた load / store の数
+
+  // このサイクルに n 個入れた後の LDQ / STQ が満杯か。n=0 は DUT の disp_*_full[0]
+  function automatic logic ld_full_at(int n);
+    ldq_ptr_t p;
+    if (n == 0) return g_ld_full;
+    p = dut.u_lsu_top.u_ldq.ldq_tail;
+    for (int i = 0; i < n; i++) p = ldq_ptr_inc(p);
+    return ldq_ptr_full(dut.u_lsu_top.u_ldq.ldq_head, p);
+  endfunction
+
+  function automatic logic st_full_at(int n);
+    stq_ptr_t p;
+    if (n == 0) return g_st_full;
+    p = dut.u_lsu_top.u_stq.stq_tail;
+    for (int i = 0; i < n; i++) p = stq_ptr_inc(p);
+    return stq_ptr_full(dut.u_lsu_top.u_stq.stq_head, p);
+  endfunction
 
   int next_id;
   int mode;
@@ -562,6 +584,8 @@ module tb_backend_top
   int n_two_mis;      // 同じサイクルに mispredict が 2 本
   int n_flush;
   int n_same_cycle;   // 同じサイクルに dispatch した命令の rd を読む
+  int n_dual[3];      // 同じサイクルに同じ IQ に 2 つ以上入れた（IQ ごと）
+  int n_dual_lsu;     // 同じサイクルに LSU に load / store を 2 つ以上入れた
   int n_dir;
   int n_commit;
   int n_viol_flush;   // 順序違反の flush
@@ -902,8 +926,8 @@ module tb_backend_top
     end
     lq_i = 0;
     if (k == K_LW) begin
-      if (g_ld_full) return 1'b0;
-      lq_i = int'(g_ldq_idx);
+      if (ld_full_at(g_n_ld)) return 1'b0;
+      lq_i = (int'(g_ldq_idx) + g_n_ld) % LDQ_SIZE;
       if (ldq_owner[lq_i] >= 0) begin
         fail($sformatf("disp_ldq_idx=%0d は生きている load が使っている", lq_i));
         return 1'b0;
@@ -911,8 +935,8 @@ module tb_backend_top
     end
     sq_i = 0;
     if (k == K_SW) begin
-      if (g_st_full) return 1'b0;
-      sq_i = int'(g_stq_idx);
+      if (st_full_at(g_n_st)) return 1'b0;
+      sq_i = (int'(g_stq_idx) + g_n_st) % STQ_SIZE;
       if (stq_owner[sq_i] >= 0 || cst_valid[sq_i]) begin
         fail($sformatf("disp_stq_idx=%0d は生きている store か D$ に書く前の store が使っている", sq_i));
         return 1'b0;
@@ -1171,19 +1195,21 @@ module tb_backend_top
 
   // このサイクルの dispatch を決めて入れる
   task automatic gen_dispatch();
-    logic used[3];
+    int   cnt[3];  // IQ ごとにこのサイクルに入れた数（= 次のレーン）
     logic full[3];
     int k, q, dir;
     ins_t e;
-    used = '{1'b0, 1'b0, 1'b0};
+    cnt = '{0, 0, 0};
+    g_n_ld = 0;
+    g_n_st = 0;
     full = '{disp_full_int, disp_full_mem, disp_full_fpu};
     g_ld_full = disp_ld_full[0];
     g_st_full = disp_st_full[0];
     g_ldq_idx = disp_ldq_idx[0];
     g_stq_idx = disp_stq_idx[0];
-    in_valid_int = 1'b0;
-    in_valid_mem = 1'b0;
-    in_valid_fpu = 1'b0;
+    in_valid_int = '0;
+    in_valid_mem = '0;
+    in_valid_fpu = '0;
     in_uop_int = '0;
     in_uop_mem = '0;
     in_uop_fpu = '0;
@@ -1192,7 +1218,7 @@ module tb_backend_top
     in_br_valid = '0;
     in_br_tag = '0;
     if (mode == M_IDLE || flush || br_update_ff.mispredict) return;
-    for (int slot = 0; slot < 3; slot++) begin
+    for (int slot = 0; slot < LSU_DISP_W; slot++) begin
       if (mode == M_DIR) begin
         if (dir_pos >= dir_n) break;
         dir = dir_pos;
@@ -1203,11 +1229,12 @@ module tb_backend_top
         k = pick_kind();
       end
       q = q_of(k);
-      if (used[q] || full[q]) break;
+      if (cnt[q] >= DW || full[q]) break;
       if (!make_ins(k, dir)) break;
-      used[q] = 1'b1;
+      if (k == K_LW) g_n_ld++;
+      if (k == K_SW) g_n_st++;
       if (mode == M_DIR) dir_pos++;
-      // LSU にも同じスロットで出す（1 サイクルの MEM は 1 つなので ldq_idx / stq_idx はどのスロットでも tail）
+      // LSU にも同じスロットで出す（ldq_idx / stq_idx は前のスロットの load / store の分だけ tail から進んだもの）
       e = tbl[next_id - 1];
       if (tr() && (k == K_LW || k == K_SW || e.is_br))
         $display("  [%0d] dispatch slot %0d: %s brmask=%b 期待値 %h", cyc, slot, ins_str(e), new_uop.brmask,
@@ -1220,19 +1247,23 @@ module tb_backend_top
       end
       case (q)
         Q_INT: begin
-          in_valid_int = 1'b1;
-          in_uop_int = new_uop;
+          in_valid_int[cnt[q]] = 1'b1;
+          in_uop_int[cnt[q]] = new_uop;
         end
         Q_MEM: begin
-          in_valid_mem = 1'b1;
-          in_uop_mem = new_uop;
+          in_valid_mem[cnt[q]] = 1'b1;
+          in_uop_mem[cnt[q]] = new_uop;
         end
         default: begin
-          in_valid_fpu = 1'b1;
-          in_uop_fpu = new_uop;
+          in_valid_fpu[cnt[q]] = 1'b1;
+          in_uop_fpu[cnt[q]] = new_uop;
         end
       endcase
+      cnt[q]++;
     end
+    for (int i = 0; i < 3; i++)
+      if (cnt[i] >= 2) n_dual[i]++;
+    if (g_n_ld + g_n_st >= 2) n_dual_lsu++;
   endtask
 
   // ---------------- 照合 ----------------
@@ -1760,9 +1791,9 @@ module tb_backend_top
 
     rst = 1'b1;
     flush = 1'b0;
-    in_valid_int = 1'b0;
-    in_valid_mem = 1'b0;
-    in_valid_fpu = 1'b0;
+    in_valid_int = '0;
+    in_valid_mem = '0;
+    in_valid_fpu = '0;
     in_uop_int = '0;
     in_uop_mem = '0;
     in_uop_fpu = '0;
@@ -1826,6 +1857,8 @@ module tb_backend_top
     n_two_mis = 0;
     n_flush = 0;
     n_same_cycle = 0;
+    n_dual = '{0, 0, 0};
+    n_dual_lsu = 0;
     n_dir = 0;
     n_commit = 0;
     n_viol_flush = 0;
@@ -1886,6 +1919,8 @@ module tb_backend_top
     $display("  分岐の resolve %0d、mispredict %0d（同じサイクルに 2 本 %0d）、flush %0d、消えた命令 %0d", n_br, n_mis,
              n_two_mis, n_flush, n_killed);
     $display("  同じサイクルに dispatch した命令の rd を読んだ %0d", n_same_cycle);
+    $display("  同じサイクルに同じ IQ に 2 つ入れた INT %0d / MEM %0d / FPU %0d、LSU に 2 つ入れた %0d",
+             n_dual[Q_INT], n_dual[Q_MEM], n_dual[Q_FPU], n_dual_lsu);
     $display("  commit %0d、順序違反の flush %0d、値が違ったが commit せずに消えた命令 %0d、TX の store %0d（UART に出た %0d）",
              n_commit, n_viol_flush, n_bad_killed, n_tx, n_tx_out);
     $display("  load の WB のうち forward %0d、消えたサイクルに WB に出た load %0d", n_ld_fwd_like, n_wb_killed);
