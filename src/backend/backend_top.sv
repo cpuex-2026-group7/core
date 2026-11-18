@@ -15,11 +15,11 @@ module backend_top
   parameter int SIZE_INT = 16,
   parameter int SIZE_MEM = 16,
   parameter int SIZE_FPU = 16,
-  parameter int DISPATCH_W_INT = 1,
-  parameter int DISPATCH_W_MEM = 1,
-  parameter int DISPATCH_W_FPU = 1,
-  parameter int LSU_DISP_W = 1,
-  parameter int COMMIT_W = 1
+  parameter int DISPATCH_W_INT = DISPATCH_W,
+  parameter int DISPATCH_W_MEM = DISPATCH_W,
+  parameter int DISPATCH_W_FPU = DISPATCH_W,
+  parameter int LSU_DISP_W = DISPATCH_W,
+  parameter int COMMIT_W = DISPATCH_W
 ) (
   input wire logic clk,
   input wire logic rst,
