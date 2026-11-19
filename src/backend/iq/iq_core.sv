@@ -132,18 +132,29 @@ module iq_core
   // 両方wakeup済みでカウントも終わってたらready
   logic [SIZE-1:0] ready;
   logic [1:0] part_ready[SIZE];  // SPLIT_ISSUE用。ready=|part_ready
+  logic rs1_ready_ff[SIZE];
+  logic rs2_ready_ff[SIZE];
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      for (int i = 0; i < SIZE; i++) begin
+        rs1_ready_ff[i] <= 1'b0;
+        rs2_ready_ff[i] <= 1'b0;
+      end
+    end else begin
+      for (int i = 0; i < SIZE; i++) begin
+        rs1_ready_ff[i] <= n_iq_ff[i].rs1.st.counting && n_iq_ff[i].rs1.st.cnt == 0;
+        rs2_ready_ff[i] <= n_iq_ff[i].rs2.st.counting && n_iq_ff[i].rs2.st.cnt == 0;
+      end
+    end
+  end
   always_comb begin
-    logic rs1_ready;
-    logic rs2_ready;
     for (int i = 0; i < SIZE; i++) begin
-      rs1_ready = iq_ff[i].rs1.st.counting && iq_ff[i].rs1.st.cnt == 0;
-      rs2_ready = iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt == 0;
       if (ALLOW_SPLIT_ISSUE) begin
-        part_ready[i] = {pend[i][1] && rs2_ready, pend[i][0] && rs1_ready};
+        part_ready[i] = {pend[i][1] && rs2_ready_ff[i], pend[i][0] && rs1_ready_ff[i]};
         ready[i] = |part_ready[i];
       end else begin
         part_ready[i] = 2'b11;
-        ready[i] = rs1_ready && rs2_ready;
+        ready[i] = rs1_ready_ff[i] && rs2_ready_ff[i];
       end
     end
   end
@@ -166,7 +177,8 @@ module iq_core
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
       for (int j = 0; j < SIZE; j++) begin
-        req[i][j] = killed_bitmaps[i][j] && ready[j] && !fu_blocked[i][iq_ff[j].dest_fu];
+        // reqはkill前のbitmapで作って、rr_ff[i].validで落とす
+        req[i][j] = bitmaps[i][j] && ready[j] && !fu_blocked[i][iq_ff[j].dest_fu];
       end
     end
   end
@@ -174,7 +186,6 @@ module iq_core
   logic [SIZE-1:0] grant[ISSUE_W];
   logic [IDX_W-1:0] issued_slot[ISSUE_W];
   logic issued[ISSUE_W];
-  dest_fu_t issued_dest_fu[ISSUE_W];
   generate
     for (genvar i = 0; i < ISSUE_W; i++) begin : g_issue
       // 一番古いのを選ぶ
@@ -189,12 +200,6 @@ module iq_core
       assign issued_slot[i] = onehot_to_idx(grant[i]);
     end
   endgenerate
-
-  always_comb begin
-    for (int i = 0; i < ISSUE_W; i++) begin
-      issued_dest_fu[i] = iq_ff[issued_slot[i]].dest_fu;
-    end
-  end
 
   // readyな側はまとめて出す 全部出したらエントリを空ける
   logic [1:0] issued_part[ISSUE_W];
@@ -233,7 +238,8 @@ module iq_core
       for (int i = 0; i < ISSUE_W; i++) begin
         for (int f = 0; f < FU_PER_EU; f++) begin
           busy_memo[i][f] <= (ISSUE_TO_FU)'({
-            busy_memo[i][f][ISSUE_TO_FU-1:0], issued[i] && issued_dest_fu[i] == dest_fu_t'(f) && BLOCKING_FU[i][f]
+            busy_memo[i][f][ISSUE_TO_FU-1:0],
+            issued[i] && iq_ff[issued_slot[i]].dest_fu == dest_fu_t'(f) && BLOCKING_FU[i][f]
           });
         end
       end
@@ -321,15 +327,6 @@ module iq_core
   end
 
   // slowなFUとrdなしは出さない
-  logic [SIZE-1:0] can_send_wakeup[ISSUE_W];
-  always_comb begin
-    for (int i = 0; i < ISSUE_W; i++) begin
-      for (int j = 0; j < SIZE; j++) begin
-        can_send_wakeup[i][j] = !SLOW_WAKEUP_FU[i][iq_ff[j].dest_fu] && iq_ff[j].rd.typ != PREG_TYPE_NONE;
-      end
-    end
-  end
-
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
       sending_wakeup[i] = '0;
@@ -337,9 +334,10 @@ module iq_core
         if (grant[i][j]) begin
           sending_wakeup[i].preg |= iq_ff[j].rd;
           sending_wakeup[i].latency |= iq_ff[j].lat;
+          sending_wakeup[i].valid |= (!SLOW_WAKEUP_FU[i][iq_ff[j].dest_fu] && iq_ff[j].rd.typ != PREG_TYPE_NONE);
         end
       end
-      sending_wakeup[i].valid = |(grant[i] & can_send_wakeup[i]) && !flush;
+      sending_wakeup[i].valid &= !flush;
     end
   end
 
@@ -371,7 +369,7 @@ module iq_core
       for (int i = 0; i < ISSUE_W; i++) begin
         rr_payload_ff[i] <= iq_payload[i];
         rr_issue_part_ff[i] <= issued_part[i];
-        rr_ff[i].valid <= issued[i];
+        rr_ff[i].valid <= |(grant[i] & killed_bitmaps[i]); // ここで落とす
         rr_ff[i].rd    <= iq_ff[issued_slot[i]].rd;
         rr_ff[i].rs1   <= iq_ff[issued_slot[i]].rs1.preg;
         rr_ff[i].rs2   <= iq_ff[issued_slot[i]].rs2.preg;
