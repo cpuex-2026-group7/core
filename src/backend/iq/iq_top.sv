@@ -76,7 +76,7 @@ module iq_top
   always_ff @(posedge clk) begin
     if (rst || flush) fpu_long_wakeup_ff <= '0;
     else begin
-      fpu_long_wakeup_ff <= type_check(fpu_wakeup[1], PREG_TYPE_F);
+      fpu_long_wakeup_ff <= fpu_wakeup[1];
       fpu_long_wakeup_ff.latency <= fpu_wakeup[1].latency - 1;
     end
   end
