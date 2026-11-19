@@ -72,14 +72,23 @@ module iq_top
     type_check.valid = w.valid && w.preg.typ == typ;
   endfunction
 
+  wakeup_t fpu_long_wakeup_ff;  // cnt-1して1サイクルずらす (タイミングの都合)
+  always_ff @(posedge clk) begin
+    if (rst || flush) fpu_long_wakeup_ff <= '0;
+    else begin
+      fpu_long_wakeup_ff <= type_check(fpu_wakeup[1], PREG_TYPE_F);
+      fpu_long_wakeup_ff.latency <= fpu_wakeup[1].latency - 1;
+    end
+  end
+
   always_comb begin
     i_wakeup[0] = int_wakeup[0];
     i_wakeup[1] = type_check(slow_wakeup_mem, PREG_TYPE_I);
-    i_wakeup[2] = type_check(fpu_wakeup[1], PREG_TYPE_I);
+    i_wakeup[2] = type_check(fpu_long_wakeup_ff, PREG_TYPE_I);
 
     f_wakeup[0] = type_check(slow_wakeup_mem, PREG_TYPE_F);
     f_wakeup[1] = fpu_wakeup[0];
-    f_wakeup[2] = type_check(fpu_wakeup[1], PREG_TYPE_F);
+    f_wakeup[2] = type_check(fpu_long_wakeup_ff, PREG_TYPE_F);
     f_wakeup[3] = slow_wakeup_fpu;
   end
 
