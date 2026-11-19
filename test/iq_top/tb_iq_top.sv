@@ -31,6 +31,7 @@
 //       rst / flush で全部 ready（そのサイクルの dispatch の rd も無視）
 //       dispatch の valid が立った uop の rd（NONE 以外）は結果待ちになる（同じサイクルの wakeup より優先）
 //       結果待ちのレジスタにサイクル t に latency=L の wakeup が来たら t+1+L から使える。結果待ちでなければ無視
+//       （FP の port1（F長）の wakeup は iq_top が FF に入れて t+1 に L-1 で流す。L は 1 以上なので使える時刻は同じ）
 //   - dispatch のサイクル d に読んだソースは
 //       NONE なら d+1 から使える
 //       同じサイクルに dispatch される uop（どの IQ でも）の rd と同じなら結果待ち
@@ -262,8 +263,8 @@ module tb_iq_top
   endfunction
 
   function automatic dest_fu_t o_fu(int q, int p);
-    return (q == QI) ? dut.u_iq_int.u_iq_core_int.issued_dest_fu[0] :
-           (q == QM) ? dut.u_iq_mem.u_iq_core_mem.issued_dest_fu[0] : dut.u_iq_float.u_iq_core_float.issued_dest_fu[p];
+    return (q == QI) ? dut.u_iq_int.u_iq_core_int.iq_ff[dut.u_iq_int.u_iq_core_int.issued_slot[0]].dest_fu :
+           (q == QM) ? dut.u_iq_mem.u_iq_core_mem.iq_ff[dut.u_iq_mem.u_iq_core_mem.issued_slot[0]].dest_fu : dut.u_iq_float.u_iq_core_float.iq_ff[dut.u_iq_float.u_iq_core_float.issued_slot[p]].dest_fu;
   endfunction
 
   function automatic wakeup_t o_send(int q, int p);
@@ -486,7 +487,8 @@ module tb_iq_top
         if (p >= q_ports(q) || rst || flush) continue;
         for (int k = 0; k < q_size(q); k++) begin
           e = m[q][k];
-          if (!e.valid || killed_by(e.bm)) continue;
+          // select は kill 前の中身で行う（kill されたものは rr_ff に出ない）
+          if (!e.valid) continue;
           f = gfu(q, e.u);
           if (fu_port(q, f) != p) continue;
           if (ready_part(q, e) == 2'b00) continue;
@@ -521,6 +523,8 @@ module tb_iq_top
         checks++;
         bw = o_send(q, p);
         if (exp_idx[q][p] < 0) begin
+          // rst のサイクルは IQ の中の issued / wakeup が立つことがある（受け側も全部リセットされるので見ない）
+          if (rst) continue;
           if (o_issued(q, p) !== 1'b0) fail($sformatf("%s port%0d が issue した（期待は issue なし）", q_name(q), p));
           else if (bw.valid !== 1'b0) fail($sformatf("%s port%0d が issue していないのに wakeup を出した", q_name(q), p));
           continue;
@@ -528,6 +532,8 @@ module tb_iq_top
         e = m[q][exp_idx[q][p]];
         if (o_issued(q, p) !== 1'b1) begin
           fail($sformatf("%s port%0d が issue しない（期待は id %0d）", q_name(q), p, e.id));
+          say($sformatf("    rs1 %s 選び方: %s", src_info(e.u.rs1, e.w1, e.r1), how1[int'(e.id)]));
+          say($sformatf("    rs2 %s 選び方: %s", src_info(e.u.rs2, e.w2, e.r2), how2[int'(e.id)]));
           continue;
         end
         if (o_fu(q, p) !== e.u.dest_fu)
@@ -606,6 +612,10 @@ module tb_iq_top
     end
   endtask
 
+  // 前のサイクルに F長が出した wakeup（DUT では FF に入っていて、このサイクルに当たる）
+  logic  long_wake_prev_v;
+  preg_t long_wake_prev;
+
   // クロックの後でモデルを 1 サイクル進める
   task automatic model_advance();
     int free_slots[NQ];
@@ -631,7 +641,7 @@ module tb_iq_top
     for (int q = 0; q < NQ; q++) begin
       for (int pp = 0; pp < MAXP; pp++) begin
         idx = exp_idx[q][pp];
-        exp_rr_v[q][pp] = idx >= 0;
+        exp_rr_v[q][pp] = idx >= 0 && !killed_by(m[q][idx].bm);
         exp_rr[q][pp] = '0;
         exp_rr_part[q][pp] = exp_part[q][pp];
         if (idx < 0) continue;
@@ -645,6 +655,9 @@ module tb_iq_top
         end
       end
     end
+
+    long_wake_prev_v = cwv[bus_idx(QF, 1)] && !rst && !flush;
+    long_wake_prev   = cwp[bus_idx(QF, 1)];
 
     if (rst || flush) begin
       for (int q = 0; q < NQ; q++) begin
@@ -671,14 +684,16 @@ module tb_iq_top
       for (int pp = 0; pp < q_ports(q); pp++) begin
         idx = exp_idx[q][pp];
         if (idx < 0) continue;
-        issued_at[int'(m[q][idx].id)] = cyc;
-        fate[int'(m[q][idx].id)] = $sformatf("issue %0d", cyc);
-        st_issue[q][pp]++;
         f = gfu(q, m[q][idx].u);
         if (fu_blk(q, f)) begin
           memo_v[q][f]  = 1'b1;
           memo_at[q][f] = cyc;
         end
+        // kill されたものは下で消える
+        if (killed_by(m[q][idx].bm)) continue;
+        issued_at[int'(m[q][idx].id)] = cyc;
+        fate[int'(m[q][idx].id)] = $sformatf("issue %0d", cyc);
+        st_issue[q][pp]++;
         if (q == QM) begin
           if (exp_part[q][pp] == 2'b11) st_mem_both++;
           else if (m[q][idx].pend == 2'b11) st_mem_partial++;
@@ -1101,7 +1116,8 @@ module tb_iq_top
     cf[3] = TF_LONG;
     for (int i = 0; i < 3; i++)
       for (int k = 0; k < 4; k++)
-        for (int lat = 0; lat < 4; lat++)
+        // F長の wakeup は FF を通して lat-1 で流すので lat は 1 以上
+        for (int lat = (pfu[i] == TF_LONG && pq[i] == QF) ? 1 : 0; lat < 4; lat++)
           for (int o = -1; o <= 5; o++) lat_case(pq[i], pfu[i], pp[i], cq[k], cf[k], 1 + (lat + o + 1) % 2, lat, o);
     end_test();
   endtask
@@ -1461,7 +1477,7 @@ module tb_iq_top
     clear_inputs();
     fdiv_b  = 1'b1;
     fsqrt_b = 1'b1;
-    put(QF, 0, mk_uop(TF_LONG, pf(58), pn(), pn(), 0, '0, b));
+    put(QF, 0, mk_uop(TF_LONG, pf(58), pn(), pn(), 1, '0, b));
     cycle();
     clear_inputs();
     fdiv_b  = 1'b1;
@@ -1604,7 +1620,7 @@ module tb_iq_top
       clear_inputs();
       resolve(0, 1);
       mispredict(1, 7);
-      put(QF, 0, mk_uop(TF_LONG, pf(58), pi(55), pn(), 0, bit_of(7), z));
+      put(QF, 0, mk_uop(TF_LONG, pf(58), pi(55), pn(), 1, bit_of(7), z));
       cycle();
       clear_inputs();
       resolve(1, 2);
@@ -1872,6 +1888,8 @@ module tb_iq_top
     for (int tries = 0; tries < 16; tries++) begin
       s = rand_reg(t);
       if (inflight(s) || in_list(s, g_rd) || in_list(s, g_src) || in_list(s, g_ext)) continue;
+      // F長の wakeup が FF に入っているレジスタはまだ生産者がいる（実機ではここで割り当て直さない）
+      if (long_wake_prev_v && long_wake_prev == s) continue;
       return s;
     end
     return pn();
@@ -2001,7 +2019,8 @@ module tb_iq_top
     if (events_on && rnd(100) < 30) begin
       s = rand_reg(rnd(2) ? PREG_TYPE_I : PREG_TYPE_F);
       lane = (s.typ == PREG_TYPE_F && (rnd(2) == 0 || ext_w[EXT_MEM].valid)) ? EXT_FPU : EXT_MEM;
-      if (!ext_w[lane].valid && !inflight(s) && !in_list(s, g_ext)) begin
+      // F長の wakeup が FF に入っているレジスタは生産者がいるので外す
+      if (!ext_w[lane].valid && !inflight(s) && !in_list(s, g_ext) && !(long_wake_prev_v && long_wake_prev == s)) begin
         ext(lane, s, rnd(4));
         g_ext.push_back(s);
       end

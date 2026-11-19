@@ -35,8 +35,9 @@
 //     （コアは TX の store を、前の store が全部 ack されてから出す。でないと前の store の nack で出し直されて 2 回出る）
 //
 // D$ のモデル（test/lsu_top と同じ）
-//   - 要求をでたらめなサイクルに accept し、返事は accept の次のサイクル以降に 1 サイクル 1 つ、順番はでたらめ、ack か nack
-//   - kill された load は次のサイクルから返事をしない（kill のサイクルの返事は出ることがある）
+//   - 要求をでたらめなサイクルに accept し、返事は accept のちょうど次のサイクルに必ず出す（memory の今の実装）。ack か nack
+//   - accept したサイクルに kill される load にも次のサイクルに返事を出す（コアはそれを WB にも ld_nack にも出さない）。
+//     返事のサイクルに kill された load の返事は WB に出ることがある
 //   - store は ack のときに書く。同じアドレスの store は accept した順に書く。TX の store も nack する
 //
 // LSU が WB に出す load は、kill のサイクル（br_update_ff / flush）に D$ の返事が来るとそのまま WB に出る。
@@ -521,6 +522,10 @@ module tb_backend_top
   int acc_rate, resp_rate, nack_rate, commit_rate;
   logic  c_acc;
   int    c_resp_j;
+  logic  c_resp_dead;
+  // accept と同時に kill された load（次のサイクルに返事を出す）
+  logic  dead_v;
+  int    dead_idx;
   logic  c_resp_ack;
   word_t c_resp_rdata;
 
@@ -1486,11 +1491,17 @@ module tb_backend_top
     dc_cand.delete();
     c_acc = dc_req_valid_ff && int'(rnd(100)) < acc_rate;
     c_resp_j = -1;
+    c_resp_dead = 1'b0;
     c_resp_ack = rnd(2) == 1;
     c_resp_rdata = $urandom();
     tg = lsu_tag_t'($urandom());
-    if (int'(rnd(100)) < resp_rate) begin
-      for (j = 0; j < p_cyc.size(); j++) if (p_cyc[j] < cyc) dc_cand.push_back(j);
+    if (dead_v) begin
+      // accept と同時に kill された load の返事
+      tg = '0;
+      tg.ldq_idx = ldq_idx_t'(dead_idx);
+      c_resp_dead = 1'b1;
+    end else begin
+      for (j = 0; j < p_cyc.size(); j++) if (p_cyc[j] == cyc - 1) dc_cand.push_back(j);
       if (dc_cand.size() > 0) begin
         j = dc_cand[rnd(dc_cand.size())];
         c_resp_j = j;
@@ -1499,11 +1510,9 @@ module tb_backend_top
           // 同じアドレスの store は accept 順に書く
           blocked = 1'b0;
           for (int k = 0; k < j; k++) if (p_we[k] && p_addr[k] == p_addr[j]) blocked = 1'b1;
+          // 返事は必ず次のサイクルに出すので、前の store が残っていたら nack にする
           c_resp_ack = !blocked && int'(rnd(100)) >= nack_rate;
-          if (blocked && rnd(2) == 0) begin
-            c_resp_j = -1;
-            n_st_hold++;
-          end
+          if (blocked) n_st_hold++;
           tg.is_store = 1'b1;
           tg.stq_idx = stq_idx_t'(p_idx[j]);
         end else begin
@@ -1514,7 +1523,7 @@ module tb_backend_top
       end
     end
     dc_req_accepted = c_acc;
-    dc_resp_valid_ff = c_resp_j >= 0;
+    dc_resp_valid_ff = c_resp_j >= 0 || c_resp_dead;
     dc_resp_ack_ff = c_resp_ack;
     dc_resp_rdata_ff = c_resp_rdata;
     dc_resp_tag_ff = tg;
@@ -1545,6 +1554,7 @@ module tb_backend_top
     logic dkill;
     int idx, id, j;
     // accept
+    dead_v = 1'b0;
     tg = lsu_tag_t'(dc_req_tag_ff);
     if (dc_req_valid_ff && c_acc) begin
       if (!dc_req_we_ff) begin
@@ -1552,8 +1562,11 @@ module tb_backend_top
         id = ldq_owner[idx];
         dkill = (dc_req_brmask_ff & dc_br_kill_mask_ff) != '0 || dc_kill_all_ff;
         if (tg.is_store) fail("load の要求なのに tag.is_store = 1");
-        if (dkill) n_dc_drop++;
-        else begin
+        if (dkill) begin
+          n_dc_drop++;
+          dead_v = 1'b1;
+          dead_idx = idx;
+        end else begin
           if (id < 0 || !tbl.exists(id)) fail($sformatf("生きていない load の要求を D$ が accept した（LDQ %0d）", idx));
           else begin
             if (tbl[id].done) fail($sformatf("WB 済みの load の要求が D$ に出た: %s", ins_str(tbl[id])));
@@ -1823,6 +1836,8 @@ module tb_backend_top
     nack_rate = 0;
     commit_rate = 100;
     c_resp_j = -1;
+    c_resp_dead = 1'b0;
+    dead_v = 1'b0;
     for (int t = 0; t < 2; t++) begin
       for (int i = 0; i < NPREG; i++) begin
         pst[t][i] = P_FREE;

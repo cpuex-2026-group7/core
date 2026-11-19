@@ -161,7 +161,7 @@ module tb_eu_4_top
 
   // 何を確かめたかの数
   int n_wb[2];
-  int n_hold;
+  int n_hold_cnt;
   int n_hold_killed;
   int n_abort[2];
   int n_issue[2];
@@ -246,7 +246,7 @@ module tb_eu_4_top
     hold_ent.valid = 1'b0;
     if (done_now[FU_FSQRT] && done_now[FU_FDIV]) begin
       hold_ent = n_fu[FU_FDIV];
-      n_hold++;
+      n_hold_cnt++;
     end
     for (int i = 0; i < 2; i++) begin
       issued = cur.rr.common.valid && !cur.flush && cur.rr.common.dest_fu == dest_fu_t'(i);
@@ -318,7 +318,7 @@ module tb_eu_4_top
         fail($sformatf("fdiv の演算中に issued が来た（%0d 回）", dut.u_fu_1.u_fdiv.n_protocol_error));
       $display("issue  FSQRT %0d / FDIV %0d", n_issue[0], n_issue[1]);
       $display("書き込み FSQRT %0d / FDIV %0d", n_wb[0], n_wb[1]);
-      $display("  同時に終わって fdiv を待たせた %0d（待っている間に消えた %0d）", n_hold, n_hold_killed);
+      $display("  同時に終わって fdiv を待たせた %0d（待っている間に消えた %0d）", n_hold_cnt, n_hold_killed);
       $display("  演算中に kill / flush（abort）FSQRT %0d / FDIV %0d", n_abort[0], n_abort[1]);
       if (errors == 0) $display("PASS");
       else $display("FAIL（%0d 件）", errors);

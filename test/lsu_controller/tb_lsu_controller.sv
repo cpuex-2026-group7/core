@@ -25,6 +25,8 @@
 //     （stale_mask が立っていたら出さない）。slow_wakeup_mem と ld_gone_to_wb も同時に出す
 //   - ld_nack は load の返事が nack か、stale か、stale_mask のとき。store の返事はそのまま st_ack / st_nack
 //   - D$ の load の返事は ld_requested なエントリにだけ来る
+//   - D$ の返事は accept のちょうど次のサイクル（memory の今の実装）。accept と同じサイクルに kill / flush された load は、
+//     次のサイクルにその返事が来て、controller はそれを WB にも ld_nack にも出さない
 
 module tb_lsu_controller
   import types::*;
@@ -115,6 +117,8 @@ module tb_lsu_controller
   lsu_tag_t m_tag;
   brmask_t  m_brmask;
   bit       m_load_turn;
+  bit       m_resp_killed;  // 前のサイクルに accept と同時に kill された load がある
+  lsu_tag_t m_killed_tag;
 
   // ---------------- 入力の出し方 ----------------
 
@@ -140,6 +144,7 @@ module tb_lsu_controller
 
   int n_ld_req, n_st_req, n_hold, n_kill_req, n_flush_req, n_accept;
   int n_wb_resp, n_wb_fwd, n_fwd_lost_resp, n_fwd_lost_stale, n_resp_stale, n_nack, n_both, n_skip_wait;
+  int n_resp_killed;
   int n_turn_store;
 
   task automatic err(string msg);
@@ -238,6 +243,16 @@ module tb_lsu_controller
         l[ri].stale = rnd(4) == 0;
       end
     end
+    // accept と同時に kill された load の返事がこのサイクルに来る
+    if (m_resp_killed) begin
+      rsp.valid = 1'b1;
+      rsp.tag = m_killed_tag;
+      ri = int'(rsp.tag.ldq_idx);
+      l[ri].valid = 1'b1;
+      l[ri].addr_valid = 1'b1;
+      l[ri].ld_requested = 1'b1;
+      l[ri].gone_to_wb = 1'b0;
+    end
     acc = m_valid && rnd(100) < accept_rate;
 
     t_flush = do_flush;
@@ -277,8 +292,9 @@ module tb_lsu_controller
     exp_st_ack = rsp.valid && rsp.tag.is_store && rsp.ack;
     exp_st_nack = rsp.valid && rsp.tag.is_store && !rsp.ack;
     ri = int'(rsp.tag.ldq_idx);
-    resp_ok = rsp.valid && !rsp.tag.is_store && rsp.ack && !l[ri].stale && !sm[ri];
-    exp_ld_nack = rsp.valid && !rsp.tag.is_store && !resp_ok;
+    resp_ok = rsp.valid && !rsp.tag.is_store && rsp.ack && !l[ri].stale && !sm[ri] && !m_resp_killed;
+    exp_ld_nack = rsp.valid && !rsp.tag.is_store && !resp_ok && !m_resp_killed;
+    if (m_resp_killed) n_resp_killed++;
     if (st_ack.valid != exp_st_ack) err($sformatf("st_ack.valid = %0b、期待値 %0b", st_ack.valid, exp_st_ack));
     else if (exp_st_ack && st_ack.stq_idx != rsp.tag.stq_idx)
       err($sformatf("st_ack.stq_idx = %0d、期待値 %0d", st_ack.stq_idx, rsp.tag.stq_idx));
@@ -421,6 +437,8 @@ module tb_lsu_controller
       err($sformatf("ld_gone_to_wb.valid = %0b、期待値 %0b", ld_gone_to_wb.valid, exp_wb));
 
     // ---- モデルを進める ----
+    m_resp_killed = acc && !m_we && ((m_brmask & u.kill_mask) != '0 || do_flush);
+    m_killed_tag = m_tag;
     m_valid = n_valid;
     m_we = n_we;
     m_addr = n_addr;
@@ -456,6 +474,8 @@ module tb_lsu_controller
     m_tag = '0;
     m_brmask = '0;
     m_load_turn = 1'b1;
+    m_resp_killed = 1'b0;
+    m_killed_tag = '0;
     repeat (3) @(negedge clk);
     rst = 1'b0;
     // 入力を写す always より後に次の入力を決める
@@ -474,6 +494,7 @@ module tb_lsu_controller
              n_both);
     $display("forward を見送った：返事と重なった %0d、stale_mask %0d。ld_nack %0d（ack だが stale %0d）",
              n_fwd_lost_resp, n_fwd_lost_stale, n_nack, n_resp_stale);
+    $display("accept と同時に kill された load の返事を捨てた %0d", n_resp_killed);
     if (errors == 0) $display("PASS");
     else $display("FAIL（%0d 件）", errors);
     $finish;

@@ -11,7 +11,7 @@
 //
 // 参照モデルは RTL のカウンタを写さず、各ソースが「何サイクル目から使えるか」を絶対時刻で持つ。
 // 毎サイクル次のものを独立に計算して DUT と突き合わせる
-//   - sending_wakeup / disp_full（組み合わせ出力）、内部の dut.issued / dut.issued_dest_fu
+//   - sending_wakeup / disp_full（組み合わせ出力）、内部の dut.issued / dut.iq_ff[dut.issued_slot].dest_fu
 //   - 次のサイクルの rr_ff / rr_payload / rr_issue_part
 //
 // FU はテストの中では通し番号 f（0〜DEST_FU_NUM-1、FU_LISTEN_PORT で port を 1 つ持つ）で扱う。
@@ -25,7 +25,8 @@
 //   - ポートごとに、受け付ける FU の ready なものから一番古いものを出す（同じサイクルの dispatch はレーン番号の小さい方が古い）
 //   - BLOCKING_FU には issue してから ISSUE_TO_FU(=2) サイクル出さない。dest_fu_blocked が立っている FU にも出さない
 //   - SLOW_WAKEUP_FU と rd が NONE の命令は issue 時に wakeup を出さない
-//   - mispredict した分岐に依存するものは、そのサイクルに issue せず消える。dispatch 中のものも入らない
+//   - mispredict した分岐に依存するものは、そのサイクルに消える。dispatch 中のものも入らない
+//     select は kill 前の中身で行うので、そのサイクルに選ばれることはある（issued と wakeup は出て、rr_ff.valid は 0）
 //   - 当たった分岐は brmask のビットを落とす（rr_ff に出るものも含む）
 //   - レーン i の dispatch は、サイクル頭の空きが i+1 個以上のときだけ入る。入らなかったものは捨てられる
 //   - flush のサイクルは issue せず、中身も同じサイクルの dispatch も全部消える
@@ -333,6 +334,7 @@ module tb_iq_core
   // カバレッジ用の数
   longint st_issue[ISSUE_W];
   longint st_kill;
+  longint st_kill_sel;  // kill のサイクルに選ばれたもの
   longint st_drop_kill;
   longint st_drop_full;
   longint st_full_cycles;
@@ -390,7 +392,7 @@ module tb_iq_core
       exp_part[p] = 2'b00;
       if (flush || rst) continue;
       for (int e = 0; e < SIZE; e++) begin
-        if (!m[e].valid || killed_by(m[e].brmask)) continue;
+        if (!m[e].valid) continue;
         if (!FU_LISTEN_PORT[m[e].fu][p]) continue;
         if (ready_part(m[e]) == 2'b00) continue;
         if (dest_fu_blocked[m[e].fu]) begin
@@ -430,8 +432,8 @@ module tb_iq_core
         fail($sformatf("port%0d が issue しない（期待は id %0d）", p, e.id));
         continue;
       end
-      if (dut.issued_dest_fu[p] !== dest_fu_t'(local_fu(int'(e.fu))))
-        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d（FU%0d）", p, dut.issued_dest_fu[p], local_fu(int'(e.fu)), e.fu));
+      if (dut.iq_ff[dut.issued_slot[p]].dest_fu !== dest_fu_t'(local_fu(int'(e.fu))))
+        fail($sformatf("port%0d issued_dest_fu=%0d 期待=%0d（FU%0d）", p, dut.iq_ff[dut.issued_slot[p]].dest_fu, local_fu(int'(e.fu)), e.fu));
       exp_wv = !SLOW_WAKEUP_FU[e.fu] && e.rd.typ != PREG_TYPE_NONE;
       if (sending_wakeup[p].valid !== exp_wv)
         fail($sformatf(
@@ -487,7 +489,7 @@ module tb_iq_core
       wv[p] = 1'b0;
       wp[p] = '0;
       wl[p] = '0;
-      exp_rr_valid[p] = idx >= 0;
+      exp_rr_valid[p] = idx >= 0 && !killed_by(m[idx].brmask);
       exp_rr[p] = '0;
       exp_rr_part[p] = exp_part[p];
       if (idx >= 0) begin
@@ -519,16 +521,21 @@ module tb_iq_core
     for (int p = 0; p < ISSUE_W; p++) begin
       idx = exp_idx[p];
       if (idx < 0) continue;
+      if (BLOCKING_FU[m[idx].fu]) begin
+        memo_v[m[idx].fu]  = 1'b1;
+        memo_at[m[idx].fu] = cyc;
+      end
+      // kill されたものは rr_ff に出ない（下で消える）
+      if (killed_by(m[idx].brmask)) begin
+        st_kill_sel++;
+        continue;
+      end
       issued_at[int'(m[idx].id)] = cyc;
       fr.id = int'(m[idx].id);
       fr.at = cyc;
       fr.part = exp_part[p];
       fires.push_back(fr);
       st_issue[p]++;
-      if (BLOCKING_FU[m[idx].fu]) begin
-        memo_v[m[idx].fu]  = 1'b1;
-        memo_at[m[idx].fu] = cyc;
-      end
       if (ALLOW_SPLIT_ISSUE) begin
         if (exp_part[p] == 2'b11) st_both++;
         else st_partial++;
@@ -1723,6 +1730,7 @@ module tb_iq_core
     for (int f = 0; f < DEST_FU_NUM; f++) blk_v[f] = 1'b0;
     pend.delete();
     st_kill = 0;
+    st_kill_sel = 0;
     st_drop_kill = 0;
     st_drop_full = 0;
     st_full_cycles = 0;
@@ -1744,8 +1752,8 @@ module tb_iq_core
     end
 
     $display(
-      "  ランダム %0d サイクル: kill %0d, dispatch で kill %0d, 満杯で捨てた %0d, 満杯サイクル %0d",
-      n, st_kill, st_drop_kill, st_drop_full, st_full_cycles);
+      "  ランダム %0d サイクル: kill %0d（うち選ばれた %0d）, dispatch で kill %0d, 満杯で捨てた %0d, 満杯サイクル %0d",
+      n, st_kill, st_kill_sel, st_drop_kill, st_drop_full, st_full_cycles);
     $display(
       "  dispatch と同時の wakeup %0d, 二重 wakeup %0d, ISSUE_TO_FU で止めた %0d, dest_fu_blocked で止めた %0d",
       st_alloc_wake, st_rewake, st_memo_block, st_input_block);

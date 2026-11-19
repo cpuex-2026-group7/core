@@ -32,10 +32,11 @@
 //   - 分岐は 1 サイクルに 2 つまで解決する。mispredict が 2 つなら古い方の tag を出す
 //
 // D$ のモデル
-//   - dc_req_valid_ff の要求をでたらめなサイクルに accept する。accept したサイクルに kill される load は捨てる
-//   - 返事は accept の次のサイクル以降に 1 サイクル 1 つ、順番はでたらめ、ack か nack
-//   - kill された load（brmask と kill_mask が重なる、または kill_all）は次のサイクルから返事をしない。
-//     kill のサイクルの返事は出ることがある
+//   - dc_req_valid_ff の要求をでたらめなサイクルに accept する
+//   - 返事は accept のちょうど次のサイクルに必ず出す（memory の今の実装）。ack か nack
+//   - accept したサイクルに kill される load（brmask と kill_mask が重なる、または kill_all）にも次のサイクルに返事を出す。
+//     コアはそれを WB にも ld_nack にも出さない（出たら生きていない load の WB として見つかる）
+//   - 返事のサイクルに kill された load の返事は WB に出ることがある
 //   - store は ack のときに書く。同じアドレスの store は accept した順に書く（前のものが残っていたら ack しない）
 //   - TX の store も nack する。ack したときに UART に出たとみなし、D$ のメモリには書かない。
 //     load は TX のアドレスを読まない
@@ -206,6 +207,9 @@ module tb_lsu_top
   int p_cyc[$];
   word_t p_data[$];
   brmask_t p_brmask[$];
+  // accept と同時に kill された load（次のサイクルに返事を出す）
+  bit dead_v;
+  int dead_idx;
 
   // ---------------- 入力の出し方（一定サイクルごとに変える） ----------------
 
@@ -314,6 +318,7 @@ module tb_lsu_top
   int c_d_id[DISP_W];
   bit c_acc;
   int c_resp_j;
+  bit c_resp_dead;
   bit c_resp_ack;
   word_t c_resp_rdata;
 
@@ -559,12 +564,20 @@ module tb_lsu_top
     // ---- D$ ----
     c_acc = dc_req_valid_ff && rnd(100) < acc_rate;
     c_resp_j = -1;
+    c_resp_dead = 1'b0;
     c_resp_ack = rnd(2) == 1;
     c_resp_rdata = $urandom();
     tg = lsu_tag_t'($urandom());
-    if (rnd(100) < resp_rate) begin
+    if (dead_v) begin
+      // accept と同時に kill された load の返事
+      tg = '0;
+      tg.is_store = 1'b0;
+      tg.ldq_idx = ldq_idx_t'(dead_idx);
+      tg.stq_idx = stq_idx_t'($urandom());
+      c_resp_dead = 1'b1;
+    end else begin
       for (j = 0; j < p_cyc.size(); j++) begin
-        if (p_cyc[j] < cyc) cand.push_back(j);
+        if (p_cyc[j] == cyc - 1) cand.push_back(j);
       end
       if (cand.size() > 0) begin
         j = cand[rnd(cand.size())];
@@ -576,11 +589,9 @@ module tb_lsu_top
           for (int k = 0; k < j; k++) begin
             if (p_we[k] && p_ai[k] == p_ai[j]) blocked = 1'b1;
           end
+          // 返事は必ず次のサイクルに出すので、前の store が残っていたら nack にする
           c_resp_ack = !blocked && rnd(100) >= nack_rate;
-          if (blocked && rnd(2) == 0) begin
-            c_resp_j = -1;
-            n_st_hold++;
-          end
+          if (blocked) n_st_hold++;
           tg.is_store = 1'b1;
           tg.stq_idx = stq_idx_t'(p_idx[j]);
           tg.ldq_idx = ldq_idx_t'($urandom());
@@ -605,7 +616,7 @@ module tb_lsu_top
     t_disp_br_valid = d_br_valid;
     t_disp_br_tag = d_br_tag;
     t_dc_req_accepted = c_acc;
-    t_dc_resp_valid = c_resp_j >= 0;
+    t_dc_resp_valid = c_resp_j >= 0 || c_resp_dead;
     t_dc_resp_ack = c_resp_ack;
     t_dc_resp_rdata = c_resp_rdata;
     t_dc_resp_tag = tg;
@@ -630,6 +641,7 @@ module tb_lsu_top
     word_t exp_value;
 
     // ---- D$ に出ている要求 ----
+    dead_v = 1'b0;
     tg = lsu_tag_t'(dc_req_tag_ff);
     if (dc_req_valid_ff && !dc_req_we_ff) begin
       idx = int'(tg.ldq_idx);
@@ -650,8 +662,11 @@ module tb_lsu_top
           if (tkill != dkill)
             err($sformatf("load の要求の brmask が合わない：brmask %b、kill_mask %b、kill されるか %0b：%s",
                           dc_req_brmask_ff, c_u.kill_mask, tkill, ins_str(id)));
-          if (dkill) n_dc_drop++;
-          else begin
+          if (dkill) begin
+            n_dc_drop++;
+            dead_v = 1'b1;
+            dead_idx = idx;
+          end else begin
             p_we.push_back(1'b0);
             p_ai.push_back(i_ai[id]);
             p_idx.push_back(idx);
@@ -914,6 +929,7 @@ module tb_lsu_top
       dc_mem[i] = arch_mem[i];
     end
     flush_next = 1'b0;
+    dead_v = 1'b0;
     draining = 1'b0;
     next_id = 0;
     cyc = 0;
