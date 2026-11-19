@@ -9,7 +9,7 @@
 #   backend  backend_top だけ
 #   <名前>   そのモジュールだけ（例 iq_top、lsu_top）
 #   backend とモジュールは .xpr を使わず out-of-context で合成・配置配線する。
-#   結果は build_report/<名前>/（backend は build_report/backend/）に保存（配置の図は placement.svg）
+#   結果は build_report/<名前>/（backend は build_report/backend/、全体は build_report/core_top/）に保存（配置の図は placement.svg）
 #
 # モード:
 #   all      全体：必要ならビットストリームを作り、ボードに書き込む（全体だけ）
@@ -195,18 +195,36 @@ proc open_whole_result {} {
     die "no finished synthesis/implementation. run 'build' first"
 }
 
-# 全体の前回の結果の、階層ごとの回路規模を表示し、build_report/utilization_hier.rpt に保存する
+# 全体の結果を置く build_report/<top>/
+proc whole_out_dir {} {
+    return [file join $::root_dir build_report [get_property top [current_fileset]]]
+}
+
+# 全体の前回の結果の、階層ごとの回路規模を表示し、build_report/<top>/ に保存する
 proc show_whole_utilization {} {
     set stage [open_whole_result]
+    set out [whole_out_dir]
+    file mkdir $out
     section "Utilization ($stage)"
-    report_utilization -hierarchical -file [file join $::root_dir build_report utilization_hier.rpt]
+    report_utilization -file [file join $out utilization.rpt]
+    report_utilization -hierarchical -file [file join $out utilization_hier.rpt]
     puts [report_utilization -hierarchical -hierarchical_depth 3 -return_string]
+    puts "full reports: [file join $out utilization.rpt], [file join $out utilization_hier.rpt]"
 }
 
 proc show_critical_paths {n} {
     set stage [open_whole_result]
-    report_critical_paths $n $stage [file join $::root_dir build_report]
-    report_path_groups [file join $::root_dir build_report]
+    report_critical_paths $n $stage [whole_out_dir]
+    report_path_groups [whole_out_dir]
+}
+
+# 全体のビルドの後に、モジュールと同じレポート（規模・配置の図・クリティカルパス）を build_report/<top>/ に出す
+proc write_whole_reports {n} {
+    show_whole_utilization
+    if {[catch {write_placement_svg [file join [whole_out_dir] placement.svg]} err]} {
+        puts "WARNING: could not write placement.svg: $err"
+    }
+    show_critical_paths $n
 }
 
 # 今開いているデザインのクリティカルパスを表示し、Vivado の詳しいレポートを dir に保存する
@@ -674,6 +692,9 @@ proc build_bitstream {force} {
 
     if {!$need_impl} {
         puts "Up to date, skip build: $bit"
+        if {[catch {write_whole_reports $::npaths} err]} {
+            puts "WARNING: could not write reports to build_report: $err"
+        }
         return $bit
     }
 
@@ -707,6 +728,9 @@ proc build_bitstream {force} {
     show_run_messages
     show_timing
     puts "Bitstream: $bit"
+    if {[catch {write_whole_reports $::npaths} err]} {
+        puts "WARNING: could not write reports to build_report: $err"
+    }
     return $bit
 }
 
