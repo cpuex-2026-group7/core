@@ -185,7 +185,7 @@ module iq_core
         .older(older),
         .grant(grant[i])  // one hot
       );
-      assign issued[i] = |grant[i] && !rst && !flush;
+      assign issued[i] = |grant[i] && !flush;
       assign issued_slot[i] = onehot_to_idx(grant[i]);
     end
   endgenerate
@@ -263,25 +263,26 @@ module iq_core
   end
 
   // まだwakeupされてないソースにだけ当てる
+  // !countingのときはcnt=0の前提
   function automatic src_reg_t apply_wakeup(input src_reg_t r, input bit use_i, input bit use_f);
     src_reg_t ret = r;
     logic is_i = !use_f || r.preg.typ == PREG_TYPE_I;
     logic is_f = !use_i || r.preg.typ == PREG_TYPE_F;
     // iのwakeupを見る
-    if (use_i) begin
+    if (use_i && is_i && !r.st.counting) begin
       for (int i = 0; i < I_WAKEUP_W; i++) begin
-        if (coming_i_wakeup[i].valid && is_i && !r.st.counting && coming_i_wakeup[i].preg.idx == r.preg.idx) begin
-          ret.st.counting = 1'b1;
-          ret.st.cnt      = coming_i_wakeup[i].latency;
+        if (coming_i_wakeup[i].valid && coming_i_wakeup[i].preg.idx == r.preg.idx) begin
+          ret.st.counting |= 1'b1;
+          ret.st.cnt |= coming_i_wakeup[i].latency;
         end
       end
     end
     // fのwakeupを見る
-    if (use_f) begin
+    if (use_f && is_f && !r.st.counting) begin
       for (int i = 0; i < F_WAKEUP_W; i++) begin
-        if (coming_f_wakeup[i].valid && is_f && !r.st.counting && coming_f_wakeup[i].preg.idx == r.preg.idx) begin
-          ret.st.counting = 1'b1;
-          ret.st.cnt      = coming_f_wakeup[i].latency;
+        if (coming_f_wakeup[i].valid && coming_f_wakeup[i].preg.idx == r.preg.idx) begin
+          ret.st.counting |= 1'b1;
+          ret.st.cnt |= coming_f_wakeup[i].latency;
         end
       end
     end
@@ -320,11 +321,25 @@ module iq_core
   end
 
   // slowなFUとrdなしは出さない
+  logic [SIZE-1:0] can_send_wakeup[ISSUE_W];
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
-      sending_wakeup[i].valid = issued[i] && !SLOW_WAKEUP_FU[i][issued_dest_fu[i]] && iq_ff[issued_slot[i]].rd.typ != PREG_TYPE_NONE;
-      sending_wakeup[i].preg = iq_ff[issued_slot[i]].rd;
-      sending_wakeup[i].latency = iq_ff[issued_slot[i]].lat;
+      for (int j = 0; j < SIZE; j++) begin
+        can_send_wakeup[i][j] = !SLOW_WAKEUP_FU[i][iq_ff[j].dest_fu] && iq_ff[j].rd.typ != PREG_TYPE_NONE;
+      end
+    end
+  end
+
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      sending_wakeup[i] = '0;
+      for (int j = 0; j < SIZE; j++) begin
+        if (grant[i][j]) begin
+          sending_wakeup[i].preg |= iq_ff[j].rd;
+          sending_wakeup[i].latency |= iq_ff[j].lat;
+        end
+      end
+      sending_wakeup[i].valid = |(grant[i] & can_send_wakeup[i]) && !flush;
     end
   end
 

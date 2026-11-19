@@ -47,12 +47,18 @@ module lsu_controller
   input wire dc_resp_t dc_resp
 );
 
+  // 今のところはコア側がrespのkillを担当する。
+  // acceptと同じサイクルにkillしたloadのrespは捨てる
+  logic resp_killed_ff;
+  logic resp_valid;
+  assign resp_valid = dc_resp.valid && !(resp_killed_ff && !dc_resp.tag.is_store);
+
   // ack,nackをつなぐ
   always_comb begin
     st_ack  = '0;
     st_nack = '0;
     ld_nack = '0;
-    if (dc_resp.valid) begin
+    if (resp_valid) begin
       if (dc_resp.tag.is_store) begin
         st_ack.valid = dc_resp.ack;
         st_ack.stq_idx = dc_resp.tag.stq_idx;
@@ -153,9 +159,12 @@ module lsu_controller
     if (rst) begin
       dc_req_ff <= '0;
       load_turn_ff <= 1'b1;
+      resp_killed_ff <= 1'b0;
     end else begin
       dc_req_ff <= n_dc_req_ff;
       load_turn_ff <= n_load_turn_ff;
+      // 一旦コアがkillを担当
+      resp_killed_ff <= dc_accepted && !dc_req_ff.we && (br_kill_check(dc_req_ff.brmask, br_update_ff) || flush);
     end
   end
 
@@ -167,7 +176,7 @@ module lsu_controller
   always_comb begin
     forwarded = 1'b0;
     wb_mem = '0;
-    if (dc_resp.valid && !dc_resp.tag.is_store && dc_resp.ack && !ldq[resp_ldq_idx].stale && !stale_mask[resp_ldq_idx]) begin
+    if (resp_valid && !dc_resp.tag.is_store && dc_resp.ack && !ldq[resp_ldq_idx].stale && !stale_mask[resp_ldq_idx]) begin
       // loadをWBへ送る
       wb_mem.valid = 1'b1;
       wb_mem.rd = ldq[resp_ldq_idx].rd;

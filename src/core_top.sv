@@ -126,10 +126,10 @@ module core_top #(
     .dc_br_resolve_mask_ff(dc_br_resolve_mask_ff),
     .dc_kill_all_ff(dc_kill_all_ff),
     .dc_req_accepted(dc_req_accepted),
-    .dc_resp_valid(dc_resp_valid_ff),
-    .dc_resp_ack(dc_resp_ack_ff),
-    .dc_resp_rdata(dc_resp_rdata_ff),
-    .dc_resp_tag(dc_resp_tag_ff)
+    .dc_resp_valid_ff(dc_resp_valid_ff),
+    .dc_resp_ack_ff(dc_resp_ack_ff),
+    .dc_resp_rdata_ff(dc_resp_rdata_ff),
+    .dc_resp_tag_ff(dc_resp_tag_ff)
   );
 endmodule
 

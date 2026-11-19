@@ -99,10 +99,11 @@ module iq_top
         end
       end else begin
         // wakeupが来たらカウント開始
+        // !countingのときはcnt=0の前提
         for (int j = 0; j < I_WAKEUP_W; j++) begin
           if (i_wakeup[j].valid && i_wakeup[j].preg.idx == preg_idx_t'(i)) begin
-            n_i_preg_state[i].counting = 1'b1;
-            n_i_preg_state[i].cnt = i_wakeup[j].latency;
+            n_i_preg_state[i].counting |= 1'b1;
+            n_i_preg_state[i].cnt |= i_wakeup[j].latency;
           end
         end
       end
@@ -110,16 +111,19 @@ module iq_top
       for (int j = 0; j < DISPATCH_W_INT; j++) begin
         if (disp_valid_int[j] && disp_uop_int[j].rd.typ == PREG_TYPE_I && disp_uop_int[j].rd.idx == preg_idx_t'(i)) begin
           n_i_preg_state[i].counting = 1'b0;
+          n_i_preg_state[i].cnt = '0;
         end
       end
       for (int j = 0; j < DISPATCH_W_MEM; j++) begin
         if (disp_valid_mem[j] && disp_uop_mem[j].rd.typ == PREG_TYPE_I && disp_uop_mem[j].rd.idx == preg_idx_t'(i)) begin
           n_i_preg_state[i].counting = 1'b0;
+          n_i_preg_state[i].cnt = '0;
         end
       end
       for (int j = 0; j < DISPATCH_W_FPU; j++) begin
         if (disp_valid_fpu[j] && disp_uop_fpu[j].rd.typ == PREG_TYPE_I && disp_uop_fpu[j].rd.idx == preg_idx_t'(i)) begin
           n_i_preg_state[i].counting = 1'b0;
+          n_i_preg_state[i].cnt = '0;
         end
       end
     end
@@ -131,26 +135,30 @@ module iq_top
           n_f_preg_state[i].cnt = f_preg_state[i].cnt - 1;
         end
       end else begin
+        // !countingのときはcnt=0の前提
         for (int j = 0; j < F_WAKEUP_W; j++) begin
           if (f_wakeup[j].valid && f_wakeup[j].preg.idx == preg_idx_t'(i)) begin
-            n_f_preg_state[i].counting = 1'b1;
-            n_f_preg_state[i].cnt = f_wakeup[j].latency;
+            n_f_preg_state[i].counting |= 1'b1;
+            n_f_preg_state[i].cnt |= f_wakeup[j].latency;
           end
         end
       end
       for (int j = 0; j < DISPATCH_W_INT; j++) begin
         if (disp_valid_int[j] && disp_uop_int[j].rd.typ == PREG_TYPE_F && disp_uop_int[j].rd.idx == preg_idx_t'(i)) begin
           n_f_preg_state[i].counting = 1'b0;
+          n_f_preg_state[i].cnt = '0;
         end
       end
       for (int j = 0; j < DISPATCH_W_MEM; j++) begin
         if (disp_valid_mem[j] && disp_uop_mem[j].rd.typ == PREG_TYPE_F && disp_uop_mem[j].rd.idx == preg_idx_t'(i)) begin
           n_f_preg_state[i].counting = 1'b0;
+          n_f_preg_state[i].cnt = '0;
         end
       end
       for (int j = 0; j < DISPATCH_W_FPU; j++) begin
         if (disp_valid_fpu[j] && disp_uop_fpu[j].rd.typ == PREG_TYPE_F && disp_uop_fpu[j].rd.idx == preg_idx_t'(i)) begin
           n_f_preg_state[i].counting = 1'b0;
+          n_f_preg_state[i].cnt = '0;
         end
       end
     end
@@ -181,6 +189,7 @@ module iq_top
     else return '{counting: 1'b1, cnt: '0};
   endfunction
 
+  // 同じサイクルにdispatchされたrdとrsの依存を検知
   function automatic logic block_dispatched_rd(input preg_t p);
     logic found = 1'b0;
     for (int i = 0; i < DISPATCH_W_INT; i++) begin
@@ -205,21 +214,21 @@ module iq_top
   always_comb begin
     for (int i = 0; i < DISPATCH_W_INT; i++) begin
       disp_rs1_st_int[i] = get_preg_state(disp_uop_int[i].rs1);
-      disp_rs1_st_int[i].counting = disp_rs1_st_int[i].counting && !block_dispatched_rd(disp_uop_int[i].rs1);
+      if (block_dispatched_rd(disp_uop_int[i].rs1)) disp_rs1_st_int[i] = '{counting: 1'b0, cnt: '0};
       disp_rs2_st_int[i] = get_preg_state(disp_uop_int[i].rs2);
-      disp_rs2_st_int[i].counting = disp_rs2_st_int[i].counting && !block_dispatched_rd(disp_uop_int[i].rs2);
+      if (block_dispatched_rd(disp_uop_int[i].rs2)) disp_rs2_st_int[i] = '{counting: 1'b0, cnt: '0};
     end
     for (int i = 0; i < DISPATCH_W_MEM; i++) begin
       disp_rs1_st_mem[i] = get_preg_state(disp_uop_mem[i].rs1);
-      disp_rs1_st_mem[i].counting = disp_rs1_st_mem[i].counting && !block_dispatched_rd(disp_uop_mem[i].rs1);
+      if (block_dispatched_rd(disp_uop_mem[i].rs1)) disp_rs1_st_mem[i] = '{counting: 1'b0, cnt: '0};
       disp_rs2_st_mem[i] = get_preg_state(disp_uop_mem[i].rs2);
-      disp_rs2_st_mem[i].counting = disp_rs2_st_mem[i].counting && !block_dispatched_rd(disp_uop_mem[i].rs2);
+      if (block_dispatched_rd(disp_uop_mem[i].rs2)) disp_rs2_st_mem[i] = '{counting: 1'b0, cnt: '0};
     end
     for (int i = 0; i < DISPATCH_W_FPU; i++) begin
       disp_rs1_st_fpu[i] = get_preg_state(disp_uop_fpu[i].rs1);
-      disp_rs1_st_fpu[i].counting = disp_rs1_st_fpu[i].counting && !block_dispatched_rd(disp_uop_fpu[i].rs1);
+      if (block_dispatched_rd(disp_uop_fpu[i].rs1)) disp_rs1_st_fpu[i] = '{counting: 1'b0, cnt: '0};
       disp_rs2_st_fpu[i] = get_preg_state(disp_uop_fpu[i].rs2);
-      disp_rs2_st_fpu[i].counting = disp_rs2_st_fpu[i].counting && !block_dispatched_rd(disp_uop_fpu[i].rs2);
+      if (block_dispatched_rd(disp_uop_fpu[i].rs2)) disp_rs2_st_fpu[i] = '{counting: 1'b0, cnt: '0};
     end
   end
 
