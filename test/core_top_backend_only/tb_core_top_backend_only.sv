@@ -543,7 +543,10 @@ module tb_core_top_backend_only
 
   task automatic fail(string msg);
     errors++;
-    if (errors <= MAX_ERRORS) $display("[cycle %0d] NG: %s", cyc, msg);
+    if (errors <= MAX_ERRORS) begin
+      $display("[cycle %0d] NG: %s", cyc, msg);
+      $fflush();
+    end
   endtask
 
   function automatic string ins_str(ins_t e);
@@ -1417,46 +1420,60 @@ module tb_core_top_backend_only
 
   // ---------------- D$ の監視 ----------------
 
-  // memory は accept と返事を同じサイクルに出す（accepted = resp_valid = ack）。
-  // このサイクル（次の posedge）に D$ が受け取る要求を見て、メモリのモデルと比べる
+  // memory は accept を組合せで、返事を次のサイクルに FF から出す（resp_valid = ack = 前のサイクルの accept）。
+  // このサイクル（次の posedge）に D$ が受け取る要求を見て、メモリのモデルと比べる。返事は次のサイクルに照合する
+  logic pend_valid = 1'b0;
+  logic pend_load;
+  logic pend_cmp;
+  logic [DC_TAG_W-1:0] pend_tag;
+  word_t pend_rdata;
+  addr_t pend_addr;
+
   task automatic dc_monitor();
     lsu_tag_t tg;
     logic acc, dkill;
     int idx, id;
+    if (dut.dc_resp_valid_ff !== pend_valid)
+      fail($sformatf("D$ の返事 valid=%b、前のサイクルの accept=%b と違う", dut.dc_resp_valid_ff, pend_valid));
+    if (pend_valid) begin
+      if (dut.dc_resp_ack_ff !== 1'b1) fail("D$ が nack した");
+      if (dut.dc_resp_tag_ff !== pend_tag)
+        fail($sformatf("D$ の返事の tag %h、要求の tag %h", dut.dc_resp_tag_ff, pend_tag));
+      if (pend_load && pend_cmp && dut.dc_resp_rdata_ff !== pend_rdata)
+        fail($sformatf("D$ の load addr=%h の返事 %h、accept までに accept した store から %h", pend_addr,
+                       dut.dc_resp_rdata_ff, pend_rdata));
+      if (tr() && pend_load) $display("  [%0d] D$ の返事 addr %h → %h", cyc, pend_addr, dut.dc_resp_rdata_ff);
+    end
     tg = lsu_tag_t'(dut.dc_req_tag_ff);
     acc = dut.dc_req_valid_ff && dut.dc_req_accepted;
     if (dut.dc_req_accepted && !dut.dc_req_valid_ff) fail("要求が無いのに D$ が accept した");
-    if (dut.dc_resp_valid_ff !== acc) fail($sformatf("D$ の返事 valid=%b、accept=%b と違う", dut.dc_resp_valid_ff, acc));
+    pend_valid = acc;
+    pend_load = !dut.dc_req_we_ff;
+    pend_tag = dut.dc_req_tag_ff;
+    pend_addr = dut.dc_req_addr_ff;
+    // 順序違反の load の値をアドレスの元にした load は、flush されるまでにでたらめなアドレス（TX や 1024 以上）を出しうる。
+    // その返事は比べず、その load が commit したら NG にする
+    pend_cmp = dut.dc_req_addr_ff < addr_t'(MEM_WORDS);
+    pend_rdata = pend_cmp ? dc_get(dut.dc_req_addr_ff) : '0;
     if (acc) begin
-      if (dut.dc_resp_ack_ff !== 1'b1) fail("D$ が nack した");
-      if (dut.dc_resp_tag_ff !== dut.dc_req_tag_ff)
-        fail($sformatf("D$ の返事の tag %h、要求の tag %h", dut.dc_resp_tag_ff, dut.dc_req_tag_ff));
       if (!dut.dc_req_we_ff) begin
         idx = int'(tg.ldq_idx);
         id = ldq_owner[idx];
         dkill = (dut.dc_req_brmask_ff & dut.dc_br_kill_mask_ff) != '0 || dut.dc_kill_all_ff;
         if (tg.is_store) fail("load の要求なのに tag.is_store = 1");
-        // 順序違反の load の値をアドレスの元にした load は、flush されるまでにでたらめなアドレス（TX や 1024 以上）を出しうる。
-        // その返事は比べず、その load が commit したら NG にする
-        if (dut.dc_req_addr_ff < addr_t'(MEM_WORDS)) begin
-          if (dut.dc_resp_rdata_ff !== dc_get(dut.dc_req_addr_ff))
-            fail($sformatf("D$ の load（LDQ %0d）addr=%h の返事 %h、それまでに accept した store から %h", idx,
-                           dut.dc_req_addr_ff, dut.dc_resp_rdata_ff, dc_get(dut.dc_req_addr_ff)));
-        end else n_dc_far++;
+        if (!pend_cmp) n_dc_far++;
         if (dkill) n_dc_drop++;
         else begin
           if (id < 0 || !tbl.exists(id)) fail($sformatf("生きていない load の要求を D$ が accept した（LDQ %0d）", idx));
           else begin
-            // 返事は accept と同じサイクルで、そのサイクルに WB に出るので、check_wb_lane が先に done を立てている
-            if (tbl[id].done && tbl[id].t_wb != cyc)
+            if (tbl[id].done)
               fail($sformatf("WB 済みの load の要求が D$ に出た: %s", ins_str(tbl[id])));
             if (dut.dc_req_addr_ff >= addr_t'(MEM_WORDS))
               note_bad(id, $sformatf("範囲外のアドレス %h の load が D$ に出た: %s", dut.dc_req_addr_ff, ins_str(tbl[id])));
           end
         end
         n_dc_ld++;
-        if (tr())
-          $display("  [%0d] D$ load LDQ %0d addr %h → %h（kill %b）", cyc, idx, dut.dc_req_addr_ff, dut.dc_resp_rdata_ff, dkill);
+        if (tr()) $display("  [%0d] D$ load LDQ %0d addr %h（kill %b）", cyc, idx, dut.dc_req_addr_ff, dkill);
       end else begin
         idx = int'(tg.stq_idx);
         if (!tg.is_store) fail("store の要求なのに tag.is_store = 0");
@@ -1578,6 +1595,20 @@ module tb_core_top_backend_only
   endfunction
 
   // p を c が読む 2 命令を流して、イベントの間隔が gap になるか見る
+  // 定型テストの命令を全部 dispatch するまで回す。詰まったら打ち切る
+  task automatic dir_issue();
+    int n;
+    n = 0;
+    while (dir_pos < dir_n && !stuck) begin
+      tick();
+      n++;
+      if (n > STUCK_LIMIT) begin
+        fail($sformatf("定型テスト: %0d サイクルで dispatch が %0d / %0d 個までしか進まない", STUCK_LIMIT, dir_pos, dir_n));
+        stuck = 1'b1;
+      end
+    end
+  endtask
+
   task automatic dir_pair(int kp, int kc, int c_src, int ev_c, int gap, imm_raw_t imm_c);
     int p, c, tp, tc;
     dir_n = 0;
@@ -1589,7 +1620,7 @@ module tb_core_top_backend_only
     if (c_src == 1) c = dir_add(kc, p, -1, FU_OP_BEQ, imm_c);
     else c = dir_add(kc, -1, p, FU_OP_BEQ, imm_c);
     mode = M_DIR;
-    while (dir_pos < dir_n) tick();
+    dir_issue();
     drain("定型テスト");
     tp = ev_of(p, EV_WB);
     tc = ev_of(c, ev_c);
@@ -1611,7 +1642,7 @@ module tb_core_top_backend_only
       prev = cur;
     end
     mode = M_DIR;
-    while (dir_pos < dir_n) tick();
+    dir_issue();
     drain("定型テスト");
     for (int i = 1; i < n; i++) begin
       tp = ev_of(i - 1, EV_WB);

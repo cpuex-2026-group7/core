@@ -680,6 +680,14 @@ proc build_bitstream {force} {
     catch {reset_run $impl}
     if {$need_synth} { catch {reset_run $synth} }
 
+    # 途中で落ちた IP の run が残っていると impl_1 を起動できないので、やり直させる
+    foreach r [get_runs -quiet -filter {IS_SYNTHESIS && SRCSET != sources_1}] {
+        if {[get_property PROGRESS $r] ne "100%" && [get_property STATUS $r] ne "Not started"} {
+            puts "reset $r ([get_property STATUS $r])"
+            catch {reset_run $r}
+        }
+    }
+
     set jobs [cpu_count]
     puts "Launching synth/impl/write_bitstream (jobs = $jobs) ..."
     launch_runs $impl -to_step write_bitstream -jobs $jobs
