@@ -13,7 +13,7 @@ module lsu_searcher
   input wire ldq_searcher_t ldq[LDQ_SIZE],
   output ldq_mask_t violation_mask,  // WBに出た後のloadが違反
   output ldq_mask_t stale_mask,  // WBに出る前のloadが違反
-  output ld_fwd_t ld_fwd,  // AGUに来たloadのforward元
+  output nload_fwd_src_t nload_fwd_src,  // AGUに来たloadのforward元
 
   // STQから
   input wire stq_searcher_t stq[STQ_SIZE],
@@ -63,7 +63,7 @@ module lsu_searcher
   // loadより古いstoreのうち一番新しいものをfoward元とする
   always_comb begin
     stq_ptr_t p;
-    ld_fwd = '0;
+    nload_fwd_src = '0;
     p = '0;
     if (!ex_lsu.is_store && ex_lsu.addr_valid) begin
       p.wrap = 1'b0;
@@ -71,8 +71,8 @@ module lsu_searcher
       // tailから一周して最後に当たったものを採用
       for (int i = 0; i < STQ_SIZE; i++) begin
         if (ldq[ex_lsu.ldq_idx].older_st_mask[p.stq_idx] && stq[p.stq_idx].addr_valid && stq[p.stq_idx].addr == ex_lsu.addr) begin
-          ld_fwd.hit = 1'b1;
-          ld_fwd.stq_idx = p.stq_idx;
+          nload_fwd_src.hit = 1'b1;
+          nload_fwd_src.stq_idx = p.stq_idx;
         end
         p = stq_ptr_inc(p);
       end

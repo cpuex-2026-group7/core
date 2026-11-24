@@ -27,6 +27,7 @@ module stq
   // LDQへ
   output older_st_t older_st[DISP_W],
   output stq_mask_t stq_release_mask,  // このサイクルに解放したエントリ
+  output stq_mask_t stq_data_valid_ff,
 
   // AGUから
   input wire ex_lsu_t ex_lsu,
@@ -64,6 +65,7 @@ module stq
       stq_searcher_ff[i].data = stq_ff[i].data;
       stq_fwd_ff[i].data_valid = stq_ff[i].data_valid;
       stq_fwd_ff[i].data = stq_ff[i].data;
+      stq_data_valid_ff[i] = stq_ff[i].data_valid;
     end
   end
 

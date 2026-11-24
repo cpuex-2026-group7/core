@@ -156,6 +156,7 @@ package lsu_types;
     logic     gone_to_wb;
     logic     fwd_hit;
     stq_idx_t fwd_stq_idx;
+    logic     fwd_ready;
     preg_t    rd;
     rob_idx_t rob_idx;
     brmask_t  brmask;
@@ -212,7 +213,8 @@ package lsu_types;
   typedef struct packed {
     logic     hit;
     stq_idx_t stq_idx;
-  } ld_fwd_t;
+    logic     data_valid;  // forward元のデータが来てるか？
+  } nload_fwd_src_t;
 
   // forwardするloadの候補
   typedef struct packed {

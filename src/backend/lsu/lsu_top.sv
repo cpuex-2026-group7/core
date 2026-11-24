@@ -97,6 +97,7 @@ module lsu_top
 
   older_st_t older_st[DISP_W];
   stq_mask_t stq_release_mask;
+  stq_mask_t stq_data_valid;
 
   ldq_controller_t ldq_controller[LDQ_SIZE];
   ldq_searcher_t ldq_searcher[LDQ_SIZE];
@@ -110,7 +111,7 @@ module lsu_top
   logic st_requested;
   stq_idx_with_valid_t st_ack, st_nack;
 
-  ld_fwd_t ld_fwd;
+  nload_fwd_src_t nload_fwd_src;
   ldq_mask_t violation_mask, stale_mask;
 
   ldq #(
@@ -125,6 +126,7 @@ module lsu_top
     .disp_full(disp_ld_full),
     .older_st(older_st),
     .stq_release_mask(stq_release_mask),
+    .stq_data_valid_ff(stq_data_valid),
     .disp_br_valid(disp_br_valid),
     .disp_br_tag(disp_br_tag),
     .ex_lsu(ex_lsu[0]),
@@ -133,7 +135,7 @@ module lsu_top
     .ld_gone_to_wb(ld_gone_to_wb),
     .violation_mask(violation_mask),
     .stale_mask(stale_mask),
-    .ld_fwd(ld_fwd),
+    .nload_fwd_src(nload_fwd_src),
     .br_update_ff(br_update_ff),
     .commit_ld(commit_ld),
     .ldq_controller_ff(ldq_controller),
@@ -166,6 +168,7 @@ module lsu_top
     .stq_cnt(stq_cnt),
     .stq_searcher_ff(stq_searcher),
     .stq_fwd_ff(stq_fwd),
+    .stq_data_valid_ff(stq_data_valid),
     .complete_st(complete_st),
     .stq_empty(stq_empty)
   );
@@ -200,7 +203,7 @@ module lsu_top
     .ex_lsu(ex_lsu[0]),
     .violation_mask(violation_mask),
     .stale_mask(stale_mask),
-    .ld_fwd(ld_fwd)
+    .nload_fwd_src(nload_fwd_src)
   );
 
 endmodule

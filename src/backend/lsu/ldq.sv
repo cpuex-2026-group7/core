@@ -27,6 +27,7 @@ module ldq
   // STQから
   input wire older_st_t older_st[DISP_W],
   input wire stq_mask_t stq_release_mask,  // このサイクルに解放したSTQのエントリ。older_st_maskから落とす
+  input wire stq_mask_t stq_data_valid_ff,  // fwd_readyを作る用
 
   // AGUから
   input wire ex_lsu_t ex_lsu,
@@ -40,7 +41,7 @@ module ldq
   // searcher
   input wire ldq_mask_t violation_mask,  // WBに出た後のloadが違反
   input wire ldq_mask_t stale_mask,  // WBに出る前のloadでアドレス一致したもの
-  input wire ld_fwd_t ld_fwd,  // AGUに来たloadのforward元
+  input wire nload_fwd_src_t nload_fwd_src,  // AGUに来たloadのforward元
 
   // controller、searcherへ
   output ldq_controller_t ldq_controller_ff[LDQ_SIZE],
@@ -53,6 +54,8 @@ module ldq
   input wire logic commit_ld[COMMIT_W],
   output load_violation_t load_violation[COMMIT_W]  // headからk番目のloadまでについて情報提供
 );
+
+  logic [LDQ_SIZE-1:0] forward_ready_ff;
 
   ldq_ptr_t ldq_head, ldq_tail;
   ldq_ptr_t ldq_tail_snapshot[MAX_BR];
@@ -71,6 +74,7 @@ module ldq
       ldq_controller_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
       ldq_controller_ff[i].fwd_hit = ldq_ff[i].fwd_hit;
       ldq_controller_ff[i].fwd_stq_idx = ldq_ff[i].fwd_stq_idx;
+      ldq_controller_ff[i].fwd_ready = forward_ready_ff[i];
       ldq_controller_ff[i].rd = ldq_ff[i].rd;
       ldq_controller_ff[i].rob_idx = ldq_ff[i].rob_idx;
       ldq_controller_ff[i].brmask = ldq_ff[i].brmask;
@@ -193,8 +197,8 @@ module ldq
       // loadのアドレスが来た場合
       n_ldq_ff[ex_lsu.ldq_idx].addr_valid = 1'b1;
       n_ldq_ff[ex_lsu.ldq_idx].addr = ex_lsu.addr;
-      n_ldq_ff[ex_lsu.ldq_idx].fwd_hit = ld_fwd.hit;
-      n_ldq_ff[ex_lsu.ldq_idx].fwd_stq_idx = ld_fwd.stq_idx;
+      n_ldq_ff[ex_lsu.ldq_idx].fwd_hit = nload_fwd_src.hit;
+      n_ldq_ff[ex_lsu.ldq_idx].fwd_stq_idx = nload_fwd_src.stq_idx;
     end
     if (ex_lsu.is_store && ex_lsu.addr_valid) begin
       // storeのアドレスが来た場合
@@ -233,6 +237,17 @@ module ldq
     end
   end
 
+  // violation
+  ldq_ptr_t violation_ptr[COMMIT_W+1];
+  always_comb begin
+    violation_ptr[0] = ldq_head;
+    for (int i = 0; i < COMMIT_W; i++) begin
+      load_violation[i].valid = ldq_ff[violation_ptr[i].ldq_idx].valid && ldq_ff[violation_ptr[i].ldq_idx].violated;
+      load_violation[i].rob_idx = ldq_ff[violation_ptr[i].ldq_idx].rob_idx;
+      violation_ptr[i+1] = ldq_ptr_inc(violation_ptr[i]);
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
       for (int i = 0; i < LDQ_SIZE; i++) begin
@@ -249,14 +264,40 @@ module ldq
     end
   end
 
-  // violation
-  ldq_ptr_t violation_ptr[COMMIT_W+1];
+  // AGUから来る分を含める
+  logic [LDQ_SIZE-1:0] fwd_data_valid;
   always_comb begin
-    violation_ptr[0] = ldq_head;
-    for (int i = 0; i < COMMIT_W; i++) begin
-      load_violation[i].valid = ldq_ff[violation_ptr[i].ldq_idx].valid && ldq_ff[violation_ptr[i].ldq_idx].violated;
-      load_violation[i].rob_idx = ldq_ff[violation_ptr[i].ldq_idx].rob_idx;
-      violation_ptr[i+1] = ldq_ptr_inc(violation_ptr[i]);
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      fwd_data_valid[i] = stq_data_valid_ff[ldq_ff[i].fwd_stq_idx];
+      if (!ex_lsu.is_store) begin
+        if (ex_lsu.addr_valid && ex_lsu.ldq_idx == ldq_idx_t'(i)) begin
+          // loadのアドレスが来た
+          fwd_data_valid[i] = nload_fwd_src.data_valid;
+        end
+      end else begin
+        if (ex_lsu.data_valid) begin
+          // storeのデータが来た
+          fwd_data_valid[i] |= (ex_lsu.stq_idx == ldq_ff[i].fwd_stq_idx);
+        end
+        if (ex_lsu.addr_valid) begin
+          // storeのアドレスが来て
+          if (stale_mask[i]) begin
+            // アドレス一致している
+            fwd_data_valid[i] = stq_data_valid_ff[ex_lsu.stq_idx] || ex_lsu.data_valid;  // (上書き)
+          end
+        end
+      end
+    end
+  end
+
+
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      forward_ready_ff <= '0;
+    end else begin
+      for (int i = 0; i < LDQ_SIZE; i++) begin
+        forward_ready_ff[i] <= n_ldq_ff[i].valid && n_ldq_ff[i].addr_valid && !n_ldq_ff[i].ld_requested && !n_ldq_ff[i].gone_to_wb && n_ldq_ff[i].fwd_hit && fwd_data_valid[i];
+      end
     end
   end
 

@@ -21,7 +21,7 @@
 //     エントリの addr / addr_valid はでたらめ（前にそのエントリを使った load の値）
 //
 // 期待値
-//   ld_fwd：load のアドレスが来たときだけ。その load より古い store（seq が [H, T)）で addr_valid かつ
+//   nload_fwd_src：load のアドレスが来たときだけ。その load より古い store（seq が [H, T)）で addr_valid かつ
 //     アドレスが ex_lsu.addr と同じもののうち seq が最大のもの
 //   違反：AGU の store より新しい（S < T）、valid かつ addr_valid でアドレスが同じ load について
 //     forward 元の seq が S より大きければ何も立てない。そうでなければ
@@ -46,7 +46,7 @@ module tb_lsu_searcher
   ldq_mask_t     stale_mask;
   stq_searcher_t stq            [SN];
   ex_lsu_t       ex_lsu;
-  ld_fwd_t       ld_fwd;
+  nload_fwd_src_t nload_fwd_src;
 
   lsu_searcher dut (.*);
 
@@ -204,21 +204,21 @@ module tb_lsu_searcher
       if (T[k] - H == SN) n_fw_full++;
       if (best < 0) begin
         n_fw_miss++;
-        if (ld_fwd.hit)
-          err($sformatf("ld_fwd：load %0d（addr %h）は当たらないはずなのに hit（stq_idx %0d、エントリの古い addr %h）", k,
-                        ex.addr, ld_fwd.stq_idx, l[k].addr));
+        if (nload_fwd_src.hit)
+          err($sformatf("nload_fwd_src：load %0d（addr %h）は当たらないはずなのに hit（stq_idx %0d、エントリの古い addr %h）", k,
+                        ex.addr, nload_fwd_src.stq_idx, l[k].addr));
       end else begin
         n_fw_hit++;
         if (l[k].addr != ex.addr) n_fw_old_addr++;
-        if (!ld_fwd.hit)
-          err($sformatf("ld_fwd：load %0d（addr %h）は STQ %0d に当たるはずなのに hit=0（エントリの古い addr %h）", k,
+        if (!nload_fwd_src.hit)
+          err($sformatf("nload_fwd_src：load %0d（addr %h）は STQ %0d に当たるはずなのに hit=0（エントリの古い addr %h）", k,
                         ex.addr, best % SN, l[k].addr));
-        else if (int'(ld_fwd.stq_idx) != best % SN)
-          err($sformatf("ld_fwd：load %0d（tail %0d）の stq_idx = %0d、期待値 %0d（H %0d n %0d）", k, T[k] % SN,
-                        ld_fwd.stq_idx, best % SN, H % SN, n));
+        else if (int'(nload_fwd_src.stq_idx) != best % SN)
+          err($sformatf("nload_fwd_src：load %0d（tail %0d）の stq_idx = %0d、期待値 %0d（H %0d n %0d）", k, T[k] % SN,
+                        nload_fwd_src.stq_idx, best % SN, H % SN, n));
       end
     end else begin
-      if (ld_fwd.hit) err("ld_fwd：load のアドレスが来ていないのに hit");
+      if (nload_fwd_src.hit) err("nload_fwd_src：load のアドレスが来ていないのに hit");
     end
 
     // ---- 違反 ----

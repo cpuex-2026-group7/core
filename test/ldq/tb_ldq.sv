@@ -27,7 +27,7 @@
 //     ld_nack：ld_requested=0、stale=0（stale_mask より優先）
 //   - violation_mask / stale_mask が立つのは store のアドレスが AGU から来たサイクルだけ
 //   - forward 元（fwd_hit / fwd_stq_idx）
-//     load のアドレスが来たサイクル：ld_fwd をそのまま入れる
+//     load のアドレスが来たサイクル：nload_fwd_src をそのまま入れる
 //     store のアドレスが来たサイクル：stale_mask が立っているエントリは fwd_hit=1、fwd_stq_idx=ex_lsu.stq_idx
 //     その後で stq_release_mask[fwd_stq_idx] なら fwd_hit=0（同じサイクルに入れた分にも当てる）
 //     dispatch で fwd_hit=0。gone_to_wb では変えない
@@ -66,7 +66,7 @@ module tb_ldq
   ldq_idx_t            ldq_head_idx;
   ldq_mask_t           violation_mask;
   ldq_mask_t           stale_mask;
-  ld_fwd_t             ld_fwd;
+  nload_fwd_src_t      nload_fwd_src;
   ldq_controller_t     ldq_controller_ff[  LDQ_SIZE];
   ldq_searcher_t       ldq_searcher_ff  [  LDQ_SIZE];
   br_update_t          br_update_ff;
@@ -92,7 +92,7 @@ module tb_ldq
   ldq_idx_with_valid_t t_ld_requested;
   ldq_idx_with_valid_t t_ld_nack;
   ldq_idx_with_valid_t t_ld_gone_to_wb;
-  ld_fwd_t             t_ld_fwd;
+  nload_fwd_src_t      t_ld_fwd;
   ldq_mask_t           t_violation_mask;
   ldq_mask_t           t_stale_mask;
   br_update_t          t_br_update_ff;
@@ -111,7 +111,7 @@ module tb_ldq
     ld_gone_to_wb <= t_ld_gone_to_wb;
     violation_mask <= t_violation_mask;
     stale_mask <= t_stale_mask;
-    ld_fwd <= t_ld_fwd;
+    nload_fwd_src <= t_ld_fwd;
     br_update_ff <= t_br_update_ff;
     commit_ld <= t_commit_ld;
   end
@@ -300,7 +300,7 @@ module tb_ldq
     ldq_idx_with_valid_t lr;
     ldq_idx_with_valid_t ln;
     ldq_idx_with_valid_t lg;
-    ld_fwd_t lf;
+    nload_fwd_src_t lf;
     bit st_agu;
     ldq_mask_t vm, sm;
     stq_mask_t rel;
@@ -388,7 +388,7 @@ module tb_ldq
     end
     cand.delete();
     st_agu = ex.is_store && ex.addr_valid;
-    // load のアドレスが来ていないサイクルの ld_fwd は無視されるはず
+    // load のアドレスが来ていないサイクルの nload_fwd_src は無視されるはず
     lf.hit = rnd(2) == 1;
     lf.stq_idx = stq_idx_t'($urandom());
 
