@@ -48,7 +48,7 @@ module iq_core
   // to RR
   output iq_rr_t rr_ff[ISSUE_W],
   output logic [PAYLOAD_W-1:0] rr_payload_ff[ISSUE_W],
-  output logic [1:0] rr_issue_part_ff[ISSUE_W]  // ALLOW_SPLIT_ISSUEでなければ常に2'b11
+  output logic [1:0] rr_issue_part_ff[ISSUE_W]  // ALLOW_SPLIT_ISSUEでなければissueしたサイクルに2'b11
 );
 
   localparam int IDX_W  = (SIZE > 1) ? $clog2(SIZE) : 1;
@@ -185,7 +185,6 @@ module iq_core
 
   logic [SIZE-1:0] grant[ISSUE_W];
   logic [IDX_W-1:0] issued_slot[ISSUE_W];
-  logic issued[ISSUE_W];
   generate
     for (genvar i = 0; i < ISSUE_W; i++) begin : g_issue
       // 一番古いのを選ぶ
@@ -196,27 +195,32 @@ module iq_core
         .older(older),
         .grant(grant[i])  // one hot
       );
-      assign issued[i] = |grant[i] && !flush;
       assign issued_slot[i] = onehot_to_idx(grant[i]);
     end
   endgenerate
 
   // readyな側はまとめて出す 全部出したらエントリを空ける
   logic [1:0] issued_part[ISSUE_W];
-  logic issue_done[ISSUE_W];  // 全部pend落ちた?
+  logic [SIZE-1:0] done_bitmap;  // 全部pend落ちたエントリ
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
-      issued_part[i] = part_ready[issued_slot[i]];
-      issue_done[i]  = !ALLOW_SPLIT_ISSUE || (pend[issued_slot[i]] & ~issued_part[i]) == 2'b00;
+      issued_part[i] = '0;
+      for (int j = 0; j < SIZE; j++) if (grant[i][j]) issued_part[i] |= part_ready[j];
     end
+    for (int j = 0; j < SIZE; j++) done_bitmap[j] = !ALLOW_SPLIT_ISSUE || (pend[j] & ~part_ready[j]) == 2'b00;
   end
+
 
   always_comb begin
     n_pend = pend;
     if (ALLOW_SPLIT_ISSUE) begin
       // issue分のpendを落として
       for (int i = 0; i < ISSUE_W; i++) begin
-        if (issued[i]) n_pend[issued_slot[i]] = pend[issued_slot[i]] & ~issued_part[i];
+        for (int j = 0; j < SIZE; j++) begin
+          if (grant[i][j]) begin
+            n_pend[j] = pend[j] & ~part_ready[j];
+          end
+        end
       end
       // dispatch分のpendを立てる
       for (int i = 0; i < DISPATCH_W; i++) begin
@@ -229,6 +233,18 @@ module iq_core
     for (int i = 0; i < SIZE; i++) pend[i] <= n_pend[i];
   end
 
+  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] n_busy_memo[ISSUE_W][FU_PER_EU];
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      for (int f = 0; f < FU_PER_EU; f++) begin
+        n_busy_memo[i][f] = (ISSUE_TO_FU)'({busy_memo[i][f][ISSUE_TO_FU-1:0], 1'b0});
+        for (int j = 0; j < SIZE; j++) begin
+          n_busy_memo[i][f][0] |= grant[i][j] && iq_ff[j].dest_fu == dest_fu_t'(f) && BLOCKING_FU[i][f];
+        end
+      end
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst || flush) begin
       for (int i = 0; i < ISSUE_W; i++) begin
@@ -237,10 +253,7 @@ module iq_core
     end else begin
       for (int i = 0; i < ISSUE_W; i++) begin
         for (int f = 0; f < FU_PER_EU; f++) begin
-          busy_memo[i][f] <= (ISSUE_TO_FU)'({
-            busy_memo[i][f][ISSUE_TO_FU-1:0],
-            issued[i] && iq_ff[issued_slot[i]].dest_fu == dest_fu_t'(f) && BLOCKING_FU[i][f]
-          });
+          busy_memo[i][f] <= n_busy_memo[i][f];
         end
       end
     end
@@ -256,7 +269,7 @@ module iq_core
       if (alloc_valid[i]) n_bitmaps[port_of(disp_entry[i].dest_eu)][alloc_slot[i]] = 1'b1;
     end
     for (int i = 0; i < ISSUE_W; i++) begin
-      if (issued[i] && issue_done[i]) n_bitmaps[i][issued_slot[i]] = 1'b0;
+      n_bitmaps[i] &= ~(grant[i] & done_bitmap);  // issueされてdoneになったやつ以外を残す
     end
   end
 
@@ -357,6 +370,24 @@ module iq_core
     .r_data(iq_payload)
   );
 
+  iq_rr_t n_rr_ff[ISSUE_W];
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      n_rr_ff[i] = '0;
+      for (int j = 0; j < SIZE; j++) begin
+        if (grant[i][j]) begin
+          n_rr_ff[i].valid |= killed_bitmaps[i][j];  // ここで落とす
+          n_rr_ff[i].rd |= iq_ff[j].rd;
+          n_rr_ff[i].rs1 |= iq_ff[j].rs1.preg;
+          n_rr_ff[i].rs2 |= iq_ff[j].rs2.preg;
+          n_rr_ff[i].dest_fu |= iq_ff[j].dest_fu;
+          n_rr_ff[i].brmask |= iq_ff[j].brmask;
+        end
+      end
+      n_rr_ff[i].brmask = apply_br_resolve(n_rr_ff[i].brmask, br_update_ff);
+    end
+  end
+
   // RRのためのFFに入れる
   always_ff @(posedge clk) begin
     if (rst || flush) begin
@@ -369,12 +400,7 @@ module iq_core
       for (int i = 0; i < ISSUE_W; i++) begin
         rr_payload_ff[i] <= iq_payload[i];
         rr_issue_part_ff[i] <= issued_part[i];
-        rr_ff[i].valid <= |(grant[i] & killed_bitmaps[i]); // ここで落とす
-        rr_ff[i].rd    <= iq_ff[issued_slot[i]].rd;
-        rr_ff[i].rs1   <= iq_ff[issued_slot[i]].rs1.preg;
-        rr_ff[i].rs2   <= iq_ff[issued_slot[i]].rs2.preg;
-        rr_ff[i].dest_fu <= iq_ff[issued_slot[i]].dest_fu;
-        rr_ff[i].brmask  <= apply_br_resolve(iq_ff[issued_slot[i]].brmask, br_update_ff);
+        rr_ff[i] <= n_rr_ff[i];
       end
     end
   end
