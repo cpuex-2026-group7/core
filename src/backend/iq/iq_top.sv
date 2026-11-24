@@ -67,152 +67,6 @@ module iq_top
   wakeup_t i_wakeup[I_WAKEUP_W];
   wakeup_t f_wakeup[F_WAKEUP_W];
 
-  function automatic wakeup_t type_check(input wakeup_t w, input preg_type_t typ);
-    type_check = w;
-    type_check.valid = w.valid && w.preg.typ == typ;
-  endfunction
-
-  wakeup_t fpu_long_wakeup_ff;  // cnt-1して1サイクルずらす (タイミングの都合)
-  always_ff @(posedge clk) begin
-    if (rst || flush) fpu_long_wakeup_ff <= '0;
-    else begin
-      fpu_long_wakeup_ff <= fpu_wakeup[1];
-      fpu_long_wakeup_ff.latency <= fpu_wakeup[1].latency - 1;
-    end
-  end
-
-  always_comb begin
-    i_wakeup[0] = int_wakeup[0];
-    i_wakeup[1] = type_check(slow_wakeup_mem, PREG_TYPE_I);
-    i_wakeup[2] = type_check(fpu_long_wakeup_ff, PREG_TYPE_I);
-
-    f_wakeup[0] = type_check(slow_wakeup_mem, PREG_TYPE_F);
-    f_wakeup[1] = fpu_wakeup[0];
-    f_wakeup[2] = type_check(fpu_long_wakeup_ff, PREG_TYPE_F);
-    f_wakeup[3] = slow_wakeup_fpu;
-  end
-
-  src_state_t i_preg_state  [I_PREG_NUM];
-  src_state_t f_preg_state  [F_PREG_NUM];
-
-  src_state_t n_i_preg_state[I_PREG_NUM];
-  src_state_t n_f_preg_state[F_PREG_NUM];
-
-  always_comb begin
-    // I PREG
-    for (int i = 0; i < I_PREG_NUM; i++) begin
-      n_i_preg_state[i] = i_preg_state[i];
-      if (i_preg_state[i].counting) begin
-        if (i_preg_state[i].cnt > 0) begin
-          n_i_preg_state[i].cnt = i_preg_state[i].cnt - 1;
-        end
-      end else begin
-        // wakeupが来たらカウント開始
-        // !countingのときはcnt=0の前提
-        for (int j = 0; j < I_WAKEUP_W; j++) begin
-          if (i_wakeup[j].valid && i_wakeup[j].preg.idx == preg_idx_t'(i)) begin
-            n_i_preg_state[i].counting |= 1'b1;
-            n_i_preg_state[i].cnt |= i_wakeup[j].latency;
-          end
-        end
-      end
-      // dispatchのrdを結果待ちでマーク
-      for (int j = 0; j < DISPATCH_W_INT; j++) begin
-        if (disp_valid_int[j] && disp_uop_int[j].rd.typ == PREG_TYPE_I && disp_uop_int[j].rd.idx == preg_idx_t'(i)) begin
-          n_i_preg_state[i].counting = 1'b0;
-          n_i_preg_state[i].cnt = '0;
-        end
-      end
-      for (int j = 0; j < DISPATCH_W_MEM; j++) begin
-        if (disp_valid_mem[j] && disp_uop_mem[j].rd.typ == PREG_TYPE_I && disp_uop_mem[j].rd.idx == preg_idx_t'(i)) begin
-          n_i_preg_state[i].counting = 1'b0;
-          n_i_preg_state[i].cnt = '0;
-        end
-      end
-      for (int j = 0; j < DISPATCH_W_FPU; j++) begin
-        if (disp_valid_fpu[j] && disp_uop_fpu[j].rd.typ == PREG_TYPE_I && disp_uop_fpu[j].rd.idx == preg_idx_t'(i)) begin
-          n_i_preg_state[i].counting = 1'b0;
-          n_i_preg_state[i].cnt = '0;
-        end
-      end
-    end
-    // F PREG
-    for (int i = 0; i < F_PREG_NUM; i++) begin
-      n_f_preg_state[i] = f_preg_state[i];
-      if (f_preg_state[i].counting) begin
-        if (f_preg_state[i].cnt > 0) begin
-          n_f_preg_state[i].cnt = f_preg_state[i].cnt - 1;
-        end
-      end else begin
-        // !countingのときはcnt=0の前提
-        for (int j = 0; j < F_WAKEUP_W; j++) begin
-          if (f_wakeup[j].valid && f_wakeup[j].preg.idx == preg_idx_t'(i)) begin
-            n_f_preg_state[i].counting |= 1'b1;
-            n_f_preg_state[i].cnt |= f_wakeup[j].latency;
-          end
-        end
-      end
-      for (int j = 0; j < DISPATCH_W_INT; j++) begin
-        if (disp_valid_int[j] && disp_uop_int[j].rd.typ == PREG_TYPE_F && disp_uop_int[j].rd.idx == preg_idx_t'(i)) begin
-          n_f_preg_state[i].counting = 1'b0;
-          n_f_preg_state[i].cnt = '0;
-        end
-      end
-      for (int j = 0; j < DISPATCH_W_MEM; j++) begin
-        if (disp_valid_mem[j] && disp_uop_mem[j].rd.typ == PREG_TYPE_F && disp_uop_mem[j].rd.idx == preg_idx_t'(i)) begin
-          n_f_preg_state[i].counting = 1'b0;
-          n_f_preg_state[i].cnt = '0;
-        end
-      end
-      for (int j = 0; j < DISPATCH_W_FPU; j++) begin
-        if (disp_valid_fpu[j] && disp_uop_fpu[j].rd.typ == PREG_TYPE_F && disp_uop_fpu[j].rd.idx == preg_idx_t'(i)) begin
-          n_f_preg_state[i].counting = 1'b0;
-          n_f_preg_state[i].cnt = '0;
-        end
-      end
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    for (int i = 0; i < I_PREG_NUM; i++) begin
-      if (rst || flush) begin
-        i_preg_state[i].counting <= 1'b1;
-        i_preg_state[i].cnt <= '0;
-      end else begin
-        i_preg_state[i] <= n_i_preg_state[i];
-      end
-    end
-    for (int i = 0; i < F_PREG_NUM; i++) begin
-      if (rst || flush) begin
-        f_preg_state[i].counting <= 1'b1;
-        f_preg_state[i].cnt <= '0;
-      end else begin
-        f_preg_state[i] <= n_f_preg_state[i];
-      end
-    end
-  end
-
-  function automatic src_state_t get_preg_state(input preg_t preg);
-    if (preg.typ == PREG_TYPE_I) return i_preg_state[preg.idx];
-    else if (preg.typ == PREG_TYPE_F) return f_preg_state[preg.idx];
-    else return '{counting: 1'b1, cnt: '0};
-  endfunction
-
-  // 同じサイクルにdispatchされたrdとrsの依存を検知
-  function automatic logic block_dispatched_rd(input preg_t p);
-    logic found = 1'b0;
-    for (int i = 0; i < DISPATCH_W_INT; i++) begin
-      if (disp_valid_int[i] && disp_uop_int[i].rd == p) found = 1'b1;
-    end
-    for (int i = 0; i < DISPATCH_W_MEM; i++) begin
-      if (disp_valid_mem[i] && disp_uop_mem[i].rd == p) found = 1'b1;
-    end
-    for (int i = 0; i < DISPATCH_W_FPU; i++) begin
-      if (disp_valid_fpu[i] && disp_uop_fpu[i].rd == p) found = 1'b1;
-    end
-    return p.typ != PREG_TYPE_NONE && found;
-  endfunction
-
   src_state_t disp_rs1_st_int[DISPATCH_W_INT];
   src_state_t disp_rs2_st_int[DISPATCH_W_INT];
   src_state_t disp_rs1_st_mem[DISPATCH_W_MEM];
@@ -220,26 +74,13 @@ module iq_top
   src_state_t disp_rs1_st_fpu[DISPATCH_W_FPU];
   src_state_t disp_rs2_st_fpu[DISPATCH_W_FPU];
 
-  always_comb begin
-    for (int i = 0; i < DISPATCH_W_INT; i++) begin
-      disp_rs1_st_int[i] = get_preg_state(disp_uop_int[i].rs1);
-      if (block_dispatched_rd(disp_uop_int[i].rs1)) disp_rs1_st_int[i] = '{counting: 1'b0, cnt: '0};
-      disp_rs2_st_int[i] = get_preg_state(disp_uop_int[i].rs2);
-      if (block_dispatched_rd(disp_uop_int[i].rs2)) disp_rs2_st_int[i] = '{counting: 1'b0, cnt: '0};
-    end
-    for (int i = 0; i < DISPATCH_W_MEM; i++) begin
-      disp_rs1_st_mem[i] = get_preg_state(disp_uop_mem[i].rs1);
-      if (block_dispatched_rd(disp_uop_mem[i].rs1)) disp_rs1_st_mem[i] = '{counting: 1'b0, cnt: '0};
-      disp_rs2_st_mem[i] = get_preg_state(disp_uop_mem[i].rs2);
-      if (block_dispatched_rd(disp_uop_mem[i].rs2)) disp_rs2_st_mem[i] = '{counting: 1'b0, cnt: '0};
-    end
-    for (int i = 0; i < DISPATCH_W_FPU; i++) begin
-      disp_rs1_st_fpu[i] = get_preg_state(disp_uop_fpu[i].rs1);
-      if (block_dispatched_rd(disp_uop_fpu[i].rs1)) disp_rs1_st_fpu[i] = '{counting: 1'b0, cnt: '0};
-      disp_rs2_st_fpu[i] = get_preg_state(disp_uop_fpu[i].rs2);
-      if (block_dispatched_rd(disp_uop_fpu[i].rs2)) disp_rs2_st_fpu[i] = '{counting: 1'b0, cnt: '0};
-    end
-  end
+  wakeup_t fpu_long_wakeup_ff;  // cnt-1して1サイクルずらす (タイミングの都合)
+
+  src_state_t i_preg_state  [I_PREG_NUM];
+  src_state_t f_preg_state  [F_PREG_NUM];
+
+  src_state_t n_i_preg_state[I_PREG_NUM];
+  src_state_t n_f_preg_state[F_PREG_NUM];
 
   iq_int #(
     .SIZE(SIZE_INT),
@@ -335,6 +176,166 @@ module iq_top
     .rr_ff(rr_fpu_ff),
     .rr_payload_ff(rr_payload_fpu_ff)
   );
+
+  function automatic wakeup_t type_check(input wakeup_t w, input preg_type_t typ);
+    type_check = w;
+    type_check.valid = w.valid && w.preg.typ == typ;
+  endfunction
+
+  always_comb begin
+    i_wakeup[0] = int_wakeup[0];
+    i_wakeup[1] = type_check(slow_wakeup_mem, PREG_TYPE_I);
+    i_wakeup[2] = type_check(fpu_long_wakeup_ff, PREG_TYPE_I);
+
+    f_wakeup[0] = type_check(slow_wakeup_mem, PREG_TYPE_F);
+    f_wakeup[1] = fpu_wakeup[0];
+    f_wakeup[2] = type_check(fpu_long_wakeup_ff, PREG_TYPE_F);
+    f_wakeup[3] = slow_wakeup_fpu;
+  end
+
+  function automatic src_state_t get_preg_state(input preg_t preg);
+    if (preg.typ == PREG_TYPE_I) return i_preg_state[preg.idx];
+    else if (preg.typ == PREG_TYPE_F) return f_preg_state[preg.idx];
+    else return '{counting: 1'b1, cnt: '0};
+  endfunction
+
+  // 同じサイクルにdispatchされたrdとrsの依存を検知
+  function automatic logic block_dispatched_rd(input preg_t p);
+    logic found = 1'b0;
+    for (int i = 0; i < DISPATCH_W_INT; i++) begin
+      if (disp_valid_int[i] && disp_uop_int[i].rd == p) found = 1'b1;
+    end
+    for (int i = 0; i < DISPATCH_W_MEM; i++) begin
+      if (disp_valid_mem[i] && disp_uop_mem[i].rd == p) found = 1'b1;
+    end
+    for (int i = 0; i < DISPATCH_W_FPU; i++) begin
+      if (disp_valid_fpu[i] && disp_uop_fpu[i].rd == p) found = 1'b1;
+    end
+    return p.typ != PREG_TYPE_NONE && found;
+  endfunction
+
+  always_comb begin
+    for (int i = 0; i < DISPATCH_W_INT; i++) begin
+      disp_rs1_st_int[i] = get_preg_state(disp_uop_int[i].rs1);
+      if (block_dispatched_rd(disp_uop_int[i].rs1)) disp_rs1_st_int[i] = '{counting: 1'b0, cnt: '0};
+      disp_rs2_st_int[i] = get_preg_state(disp_uop_int[i].rs2);
+      if (block_dispatched_rd(disp_uop_int[i].rs2)) disp_rs2_st_int[i] = '{counting: 1'b0, cnt: '0};
+    end
+    for (int i = 0; i < DISPATCH_W_MEM; i++) begin
+      disp_rs1_st_mem[i] = get_preg_state(disp_uop_mem[i].rs1);
+      if (block_dispatched_rd(disp_uop_mem[i].rs1)) disp_rs1_st_mem[i] = '{counting: 1'b0, cnt: '0};
+      disp_rs2_st_mem[i] = get_preg_state(disp_uop_mem[i].rs2);
+      if (block_dispatched_rd(disp_uop_mem[i].rs2)) disp_rs2_st_mem[i] = '{counting: 1'b0, cnt: '0};
+    end
+    for (int i = 0; i < DISPATCH_W_FPU; i++) begin
+      disp_rs1_st_fpu[i] = get_preg_state(disp_uop_fpu[i].rs1);
+      if (block_dispatched_rd(disp_uop_fpu[i].rs1)) disp_rs1_st_fpu[i] = '{counting: 1'b0, cnt: '0};
+      disp_rs2_st_fpu[i] = get_preg_state(disp_uop_fpu[i].rs2);
+      if (block_dispatched_rd(disp_uop_fpu[i].rs2)) disp_rs2_st_fpu[i] = '{counting: 1'b0, cnt: '0};
+    end
+  end
+
+  always_comb begin
+    // I PREG
+    for (int i = 0; i < I_PREG_NUM; i++) begin
+      n_i_preg_state[i] = i_preg_state[i];
+      if (i_preg_state[i].counting) begin
+        if (i_preg_state[i].cnt > 0) begin
+          n_i_preg_state[i].cnt = i_preg_state[i].cnt - 1;
+        end
+      end else begin
+        // wakeupが来たらカウント開始
+        // !countingのときはcnt=0の前提
+        for (int j = 0; j < I_WAKEUP_W; j++) begin
+          if (i_wakeup[j].valid && i_wakeup[j].preg.idx == preg_idx_t'(i)) begin
+            n_i_preg_state[i].counting |= 1'b1;
+            n_i_preg_state[i].cnt |= i_wakeup[j].latency;
+          end
+        end
+      end
+      // dispatchのrdを結果待ちでマーク
+      for (int j = 0; j < DISPATCH_W_INT; j++) begin
+        if (disp_valid_int[j] && disp_uop_int[j].rd.typ == PREG_TYPE_I && disp_uop_int[j].rd.idx == preg_idx_t'(i)) begin
+          n_i_preg_state[i].counting = 1'b0;
+          n_i_preg_state[i].cnt = '0;
+        end
+      end
+      for (int j = 0; j < DISPATCH_W_MEM; j++) begin
+        if (disp_valid_mem[j] && disp_uop_mem[j].rd.typ == PREG_TYPE_I && disp_uop_mem[j].rd.idx == preg_idx_t'(i)) begin
+          n_i_preg_state[i].counting = 1'b0;
+          n_i_preg_state[i].cnt = '0;
+        end
+      end
+      for (int j = 0; j < DISPATCH_W_FPU; j++) begin
+        if (disp_valid_fpu[j] && disp_uop_fpu[j].rd.typ == PREG_TYPE_I && disp_uop_fpu[j].rd.idx == preg_idx_t'(i)) begin
+          n_i_preg_state[i].counting = 1'b0;
+          n_i_preg_state[i].cnt = '0;
+        end
+      end
+    end
+    // F PREG
+    for (int i = 0; i < F_PREG_NUM; i++) begin
+      n_f_preg_state[i] = f_preg_state[i];
+      if (f_preg_state[i].counting) begin
+        if (f_preg_state[i].cnt > 0) begin
+          n_f_preg_state[i].cnt = f_preg_state[i].cnt - 1;
+        end
+      end else begin
+        // !countingのときはcnt=0の前提
+        for (int j = 0; j < F_WAKEUP_W; j++) begin
+          if (f_wakeup[j].valid && f_wakeup[j].preg.idx == preg_idx_t'(i)) begin
+            n_f_preg_state[i].counting |= 1'b1;
+            n_f_preg_state[i].cnt |= f_wakeup[j].latency;
+          end
+        end
+      end
+      for (int j = 0; j < DISPATCH_W_INT; j++) begin
+        if (disp_valid_int[j] && disp_uop_int[j].rd.typ == PREG_TYPE_F && disp_uop_int[j].rd.idx == preg_idx_t'(i)) begin
+          n_f_preg_state[i].counting = 1'b0;
+          n_f_preg_state[i].cnt = '0;
+        end
+      end
+      for (int j = 0; j < DISPATCH_W_MEM; j++) begin
+        if (disp_valid_mem[j] && disp_uop_mem[j].rd.typ == PREG_TYPE_F && disp_uop_mem[j].rd.idx == preg_idx_t'(i)) begin
+          n_f_preg_state[i].counting = 1'b0;
+          n_f_preg_state[i].cnt = '0;
+        end
+      end
+      for (int j = 0; j < DISPATCH_W_FPU; j++) begin
+        if (disp_valid_fpu[j] && disp_uop_fpu[j].rd.typ == PREG_TYPE_F && disp_uop_fpu[j].rd.idx == preg_idx_t'(i)) begin
+          n_f_preg_state[i].counting = 1'b0;
+          n_f_preg_state[i].cnt = '0;
+        end
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst || flush) fpu_long_wakeup_ff <= '0;
+    else begin
+      fpu_long_wakeup_ff <= fpu_wakeup[1];
+      fpu_long_wakeup_ff.latency <= fpu_wakeup[1].latency - 1;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < I_PREG_NUM; i++) begin
+      if (rst || flush) begin
+        i_preg_state[i].counting <= 1'b1;
+        i_preg_state[i].cnt <= '0;
+      end else begin
+        i_preg_state[i] <= n_i_preg_state[i];
+      end
+    end
+    for (int i = 0; i < F_PREG_NUM; i++) begin
+      if (rst || flush) begin
+        f_preg_state[i].counting <= 1'b1;
+        f_preg_state[i].cnt <= '0;
+      end else begin
+        f_preg_state[i] <= n_f_preg_state[i];
+      end
+    end
+  end
 
 endmodule
 

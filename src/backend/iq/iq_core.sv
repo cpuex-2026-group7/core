@@ -66,6 +66,33 @@ module iq_core
     end
   endfunction
 
+  // まだwakeupされてないソースにだけ当てる
+  // !countingのときはcnt=0の前提
+  function automatic src_reg_t apply_wakeup(input src_reg_t r, input bit use_i, input bit use_f);
+    src_reg_t ret = r;
+    logic is_i = !use_f || r.preg.typ == PREG_TYPE_I;
+    logic is_f = !use_i || r.preg.typ == PREG_TYPE_F;
+    // iのwakeupを見る
+    if (use_i && is_i && !r.st.counting) begin
+      for (int i = 0; i < I_WAKEUP_W; i++) begin
+        if (coming_i_wakeup[i].valid && coming_i_wakeup[i].preg.idx == r.preg.idx) begin
+          ret.st.counting |= 1'b1;
+          ret.st.cnt |= coming_i_wakeup[i].latency;
+        end
+      end
+    end
+    // fのwakeupを見る
+    if (use_f && is_f && !r.st.counting) begin
+      for (int i = 0; i < F_WAKEUP_W; i++) begin
+        if (coming_f_wakeup[i].valid && coming_f_wakeup[i].preg.idx == r.preg.idx) begin
+          ret.st.counting |= 1'b1;
+          ret.st.cnt |= coming_f_wakeup[i].latency;
+        end
+      end
+    end
+    return ret;
+  endfunction
+
   // エントリ本体
   wrapper_ff_t iq_ff[SIZE];
   wrapper_ff_t n_iq_ff[SIZE];
@@ -73,6 +100,18 @@ module iq_core
   // portごとの使用中ビット
   logic [SIZE-1:0] bitmaps[ISSUE_W];
   logic [SIZE-1:0] n_bitmaps[ISSUE_W];
+
+  // SPLIT_ISSUE用。まだissueしていないもの
+  logic [1:0] pend[SIZE];
+  logic [1:0] n_pend[SIZE];
+
+  logic rs1_ready_ff[SIZE];
+  logic rs2_ready_ff[SIZE];
+
+  // issueしてからFUがblockedを出すまで止めておく
+  // killはうまみがあまりない...
+  localparam int ISSUE_TO_FU = 2;  // issueからFUまでのレイテンシ
+  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] busy_memo[ISSUE_W][FU_PER_EU];
 
   // 分岐ミスで消されたやつを抜いたbitmap
   logic [SIZE-1:0] killed_bitmaps[ISSUE_W];
@@ -125,28 +164,9 @@ module iq_core
     .older(older)
   );
 
-  // SPLIT_ISSUE用。まだissueしていないもの
-  logic [1:0] pend[SIZE];
-  logic [1:0] n_pend[SIZE];
-
   // 両方wakeup済みでカウントも終わってたらready
   logic [SIZE-1:0] ready;
   logic [1:0] part_ready[SIZE];  // SPLIT_ISSUE用。ready=|part_ready
-  logic rs1_ready_ff[SIZE];
-  logic rs2_ready_ff[SIZE];
-  always_ff @(posedge clk) begin
-    if (rst || flush) begin
-      for (int i = 0; i < SIZE; i++) begin
-        rs1_ready_ff[i] <= 1'b0;
-        rs2_ready_ff[i] <= 1'b0;
-      end
-    end else begin
-      for (int i = 0; i < SIZE; i++) begin
-        rs1_ready_ff[i] <= n_iq_ff[i].rs1.st.counting && n_iq_ff[i].rs1.st.cnt == 0;
-        rs2_ready_ff[i] <= n_iq_ff[i].rs2.st.counting && n_iq_ff[i].rs2.st.cnt == 0;
-      end
-    end
-  end
   always_comb begin
     for (int i = 0; i < SIZE; i++) begin
       if (ALLOW_SPLIT_ISSUE) begin
@@ -158,12 +178,6 @@ module iq_core
       end
     end
   end
-
-
-  // issueしてからFUがblockedを出すまで止めておく
-  // killはうまみがあまりない...
-  localparam int ISSUE_TO_FU = 2;  // issueからFUまでのレイテンシ
-  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] busy_memo[ISSUE_W][FU_PER_EU];
 
   logic [FU_PER_EU-1:0] fu_blocked[ISSUE_W];
   always_comb begin
@@ -210,135 +224,6 @@ module iq_core
     for (int j = 0; j < SIZE; j++) done_bitmap[j] = !ALLOW_SPLIT_ISSUE || (pend[j] & ~part_ready[j]) == 2'b00;
   end
 
-
-  always_comb begin
-    n_pend = pend;
-    if (ALLOW_SPLIT_ISSUE) begin
-      // issue分のpendを落として
-      for (int i = 0; i < ISSUE_W; i++) begin
-        for (int j = 0; j < SIZE; j++) begin
-          if (grant[i][j]) begin
-            n_pend[j] = pend[j] & ~part_ready[j];
-          end
-        end
-      end
-      // dispatch分のpendを立てる
-      for (int i = 0; i < DISPATCH_W; i++) begin
-        if (alloc_valid[i]) n_pend[alloc_slot[i]] = to_issue_part[i];
-      end
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    for (int i = 0; i < SIZE; i++) pend[i] <= n_pend[i];
-  end
-
-  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] n_busy_memo[ISSUE_W][FU_PER_EU];
-  always_comb begin
-    for (int i = 0; i < ISSUE_W; i++) begin
-      for (int f = 0; f < FU_PER_EU; f++) begin
-        n_busy_memo[i][f] = (ISSUE_TO_FU)'({busy_memo[i][f][ISSUE_TO_FU-1:0], 1'b0});
-        for (int j = 0; j < SIZE; j++) begin
-          n_busy_memo[i][f][0] |= grant[i][j] && iq_ff[j].dest_fu == dest_fu_t'(f) && BLOCKING_FU[i][f];
-        end
-      end
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if (rst || flush) begin
-      for (int i = 0; i < ISSUE_W; i++) begin
-        for (int f = 0; f < FU_PER_EU; f++) busy_memo[i][f] <= '0;
-      end
-    end else begin
-      for (int i = 0; i < ISSUE_W; i++) begin
-        for (int f = 0; f < FU_PER_EU; f++) begin
-          busy_memo[i][f] <= n_busy_memo[i][f];
-        end
-      end
-    end
-  end
-
-  // bitmap更新 dispatchで立てて全部issueしたら落とす
-  always_comb begin
-    for (int i = 0; i < ISSUE_W; i++) begin
-      n_bitmaps[i] = killed_bitmaps[i];
-    end
-
-    for (int i = 0; i < DISPATCH_W; i++) begin
-      if (alloc_valid[i]) n_bitmaps[port_of(disp_entry[i].dest_eu)][alloc_slot[i]] = 1'b1;
-    end
-    for (int i = 0; i < ISSUE_W; i++) begin
-      n_bitmaps[i] &= ~(grant[i] & done_bitmap);  // issueされてdoneになったやつ以外を残す
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if (rst || flush) begin
-      for (int i = 0; i < ISSUE_W; i++) bitmaps[i] <= '0;
-    end else begin
-      for (int i = 0; i < ISSUE_W; i++) bitmaps[i] <= n_bitmaps[i];
-    end
-  end
-
-  // まだwakeupされてないソースにだけ当てる
-  // !countingのときはcnt=0の前提
-  function automatic src_reg_t apply_wakeup(input src_reg_t r, input bit use_i, input bit use_f);
-    src_reg_t ret = r;
-    logic is_i = !use_f || r.preg.typ == PREG_TYPE_I;
-    logic is_f = !use_i || r.preg.typ == PREG_TYPE_F;
-    // iのwakeupを見る
-    if (use_i && is_i && !r.st.counting) begin
-      for (int i = 0; i < I_WAKEUP_W; i++) begin
-        if (coming_i_wakeup[i].valid && coming_i_wakeup[i].preg.idx == r.preg.idx) begin
-          ret.st.counting |= 1'b1;
-          ret.st.cnt |= coming_i_wakeup[i].latency;
-        end
-      end
-    end
-    // fのwakeupを見る
-    if (use_f && is_f && !r.st.counting) begin
-      for (int i = 0; i < F_WAKEUP_W; i++) begin
-        if (coming_f_wakeup[i].valid && coming_f_wakeup[i].preg.idx == r.preg.idx) begin
-          ret.st.counting |= 1'b1;
-          ret.st.cnt |= coming_f_wakeup[i].latency;
-        end
-      end
-    end
-    return ret;
-  endfunction
-
-  always_comb begin
-    // カウントダウンしてからwakeup
-    n_iq_ff = iq_ff;
-    for (int i = 0; i < SIZE; i++) begin
-      if (iq_ff[i].rs1.st.counting && iq_ff[i].rs1.st.cnt > 0) n_iq_ff[i].rs1.st.cnt = iq_ff[i].rs1.st.cnt - 1;
-      if (iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt > 0) n_iq_ff[i].rs2.st.cnt = iq_ff[i].rs2.st.cnt - 1;
-      n_iq_ff[i].rs1 = apply_wakeup(n_iq_ff[i].rs1, RS1_I, RS1_F);
-      n_iq_ff[i].rs2 = apply_wakeup(n_iq_ff[i].rs2, RS2_I, RS2_F);
-      n_iq_ff[i].brmask = apply_br_resolve(iq_ff[i].brmask, br_update_ff);
-    end
-
-    // dispatch 同じサイクルのwakeupと分岐も当てる
-    for (int i = 0; i < DISPATCH_W; i++) begin
-      if (alloc_valid[i]) begin
-        // disp_entryにもcnt-1をあてる
-        n_iq_ff[alloc_slot[i]] = disp_entry[i];
-        if (disp_entry[i].rs1.st.counting && disp_entry[i].rs1.st.cnt > 0)
-          n_iq_ff[alloc_slot[i]].rs1.st.cnt = disp_entry[i].rs1.st.cnt - 1;
-        if (disp_entry[i].rs2.st.counting && disp_entry[i].rs2.st.cnt > 0)
-          n_iq_ff[alloc_slot[i]].rs2.st.cnt = disp_entry[i].rs2.st.cnt - 1;
-        n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, RS1_I, RS1_F);
-        n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, RS2_I, RS2_F);
-        n_iq_ff[alloc_slot[i]].brmask = apply_br_resolve(disp_entry[i].brmask, br_update_ff);
-      end
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    for (int i = 0; i < SIZE; i++) iq_ff[i] <= n_iq_ff[i];
-  end
-
   // slowなFUとrdなしは出さない
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
@@ -370,6 +255,77 @@ module iq_core
     .r_data(iq_payload)
   );
 
+  always_comb begin
+    // カウントダウンしてからwakeup
+    n_iq_ff = iq_ff;
+    for (int i = 0; i < SIZE; i++) begin
+      if (iq_ff[i].rs1.st.counting && iq_ff[i].rs1.st.cnt > 0) n_iq_ff[i].rs1.st.cnt = iq_ff[i].rs1.st.cnt - 1;
+      if (iq_ff[i].rs2.st.counting && iq_ff[i].rs2.st.cnt > 0) n_iq_ff[i].rs2.st.cnt = iq_ff[i].rs2.st.cnt - 1;
+      n_iq_ff[i].rs1 = apply_wakeup(n_iq_ff[i].rs1, RS1_I, RS1_F);
+      n_iq_ff[i].rs2 = apply_wakeup(n_iq_ff[i].rs2, RS2_I, RS2_F);
+      n_iq_ff[i].brmask = apply_br_resolve(iq_ff[i].brmask, br_update_ff);
+    end
+
+    // dispatch 同じサイクルのwakeupと分岐も当てる
+    for (int i = 0; i < DISPATCH_W; i++) begin
+      if (alloc_valid[i]) begin
+        // disp_entryにもcnt-1をあてる
+        n_iq_ff[alloc_slot[i]] = disp_entry[i];
+        if (disp_entry[i].rs1.st.counting && disp_entry[i].rs1.st.cnt > 0)
+          n_iq_ff[alloc_slot[i]].rs1.st.cnt = disp_entry[i].rs1.st.cnt - 1;
+        if (disp_entry[i].rs2.st.counting && disp_entry[i].rs2.st.cnt > 0)
+          n_iq_ff[alloc_slot[i]].rs2.st.cnt = disp_entry[i].rs2.st.cnt - 1;
+        n_iq_ff[alloc_slot[i]].rs1 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs1, RS1_I, RS1_F);
+        n_iq_ff[alloc_slot[i]].rs2 = apply_wakeup(n_iq_ff[alloc_slot[i]].rs2, RS2_I, RS2_F);
+        n_iq_ff[alloc_slot[i]].brmask = apply_br_resolve(disp_entry[i].brmask, br_update_ff);
+      end
+    end
+  end
+
+  // bitmap更新 dispatchで立てて全部issueしたら落とす
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      n_bitmaps[i] = killed_bitmaps[i];
+    end
+
+    for (int i = 0; i < DISPATCH_W; i++) begin
+      if (alloc_valid[i]) n_bitmaps[port_of(disp_entry[i].dest_eu)][alloc_slot[i]] = 1'b1;
+    end
+    for (int i = 0; i < ISSUE_W; i++) begin
+      n_bitmaps[i] &= ~(grant[i] & done_bitmap);  // issueされてdoneになったやつ以外を残す
+    end
+  end
+
+  always_comb begin
+    n_pend = pend;
+    if (ALLOW_SPLIT_ISSUE) begin
+      // issue分のpendを落として
+      for (int i = 0; i < ISSUE_W; i++) begin
+        for (int j = 0; j < SIZE; j++) begin
+          if (grant[i][j]) begin
+            n_pend[j] = pend[j] & ~part_ready[j];
+          end
+        end
+      end
+      // dispatch分のpendを立てる
+      for (int i = 0; i < DISPATCH_W; i++) begin
+        if (alloc_valid[i]) n_pend[alloc_slot[i]] = to_issue_part[i];
+      end
+    end
+  end
+
+  logic [(ISSUE_TO_FU>0 ? ISSUE_TO_FU : 1)-1:0] n_busy_memo[ISSUE_W][FU_PER_EU];
+  always_comb begin
+    for (int i = 0; i < ISSUE_W; i++) begin
+      for (int f = 0; f < FU_PER_EU; f++) begin
+        n_busy_memo[i][f] = (ISSUE_TO_FU)'({busy_memo[i][f][ISSUE_TO_FU-1:0], 1'b0});
+        for (int j = 0; j < SIZE; j++) begin
+          n_busy_memo[i][f][0] |= grant[i][j] && iq_ff[j].dest_fu == dest_fu_t'(f) && BLOCKING_FU[i][f];
+        end
+      end
+    end
+  end
+
   iq_rr_t n_rr_ff[ISSUE_W];
   always_comb begin
     for (int i = 0; i < ISSUE_W; i++) begin
@@ -385,6 +341,50 @@ module iq_core
         end
       end
       n_rr_ff[i].brmask = apply_br_resolve(n_rr_ff[i].brmask, br_update_ff);
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < SIZE; i++) iq_ff[i] <= n_iq_ff[i];
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      for (int i = 0; i < ISSUE_W; i++) bitmaps[i] <= '0;
+    end else begin
+      for (int i = 0; i < ISSUE_W; i++) bitmaps[i] <= n_bitmaps[i];
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < SIZE; i++) pend[i] <= n_pend[i];
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      for (int i = 0; i < SIZE; i++) begin
+        rs1_ready_ff[i] <= 1'b0;
+        rs2_ready_ff[i] <= 1'b0;
+      end
+    end else begin
+      for (int i = 0; i < SIZE; i++) begin
+        rs1_ready_ff[i] <= n_iq_ff[i].rs1.st.counting && n_iq_ff[i].rs1.st.cnt == 0;
+        rs2_ready_ff[i] <= n_iq_ff[i].rs2.st.counting && n_iq_ff[i].rs2.st.cnt == 0;
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      for (int i = 0; i < ISSUE_W; i++) begin
+        for (int f = 0; f < FU_PER_EU; f++) busy_memo[i][f] <= '0;
+      end
+    end else begin
+      for (int i = 0; i < ISSUE_W; i++) begin
+        for (int f = 0; f < FU_PER_EU; f++) begin
+          busy_memo[i][f] <= n_busy_memo[i][f];
+        end
+      end
     end
   end
 
