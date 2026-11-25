@@ -117,7 +117,6 @@ module tb_lsu_searcher
       s[i].addr_valid = rnd(2) == 1;
       s[i].addr = rnd_addr();
       s[i].data_valid = rnd(2) == 1;
-      s[i].data = $urandom();
     end
     for (int q = H; q < H + n; q++) begin
       s[q%SN].addr_valid = rnd(4) != 0;
@@ -134,8 +133,7 @@ module tb_lsu_searcher
       l[i].tail_stq_idx = stq_idx_t'(T[i] % SN);
       for (int q = H; q < T[i]; q++) l[i].older_st_mask[q%SN] = 1'b1;
       case (rnd(3))
-        0: ;
-        1: l[i].ld_requested = 1'b1;
+        0, 1: ;
         default: l[i].gone_to_wb = 1'b1;
       endcase
       F[i] = -1;
@@ -176,7 +174,6 @@ module tb_lsu_searcher
         // アドレスはこのサイクルに来る。エントリにはまだ入っていない
         l[k].addr_valid = 1'b0;
         l[k].gone_to_wb = 1'b0;
-        l[k].ld_requested = 1'b0;
         l[k].fwd_hit = 1'b0;
       end
       8: begin

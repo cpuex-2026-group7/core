@@ -13,7 +13,7 @@ module eu_3_fu_1_top
 );
 
   // 入口のFFから結果が出るまでのFFの段数
-  localparam int STAGES = LAT_ITOF + 1;
+  localparam int STAGES = int'(LAT_ITOF) + 1;
 
   // 最後のmuxの選択用。unitの段数に合わせて流す
   logic [STAGES-1:0] is_ftoi_ff;

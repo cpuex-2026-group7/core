@@ -14,13 +14,13 @@ module br_target
   output pc_t target
 );
 
-  word_t       rs1_ff;
+  pc_t         rs1_ff;
   pc_t         pc_ff;
   pc_t         ofs_ff;
   logic  [1:0] aux_ff;
 
   always_ff @(posedge clk) begin
-    rs1_ff <= rs1_val;
+    rs1_ff <= pc_t'(rs1_val);
     ofs_ff <= ofs;
     pc_ff  <= pc;
     aux_ff <= aux;

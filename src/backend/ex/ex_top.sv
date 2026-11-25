@@ -134,7 +134,12 @@ module ex_top
   end
 
   always_ff @(posedge clk) begin
-    br_update_ff <= (rst | flush) ? '0 : n_br_update;
+    br_update_ff <= n_br_update;
+    if (rst | flush) begin
+      br_update_ff.resolve_mask <= '0;
+      br_update_ff.kill_mask <= '0;
+      br_update_ff.mispredict <= 1'b0;
+    end
   end
 
 endmodule

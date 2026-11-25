@@ -82,7 +82,6 @@ module ldq
       ldq_searcher_ff[i].valid = ldq_ff[i].valid;
       ldq_searcher_ff[i].addr_valid = ldq_ff[i].addr_valid;
       ldq_searcher_ff[i].addr = ldq_ff[i].addr;
-      ldq_searcher_ff[i].ld_requested = ldq_ff[i].ld_requested;
       ldq_searcher_ff[i].gone_to_wb = ldq_ff[i].gone_to_wb;
       ldq_searcher_ff[i].older_st_mask = ldq_ff[i].older_st_mask;
       ldq_searcher_ff[i].tail_stq_idx = ldq_ff[i].tail_stq_idx;
@@ -163,7 +162,7 @@ module ldq
     end
     // violation,stale
     for (int i = 0; i < LDQ_SIZE; i++) begin
-      n_ldq_ff[i].violated |= violation_mask[i];  // wbまで行った救いようのない違反
+      n_ldq_ff[i].violated |= violation_mask[i] | (n_ldq_ff[i].gone_to_wb & stale_mask[i]);  // wbまで行った救いようのない違反
       n_ldq_ff[i].stale |= n_ldq_ff[i].ld_requested & stale_mask[i];  // wbに行く前なのでstaleにして救う
     end
     // nack
@@ -214,7 +213,6 @@ module ldq
     for (int i = 0; i < LDQ_SIZE; i++) begin
       if (stq_release_mask[n_ldq_ff[i].fwd_stq_idx]) begin
         n_ldq_ff[i].fwd_hit = 1'b0;
-        n_ldq_ff[i].fwd_stq_idx = '0;
       end
     end
 
@@ -249,16 +247,22 @@ module ldq
   end
 
   always_ff @(posedge clk) begin
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      ldq_ff[i] <= n_ldq_ff[i];
+    end
     if (rst) begin
       for (int i = 0; i < LDQ_SIZE; i++) begin
-        ldq_ff[i] <= '0;
+        ldq_ff[i].valid <= 1'b0;
+        ldq_ff[i].addr_valid <= 1'b0;
+        ldq_ff[i].ld_requested <= 1'b0;
+        ldq_ff[i].stale <= 1'b0;
+        ldq_ff[i].violated <= 1'b0;
+        ldq_ff[i].fwd_hit <= 1'b0;
+        ldq_ff[i].gone_to_wb <= 1'b0;
       end
       ldq_head <= '0;
       ldq_tail <= '0;
     end else begin
-      for (int i = 0; i < LDQ_SIZE; i++) begin
-        ldq_ff[i] <= n_ldq_ff[i];
-      end
       ldq_head <= n_ldq_head;
       ldq_tail <= n_ldq_tail;
     end

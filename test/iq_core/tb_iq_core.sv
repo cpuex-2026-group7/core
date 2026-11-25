@@ -173,7 +173,7 @@ module tb_iq_core
 
   iq_core #(
     .SIZE(SIZE),
-    .DISPATCH_W(DISPATCH_W),
+    .DISP_W(DISPATCH_W),
     .ISSUE_W(ISSUE_W),
     .EU_BASE(dest_eu_t'(EU_BASE)),
     .SLOW_WAKEUP_FU(DUT_SLOW),

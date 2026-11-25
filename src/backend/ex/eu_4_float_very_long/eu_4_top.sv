@@ -29,6 +29,8 @@ module eu_4_top
 );
 
   localparam int FU_NUM = 2;  // fsqrt, fdiv
+  localparam int FU_FSQRT_I = int'(FU_FSQRT);
+  localparam int FU_FDIV_I = int'(FU_FDIV);
 
   // FUごとの演算中の命令のmeta
   typedef struct packed {
@@ -57,29 +59,29 @@ module eu_4_top
 
   always_comb begin
     for (int i = 0; i < FU_NUM; i++) begin
-      issued[i] = !flush & rr_ex.common.valid & (rr_ex.common.dest_fu == i);
+      issued[i] = rr_ex.common.valid & (rr_ex.common.dest_fu == dest_fu_t'(i));
     end
   end
 
   eu_4_fu_0_top u_fu_0 (
     .clk(clk),
     .rst(rst),
-    .issued(issued[FU_FSQRT]),
-    .abort_ff(abort_ff[FU_FSQRT]),
+    .issued(issued[FU_FSQRT_I]),
+    .abort_ff(abort_ff[FU_FSQRT_I]),
     .rs1_val(rr_ex.common.rs1_val),
-    .done(fu_done[FU_FSQRT]),
-    .result(fu_result[FU_FSQRT])
+    .done(fu_done[FU_FSQRT_I]),
+    .result(fu_result[FU_FSQRT_I])
   );
 
   eu_4_fu_1_top u_fu_1 (
     .clk(clk),
     .rst(rst),
-    .issued(issued[FU_FDIV]),
-    .abort_ff(abort_ff[FU_FDIV]),
+    .issued(issued[FU_FDIV_I]),
+    .abort_ff(abort_ff[FU_FDIV_I]),
     .rs1_val(rr_ex.common.rs1_val),
     .rs2_val(rr_ex.common.rs2_val),
-    .done(fu_done[FU_FDIV]),
-    .result(fu_result[FU_FDIV])
+    .done(fu_done[FU_FDIV_I]),
+    .result(fu_result[FU_FDIV_I])
   );
 
   // 今FFにあるbr_updateとflushを当てたmetaとhold
@@ -132,16 +134,16 @@ module eu_4_top
       to_wb.rd      = n_hold.rd;
       to_wb.value   = n_hold.value;
       to_wb.rob_idx = n_hold.rob_idx;
-    end else if (done[FU_FSQRT]) begin
+    end else if (done[FU_FSQRT_I]) begin
       to_wb.valid   = 1'b1;
-      to_wb.rd      = n_meta[FU_FSQRT].rd;
-      to_wb.value   = fu_result[FU_FSQRT];
-      to_wb.rob_idx = n_meta[FU_FSQRT].rob_idx;
-    end else if (done[FU_FDIV]) begin
+      to_wb.rd      = n_meta[FU_FSQRT_I].rd;
+      to_wb.value   = fu_result[FU_FSQRT_I];
+      to_wb.rob_idx = n_meta[FU_FSQRT_I].rob_idx;
+    end else if (done[FU_FDIV_I]) begin
       to_wb.valid   = 1'b1;
-      to_wb.rd      = n_meta[FU_FDIV].rd;
-      to_wb.value   = fu_result[FU_FDIV];
-      to_wb.rob_idx = n_meta[FU_FDIV].rob_idx;
+      to_wb.rd      = n_meta[FU_FDIV_I].rd;
+      to_wb.value   = fu_result[FU_FDIV_I];
+      to_wb.rob_idx = n_meta[FU_FDIV_I].rob_idx;
     end
   end
 
@@ -169,24 +171,19 @@ module eu_4_top
 
   // hold_ffの更新
   always_ff @(posedge clk) begin
-    if (rst | flush) begin
-      hold_ff <= '0;
-    end else if (done[FU_FSQRT] & done[FU_FDIV]) begin
-      // fdivをhold
-      hold_ff <= hold_t'{
-        valid: 1'b1,
-        rd: n_meta[FU_FDIV].rd,
-        rob_idx: n_meta[FU_FDIV].rob_idx,
-        brmask: n_meta[FU_FDIV].brmask,
-        value: fu_result[FU_FDIV]
-      };
-    end else begin
-      hold_ff <= '0;
-    end
+    // 同時に終わったらfdivをhold
+    hold_ff <= hold_t'{
+      valid: done[FU_FSQRT_I] & done[FU_FDIV_I],
+      rd: n_meta[FU_FDIV_I].rd,
+      rob_idx: n_meta[FU_FDIV_I].rob_idx,
+      brmask: n_meta[FU_FDIV_I].brmask,
+      value: fu_result[FU_FDIV_I]
+    };
+    if (rst | flush) hold_ff.valid <= 1'b0;
   end
 
-  assign fsqrt_blocked = meta_ff[FU_FSQRT].valid;
-  assign fdiv_blocked  = meta_ff[FU_FDIV].valid | hold_ff.valid;
+  assign fsqrt_blocked = meta_ff[FU_FSQRT_I].valid;
+  assign fdiv_blocked  = meta_ff[FU_FDIV_I].valid | hold_ff.valid;
 
 endmodule
 

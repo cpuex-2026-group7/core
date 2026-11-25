@@ -10,7 +10,7 @@ module iq_mem
   import iq_types::*;
 #(
   parameter int SIZE = 16,
-  parameter int DISPATCH_W = 1,
+  parameter int DISP_W = 1,
   parameter int I_WAKEUP_W = 3,
   parameter int F_WAKEUP_W = 4
 ) (
@@ -19,10 +19,10 @@ module iq_mem
   input wire logic flush, // loadの順序違反でflush
 
   // dispatch
-  input wire logic disp_valid[DISPATCH_W],
-  input wire disp_uop_t disp_uop[DISPATCH_W],
-  input wire src_state_t disp_rs1_st[DISPATCH_W],
-  input wire src_state_t disp_rs2_st[DISPATCH_W],
+  input wire logic disp_valid[DISP_W],
+  input wire disp_uop_t disp_uop[DISP_W],
+  input wire src_state_t disp_rs1_st[DISP_W],
+  input wire src_state_t disp_rs2_st[DISP_W],
   output logic disp_full,
 
   // wakeup bus
@@ -41,11 +41,11 @@ module iq_mem
 
   localparam int PAYLOAD_W = $bits(mem_payload_t);
 
-  wrapper_ff_t disp_entry[DISPATCH_W];
-  logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W];
-  logic [1:0] to_issue_part[DISPATCH_W];
+  wrapper_ff_t disp_entry[DISP_W];
+  logic [PAYLOAD_W-1:0] disp_payload[DISP_W];
+  logic [1:0] to_issue_part[DISP_W];
   always_comb begin
-    for (int i = 0; i < DISPATCH_W; i++) begin
+    for (int i = 0; i < DISP_W; i++) begin
       to_issue_part[i] = disp_uop[i].is_store ? 2'b11 : 2'b01;
       disp_entry[i].rd = disp_uop[i].rd;
       disp_entry[i].rs1.preg = disp_uop[i].rs1;
@@ -73,7 +73,7 @@ module iq_mem
 
   iq_core #(
     .SIZE(SIZE),
-    .DISPATCH_W(DISPATCH_W),
+    .DISP_W(DISP_W),
     .ISSUE_W(1),
     .EU_BASE(EU_MEM),
     .SLOW_WAKEUP_FU(4'b0001),

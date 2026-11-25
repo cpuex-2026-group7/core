@@ -171,7 +171,7 @@ module rf_top
 
   always_comb begin
     // INT
-    rr_ex_int[0].common.valid = !rst & !flush & rr_int_ff[0].valid & !br_kill_check(rr_int_ff[0].brmask, br_update_ff);
+    rr_ex_int[0].common.valid = !flush & rr_int_ff[0].valid & !br_kill_check(rr_int_ff[0].brmask, br_update_ff);
     rr_ex_int[0].common.rd = rr_int_ff[0].rd;
     rr_ex_int[0].common.rs1 = rr_int_ff[0].rs1;
     rr_ex_int[0].common.rs2 = rr_int_ff[0].rs2;
@@ -182,7 +182,7 @@ module rf_top
     rr_ex_int[0].payload = rr_payload_int_ff[0];
 
     // MEM
-    rr_ex_mem[0].common.valid = !rst & !flush & rr_mem_ff[0].valid & !br_kill_check(rr_mem_ff[0].brmask, br_update_ff);
+    rr_ex_mem[0].common.valid = !flush & rr_mem_ff[0].valid & !br_kill_check(rr_mem_ff[0].brmask, br_update_ff);
     rr_ex_mem[0].common.rd = rr_mem_ff[0].rd;
     rr_ex_mem[0].common.rs1 = rr_mem_ff[0].rs1;
     rr_ex_mem[0].common.rs2 = rr_mem_ff[0].rs2;
@@ -194,7 +194,7 @@ module rf_top
     rr_ex_mem[0].issue_part = rr_issue_part_mem_ff[0];
 
     // FPU短
-    rr_ex_fpu[0].common.valid = !rst & !flush & rr_fpu_ff[0].valid & !br_kill_check(rr_fpu_ff[0].brmask, br_update_ff);
+    rr_ex_fpu[0].common.valid = !flush & rr_fpu_ff[0].valid & !br_kill_check(rr_fpu_ff[0].brmask, br_update_ff);
     rr_ex_fpu[0].common.rd = rr_fpu_ff[0].rd;
     rr_ex_fpu[0].common.rs1 = rr_fpu_ff[0].rs1;
     rr_ex_fpu[0].common.rs2 = rr_fpu_ff[0].rs2;
@@ -205,7 +205,7 @@ module rf_top
     rr_ex_fpu[0].payload = rr_payload_fpu_ff[0];
 
     // FPU長
-    rr_ex_fpu[1].common.valid = !rst & !flush & rr_fpu_ff[1].valid & !br_kill_check(rr_fpu_ff[1].brmask, br_update_ff);
+    rr_ex_fpu[1].common.valid = !flush & rr_fpu_ff[1].valid & !br_kill_check(rr_fpu_ff[1].brmask, br_update_ff);
     rr_ex_fpu[1].common.rd = rr_fpu_ff[1].rd;
     rr_ex_fpu[1].common.rs1 = rr_fpu_ff[1].rs1;
     rr_ex_fpu[1].common.rs2 = rr_fpu_ff[1].rs2;
@@ -216,7 +216,7 @@ module rf_top
     rr_ex_fpu[1].payload = rr_payload_fpu_ff[1];
 
     // FPU超長
-    rr_ex_fpu[2].common.valid = !rst & !flush & rr_fpu_ff[2].valid & !br_kill_check(rr_fpu_ff[2].brmask, br_update_ff);
+    rr_ex_fpu[2].common.valid = !flush & rr_fpu_ff[2].valid & !br_kill_check(rr_fpu_ff[2].brmask, br_update_ff);
     rr_ex_fpu[2].common.rd = rr_fpu_ff[2].rd;
     rr_ex_fpu[2].common.rs1 = rr_fpu_ff[2].rs1;
     rr_ex_fpu[2].common.rs2 = rr_fpu_ff[2].rs2;

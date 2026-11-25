@@ -9,7 +9,7 @@ module iq_core
   import iq_types::*;
 #(
   parameter int SIZE = 16,
-  parameter int DISPATCH_W = 1,
+  parameter int DISP_W = 1,
   parameter int ISSUE_W = 1,
   parameter dest_eu_t EU_BASE = '0,  // EU=EU_BASE+port
   parameter logic [ISSUE_W-1:0][FU_PER_EU-1:0] SLOW_WAKEUP_FU = '0,
@@ -28,10 +28,10 @@ module iq_core
   input wire logic flush, // loadの順序違反でflush
 
   // wrapper
-  input wire logic disp_valid[DISPATCH_W],
-  input wire wrapper_ff_t disp_entry[DISPATCH_W],  // wrapper -> ff
-  input wire logic [PAYLOAD_W-1:0] disp_payload[DISPATCH_W],
-  input wire logic [1:0] to_issue_part[DISPATCH_W],  // ALLOW_SPLIT_ISSUEの場合専用。loadは2'b01、storeは2'b11
+  input wire logic disp_valid[DISP_W],
+  input wire wrapper_ff_t disp_entry[DISP_W],  // wrapper -> ff
+  input wire logic [PAYLOAD_W-1:0] disp_payload[DISP_W],
+  input wire logic [1:0] to_issue_part[DISP_W],  // ALLOW_SPLIT_ISSUEの場合専用。loadは2'b01、storeは2'b11
   output logic disp_full,
 
   // wakeup bus
@@ -131,23 +131,23 @@ module iq_core
   end
 
   // 空きスロット探し
-  logic empty_found[DISPATCH_W];
-  logic [IDX_W-1:0] alloc_slot[DISPATCH_W];
+  logic empty_found[DISP_W];
+  logic [IDX_W-1:0] alloc_slot[DISP_W];
   find_empty_slot #(
     .SIZE(SIZE),
-    .FIND_NUM(DISPATCH_W)
+    .FIND_NUM(DISP_W)
   ) find_empty_slot (
     .bitmap(or_bitmaps),
     .found (empty_found),
     .slot  (alloc_slot)
   );
 
-  assign disp_full = ~empty_found[DISPATCH_W-1];
+  assign disp_full = ~empty_found[DISP_W-1];
 
   // 空きにミスった分岐由来でないやつを入れる
-  logic alloc_valid[DISPATCH_W];
+  logic alloc_valid[DISP_W];
   always_comb begin
-    for (int i = 0; i < DISPATCH_W; i++) begin
+    for (int i = 0; i < DISP_W; i++) begin
       alloc_valid[i] = disp_valid[i] && empty_found[i] && !br_kill_check(disp_entry[i].brmask, br_update_ff);
     end
   end
@@ -156,7 +156,7 @@ module iq_core
   logic [SIZE-1:0] older[SIZE];  // i older than j
   age_matrix #(
     .SIZE(SIZE),
-    .DISPATCH_W(DISPATCH_W)
+    .DISPATCH_W(DISP_W)
   ) u_age_matrix (
     .clk(clk),
     .lane_valid(alloc_valid),
@@ -245,7 +245,7 @@ module iq_core
     .SIZE(SIZE),
     .ENTRY_WIDTH(PAYLOAD_W),
     .R(ISSUE_W),
-    .W(DISPATCH_W)
+    .W(DISP_W)
   ) payload_ram (
     .clk   (clk),
     .w_en  (alloc_valid),
@@ -267,7 +267,7 @@ module iq_core
     end
 
     // dispatch 同じサイクルのwakeupと分岐も当てる
-    for (int i = 0; i < DISPATCH_W; i++) begin
+    for (int i = 0; i < DISP_W; i++) begin
       if (alloc_valid[i]) begin
         // disp_entryにもcnt-1をあてる
         n_iq_ff[alloc_slot[i]] = disp_entry[i];
@@ -288,7 +288,7 @@ module iq_core
       n_bitmaps[i] = killed_bitmaps[i];
     end
 
-    for (int i = 0; i < DISPATCH_W; i++) begin
+    for (int i = 0; i < DISP_W; i++) begin
       if (alloc_valid[i]) n_bitmaps[port_of(disp_entry[i].dest_eu)][alloc_slot[i]] = 1'b1;
     end
     for (int i = 0; i < ISSUE_W; i++) begin
@@ -308,7 +308,7 @@ module iq_core
         end
       end
       // dispatch分のpendを立てる
-      for (int i = 0; i < DISPATCH_W; i++) begin
+      for (int i = 0; i < DISP_W; i++) begin
         if (alloc_valid[i]) n_pend[alloc_slot[i]] = to_issue_part[i];
       end
     end
@@ -390,18 +390,11 @@ module iq_core
 
   // RRのためのFFに入れる
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
-      for (int i = 0; i < ISSUE_W; i++) begin
-        rr_ff[i] <= '0;
-        rr_payload_ff[i] <= '0;
-        rr_issue_part_ff[i] <= '0;
-      end
-    end else begin
-      for (int i = 0; i < ISSUE_W; i++) begin
-        rr_payload_ff[i] <= iq_payload[i];
-        rr_issue_part_ff[i] <= issued_part[i];
-        rr_ff[i] <= n_rr_ff[i];
-      end
+    for (int i = 0; i < ISSUE_W; i++) begin
+      rr_payload_ff[i] <= iq_payload[i];
+      rr_issue_part_ff[i] <= issued_part[i];
+      rr_ff[i] <= n_rr_ff[i];
+      if (rst || flush) rr_ff[i].valid <= 1'b0;
     end
   end
 

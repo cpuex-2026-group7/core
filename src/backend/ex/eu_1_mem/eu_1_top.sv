@@ -67,7 +67,7 @@ module eu_1_top
 
   // meta_ffの更新
   always_ff @(posedge clk) begin
-    meta_ff.valid      <= !rst & !flush & rr_ex.common.valid;
+    meta_ff.valid      <= !rst & rr_ex.common.valid;
     meta_ff.issue_part <= rr_ex.issue_part;
     meta_ff.is_store   <= rr_ex.payload.is_store;
     meta_ff.brmask     <= rr_ex.common.brmask;

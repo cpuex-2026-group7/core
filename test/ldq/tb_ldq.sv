@@ -239,9 +239,6 @@ module tb_ldq
       if (ldq_controller_ff[i].ld_requested != m_req[i])
         err($sformatf("ldq_controller_ff[%0d].ld_requested = %0b、期待値 %0b", i, ldq_controller_ff[i].ld_requested,
                       m_req[i]));
-      if (ldq_searcher_ff[i].ld_requested != m_req[i])
-        err($sformatf("ldq_searcher_ff[%0d].ld_requested = %0b、期待値 %0b", i, ldq_searcher_ff[i].ld_requested,
-                      m_req[i]));
       if (ldq_controller_ff[i].stale != m_stale[i])
         err($sformatf("ldq_controller_ff[%0d].stale = %0b、期待値 %0b", i, ldq_controller_ff[i].stale, m_stale[i]));
       if (ldq_controller_ff[i].gone_to_wb != m_gone[i])

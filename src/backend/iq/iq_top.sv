@@ -84,7 +84,7 @@ module iq_top
 
   iq_int #(
     .SIZE(SIZE_INT),
-    .DISPATCH_W(DISPATCH_W_INT),
+    .DISP_W(DISPATCH_W_INT),
     .I_WAKEUP_W(I_WAKEUP_W),
     .F_WAKEUP_W(F_WAKEUP_W)
   ) u_iq_int (
@@ -114,7 +114,7 @@ module iq_top
 
   iq_mem #(
     .SIZE(SIZE_MEM),
-    .DISPATCH_W(DISPATCH_W_MEM),
+    .DISP_W(DISPATCH_W_MEM),
     .I_WAKEUP_W(I_WAKEUP_W),
     .F_WAKEUP_W(F_WAKEUP_W)
   ) u_iq_mem (
@@ -145,7 +145,7 @@ module iq_top
 
   iq_float #(
     .SIZE(SIZE_FPU),
-    .DISPATCH_W(DISPATCH_W_FPU),
+    .DISP_W(DISPATCH_W_FPU),
     .I_WAKEUP_W(I_WAKEUP_W),
     .F_WAKEUP_W(F_WAKEUP_W)
   ) u_iq_float (
@@ -311,11 +311,9 @@ module iq_top
   end
 
   always_ff @(posedge clk) begin
-    if (rst || flush) fpu_long_wakeup_ff <= '0;
-    else begin
-      fpu_long_wakeup_ff <= fpu_wakeup[1];
-      fpu_long_wakeup_ff.latency <= fpu_wakeup[1].latency - 1;
-    end
+    fpu_long_wakeup_ff <= fpu_wakeup[1];
+    fpu_long_wakeup_ff.latency <= fpu_wakeup[1].latency - 1;
+    if (rst || flush) fpu_long_wakeup_ff.valid <= 1'b0;
   end
 
   always_ff @(posedge clk) begin

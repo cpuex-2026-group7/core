@@ -28,9 +28,9 @@ module eu_3_top
 );
 
   // 入口のFFから結果が出るまでのFFの段数
-  localparam int FMUL_STAGES = LAT_FMUL + 1;
-  localparam int FCVT_STAGES = LAT_ITOF + 1;
-  localparam int FADD_STAGES = LAT_FADD + 1;
+  localparam int FMUL_STAGES = int'(LAT_FMUL) + 1;
+  localparam int FCVT_STAGES = int'(LAT_ITOF) + 1;
+  localparam int FADD_STAGES = int'(LAT_FADD) + 1;
   localparam int STAGES      = FADD_STAGES;
 
   typedef struct packed {
@@ -96,7 +96,7 @@ module eu_3_top
   assign to_wb.rd = n_meta[STAGES-1].rd;
   assign to_wb.rob_idx = n_meta[STAGES-1].rob_idx;
 
-  localparam int BYPASS_STAGE_0 = LAT_FMUL;
+  localparam int BYPASS_STAGE_0 = int'(LAT_FMUL);
   localparam int BYPASS_STAGE_1 = BYPASS_STAGE_0 + 1;
 
   // バイパス(killは当てない)
@@ -129,7 +129,7 @@ module eu_3_top
     end else begin
       for (int i = 0; i < STAGES; i++) begin
         if (i == 0) begin
-          meta_ff[0].valid   <= !flush & rr_ex.common.valid;
+          meta_ff[0].valid   <= rr_ex.common.valid;
           meta_ff[0].dest_fu <= rr_ex.common.dest_fu;
           meta_ff[0].rd      <= rr_ex.common.rd;
           meta_ff[0].brmask  <= rr_ex.common.brmask;
