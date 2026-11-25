@@ -55,7 +55,7 @@ module ldq
   output load_violation_t load_violation[COMMIT_W]  // headからk番目のloadまでについて情報提供
 );
 
-  logic [LDQ_SIZE-1:0] forward_ready_ff;
+  ldq_mask_t forward_ready_ff;
 
   ldq_ptr_t ldq_head, ldq_tail;
   ldq_ptr_t ldq_tail_snapshot[MAX_BR];
@@ -269,7 +269,7 @@ module ldq
   end
 
   // AGUから来る分を含める
-  logic [LDQ_SIZE-1:0] fwd_data_valid;
+  ldq_mask_t fwd_data_valid;
   always_comb begin
     for (int i = 0; i < LDQ_SIZE; i++) begin
       fwd_data_valid[i] = stq_data_valid_ff[ldq_ff[i].fwd_stq_idx];

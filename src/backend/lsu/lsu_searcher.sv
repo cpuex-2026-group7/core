@@ -23,6 +23,14 @@ module lsu_searcher
 
 );
 
+  // 最上位の1を取り出す
+  function automatic stq_mask_t msb_one(input stq_mask_t x);
+    stq_mask_t r;
+    for (int i = 0; i < STQ_SIZE; i++) r[i] = x[STQ_SIZE-1-i];  //反転させる
+    r = r & -r;
+    for (int i = 0; i < STQ_SIZE; i++) msb_one[i] = r[STQ_SIZE-1-i];
+  endfunction
+
   logic ex_st_addr_valid;
   assign ex_st_addr_valid = ex_lsu.is_store && ex_lsu.addr_valid;
 
@@ -62,20 +70,27 @@ module lsu_searcher
   // loadのアドレスが来た時、
   // loadより古いstoreのうち一番新しいものをfoward元とする
   always_comb begin
-    stq_ptr_t p;
+    stq_mask_t src_cand, src_cand_half, src_grant;
     nload_fwd_src = '0;
-    p = '0;
-    if (!ex_lsu.is_store && ex_lsu.addr_valid) begin
-      p.wrap = 1'b0;
-      p.stq_idx = ldq[ex_lsu.ldq_idx].tail_stq_idx;
-      // tailから一周して最後に当たったものを採用
-      for (int i = 0; i < STQ_SIZE; i++) begin
-        if (ldq[ex_lsu.ldq_idx].older_st_mask[p.stq_idx] && stq[p.stq_idx].addr_valid && stq[p.stq_idx].addr == ex_lsu.addr) begin
-          nload_fwd_src.hit = 1'b1;
-          nload_fwd_src.stq_idx = p.stq_idx;
-          nload_fwd_src.data_valid = stq[p.stq_idx].data_valid;
-        end
-        p = stq_ptr_inc(p);
+    src_grant = '0;
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      src_cand[i] = !ex_lsu.is_store && ex_lsu.addr_valid && ldq[ex_lsu.ldq_idx].older_st_mask[i] &&
+                    stq[i].addr_valid && stq[i].addr == ex_lsu.addr;
+      src_cand_half[i] = src_cand[i] && stq_idx_t'(i) < ldq[ex_lsu.ldq_idx].tail_stq_idx;
+    end
+
+    // 条件満たす一番新しいものをgrant
+    if (|src_cand_half) begin
+      src_grant = msb_one(src_cand_half);
+    end else begin
+      src_grant = msb_one(src_cand);
+    end
+
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      if (src_grant[i]) begin
+        nload_fwd_src.hit = 1'b1;
+        nload_fwd_src.stq_idx |= stq_idx_t'(i);
+        nload_fwd_src.data_valid |= stq[i].data_valid;
       end
     end
   end

@@ -85,7 +85,7 @@ module lsu_controller
   // loadからのreq
   dc_req_t ld_req;
   always_comb begin
-    logic [LDQ_SIZE-1:0] ld_cand, ld_cand_half, ld_grant;
+    ldq_mask_t ld_cand, ld_cand_half, ld_grant;
     ld_req = '0;
     for (int i = 0; i < LDQ_SIZE; i++) begin
       // forward待ちはD$にreqしない
@@ -97,10 +97,8 @@ module lsu_controller
 
     // 条件満たす一番古いものをgrant
     if (|ld_cand_half) begin
-      // 折り返す前にある場合
       ld_grant = ld_cand_half & -ld_cand_half;
     end else begin
-      // 折り返した後から
       ld_grant = ld_cand & -ld_cand;
     end
 
@@ -118,7 +116,7 @@ module lsu_controller
   // fwdのreq
   fwd_cand_t fwd_req;
   always_comb begin
-    logic [LDQ_SIZE-1:0] fwd_cand, fwd_cand_half, fwd_grant;
+    ldq_mask_t fwd_cand, fwd_cand_half, fwd_grant;
     fwd_req = '0;
     for (int i = 0; i < LDQ_SIZE; i++) begin
       // 今のサイクルのkillとflush当てる
@@ -128,10 +126,8 @@ module lsu_controller
 
     // 条件満たす一番古いものをgrant
     if (|fwd_cand_half) begin
-      // 折り返す前にある場合
       fwd_grant = fwd_cand_half & -fwd_cand_half;
     end else begin
-      // 折り返した後から
       fwd_grant = fwd_cand & -fwd_cand;
     end
 
