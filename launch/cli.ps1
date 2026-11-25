@@ -276,5 +276,39 @@ if ($mode -in 'build', 'view', 'all') {
 }
 
 Write-Host "> launch\run.bat $($a -join ' ')" -ForegroundColor DarkGray
-& (Join-Path $Root 'launch\run.bat') @a
-exit $LASTEXITCODE
+$bat = Join-Path $Root 'launch\run.bat'
+
+if (-not [Console]::IsOutputRedirected) {
+    & $bat @a
+    exit $LASTEXITCODE
+}
+
+# Vivado 2020.2 は標準出力がコンソールでない（パイプやファイル）と、並列の synth_design でファイルを開くのが
+# ときどき失敗して落ちる（rtSynthParallelPrep.tcl などが読めない、Tcl_Close on channel with refCount > 0）。
+# 出力を流し込まれているとき（Claude Code や tee など）は、見えないコンソールで run.bat を起動して
+# Vivado のログ（-log、CP932）を読んでここに流す
+$env:VIVADO_LOG = Join-Path $env:TEMP "core_vivado_$PID.log"
+Remove-Item $env:VIVADO_LOG -ErrorAction SilentlyContinue
+$p = Start-Process cmd.exe -ArgumentList "/c `"`"$bat`" $($a -join ' ')`"" -WorkingDirectory $Root -WindowStyle Hidden -PassThru
+$null = $p.Handle
+$decoder = [System.Text.Encoding]::Default.GetDecoder()
+$buf = New-Object byte[] 65536
+$chars = New-Object char[] 65536
+$fs = $null
+do {
+    $exited = $p.HasExited
+    if (-not $fs -and (Test-Path $env:VIVADO_LOG)) {
+        $fs = [System.IO.File]::Open($env:VIVADO_LOG, 'Open', 'Read', 'ReadWrite')
+    }
+    if ($fs) {
+        while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
+            $m = $decoder.GetChars($buf, 0, $n, $chars, 0)
+            [Console]::Out.Write($chars, 0, $m)
+        }
+    }
+    if (-not $exited) { Start-Sleep -Milliseconds 500 }
+} while (-not $exited)
+if ($fs) { $fs.Close() }
+if ($p.ExitCode -ne 0 -and -not $fs) { Write-Host "*** Vivado のログが無い（run.bat が Vivado を起動する前に止まった）" -ForegroundColor Red }
+Remove-Item $env:VIVADO_LOG -ErrorAction SilentlyContinue
+exit $p.ExitCode

@@ -40,7 +40,10 @@ if defined OPEN goto gui
 
 set "ARGS="
 if not "%~1"=="" set "ARGS=-tclargs %*"
-call "%VIVADO%" -mode batch -nojournal -nolog -notrace -source launch\boot.tcl %ARGS%
+rem VIVADO_LOG: write the log to this file (cli.ps1 sets it when stdout is not a console)
+set "LOGOPT=-nolog"
+if defined VIVADO_LOG set LOGOPT=-log "%VIVADO_LOG%"
+call "%VIVADO%" -mode batch -nojournal %LOGOPT% -notrace -source launch\boot.tcl %ARGS%
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" exit /b %RC%
 
