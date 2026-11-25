@@ -31,9 +31,6 @@ module lsu_controller
   output stq_idx_with_valid_t st_ack,
   output stq_idx_with_valid_t st_nack,
 
-  // searcher
-  input wire ldq_mask_t stale_mask,  // WBに出すloadが当たっていたら出さない
-
   // RFへ
   output lsu_wb_t wb_mem,
 
@@ -65,7 +62,7 @@ module lsu_controller
         st_nack.valid = !dc_resp.ack;
         st_nack.stq_idx = dc_resp.tag.stq_idx;
       end else begin
-        ld_nack.valid   = !dc_resp.ack || ldq[dc_resp.tag.ldq_idx].stale || stale_mask[dc_resp.tag.ldq_idx];
+        ld_nack.valid   = !dc_resp.ack || ldq[dc_resp.tag.ldq_idx].stale;
         ld_nack.ldq_idx = dc_resp.tag.ldq_idx;
       end
     end
@@ -112,6 +109,7 @@ module lsu_controller
         ld_req.valid |= 1'b1;
         ld_req.addr |= ldq[i].addr;
         ld_req.tag.ldq_idx |= ldq_idx_t'(i);
+        ld_req.brmask |= ldq[i].brmask;
       end
     end
     ld_req.brmask = apply_br_resolve(ld_req.brmask, br_update_ff);
@@ -183,13 +181,13 @@ module lsu_controller
   end
 
   always_ff @(posedge clk) begin
+    dc_req_ff <= n_dc_req_ff;
     if (rst) begin
-      dc_req_ff <= '0;
+      dc_req_ff.valid <= 1'b0;
       load_turn_ff <= 1'b1;
       resp_killed_ff <= 1'b0;
     end else begin
-      dc_req_ff <= n_dc_req_ff;
-      load_turn_ff <= n_load_turn_ff;
+      load_turn_ff   <= n_load_turn_ff;
       // 一旦コアがkillを担当
       resp_killed_ff <= dc_accepted && !dc_req_ff.we && (br_kill_check(dc_req_ff.brmask, br_update_ff) || flush);
     end
@@ -203,13 +201,13 @@ module lsu_controller
   always_comb begin
     forwarded = 1'b0;
     wb_mem = '0;
-    if (resp_valid && !dc_resp.tag.is_store && dc_resp.ack && !ldq[resp_ldq_idx].stale && !stale_mask[resp_ldq_idx]) begin
+    if (resp_valid && !dc_resp.tag.is_store && dc_resp.ack && !ldq[resp_ldq_idx].stale) begin
       // loadをWBへ送る
       wb_mem.valid = 1'b1;
       wb_mem.rd = ldq[resp_ldq_idx].rd;
       wb_mem.value = dc_resp.rdata;
       wb_mem.rob_idx = ldq[resp_ldq_idx].rob_idx;
-    end else if (fwd_req.valid && !stale_mask[fwd_req.ldq_idx]) begin
+    end else if (fwd_req.valid) begin
       // 空いていればforward
       wb_mem.valid = 1'b1;
       wb_mem.rd = ldq[fwd_req.ldq_idx].rd;

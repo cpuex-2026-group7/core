@@ -62,7 +62,6 @@ module stq
       stq_searcher_ff[i].addr_valid = stq_ff[i].addr_valid;
       stq_searcher_ff[i].addr = stq_ff[i].addr;
       stq_searcher_ff[i].data_valid = stq_ff[i].data_valid;
-      stq_searcher_ff[i].data = stq_ff[i].data;
       stq_fwd_ff[i].data_valid = stq_ff[i].data_valid;
       stq_fwd_ff[i].data = stq_ff[i].data;
       stq_data_valid_ff[i] = stq_ff[i].data_valid;
@@ -167,7 +166,6 @@ module stq
           n_stq_ff[disp_stq_idx[i]].valid = 1'b1;
           n_stq_ff[disp_stq_idx[i]].addr_valid = 1'b0;
           n_stq_ff[disp_stq_idx[i]].data_valid = 1'b0;
-          n_stq_ff[disp_stq_idx[i]].committed = 1'b0;
           n_stq_ff[disp_stq_idx[i]].st_requested = 1'b0;
           n_stq_ff[disp_stq_idx[i]].stale = 1'b0;
           n_stq_ff[disp_stq_idx[i]].stored = 1'b0;
@@ -189,7 +187,6 @@ module stq
     // commitでcommit_headを進める
     for (int i = 0; i < COMMIT_W; i++) begin
       if (commit_st[i]) begin
-        n_stq_ff[n_stq_commit_head.stq_idx].committed = 1'b1;
         n_stq_commit_head = stq_ptr_inc(n_stq_commit_head);
       end
     end
@@ -238,18 +235,23 @@ module stq
   end
 
   always_ff @(posedge clk) begin
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      stq_ff[i] <= n_stq_ff[i];
+    end
     if (rst) begin
       for (int i = 0; i < STQ_SIZE; i++) begin
-        stq_ff[i] <= '0;
+        stq_ff[i].valid <= 1'b0;
+        stq_ff[i].addr_valid <= 1'b0;
+        stq_ff[i].data_valid <= 1'b0;
+        stq_ff[i].st_requested <= 1'b0;
+        stq_ff[i].stale <= 1'b0;
+        stq_ff[i].stored <= 1'b0;
       end
       stq_head <= '0;
       stq_commit_head <= '0;
       stq_exec_head <= '0;
       stq_tail <= '0;
     end else begin
-      for (int i = 0; i < STQ_SIZE; i++) begin
-        stq_ff[i] <= n_stq_ff[i];
-      end
       stq_head <= n_stq_head;
       stq_commit_head <= n_stq_commit_head;
       stq_exec_head <= n_stq_exec_head;

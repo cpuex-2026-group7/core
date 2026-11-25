@@ -189,7 +189,6 @@ module lsu_top
     .st_ack(st_ack),
     .st_nack(st_nack),
     .stq_fwd(stq_fwd),
-    .stale_mask(stale_mask),
     .wb_mem(wb_mem[0]),
     .slow_wakeup_mem(slow_wakeup_mem),
     .dc_req_ff(dc_req_ff),

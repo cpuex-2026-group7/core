@@ -139,7 +139,6 @@ package lsu_types;
     addr_t    addr;
     logic     data_valid;
     word_t    data;
-    logic     committed;
     logic     st_requested;  // D$に出した(返事はまだ)
     logic     stale;         // nackでなかったことになった
     logic     stored;        // D$がACKした
@@ -167,7 +166,6 @@ package lsu_types;
     logic      valid;
     logic      addr_valid;
     addr_t     addr;
-    logic      ld_requested;
     logic      gone_to_wb;
     stq_mask_t older_st_mask;
     stq_idx_t  tail_stq_idx;
@@ -188,7 +186,6 @@ package lsu_types;
     logic  addr_valid;
     addr_t addr;
     logic  data_valid;
-    word_t data;
   } stq_searcher_t;
 
   // STQからcontrollerへ
