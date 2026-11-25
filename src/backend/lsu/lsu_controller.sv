@@ -86,35 +86,62 @@ module lsu_controller
   end
 
   // loadからのreq
-  dc_req_t   load_req;
-  fwd_cand_t fwd_cand;
+  dc_req_t ld_req;
   always_comb begin
-    ldq_ptr_t p;
-    logic     ld_ready;
-    load_req = '0;
-    fwd_cand = '0;
-    p.wrap = 1'b0;
-    p.ldq_idx = ldq_head_idx;
-    // 条件満たす一番古いものを探す
+    logic [LDQ_SIZE-1:0] ld_cand, ld_cand_half, ld_grant;
+    ld_req = '0;
     for (int i = 0; i < LDQ_SIZE; i++) begin
-      p = ldq_ptr_dec(p);
-      ld_ready = ldq[p.ldq_idx].valid && ldq[p.ldq_idx].addr_valid && !ldq[p.ldq_idx].ld_requested
-          && !ldq[p.ldq_idx].gone_to_wb && !br_kill_check(ldq[p.ldq_idx].brmask, br_update_ff);
-
+      // forward待ちはD$にreqしない
       // flushのときはloadは消す
-      if (ld_ready && !flush) begin
-        // forward待ちはD$にreqしない
-        if (!ldq[p.ldq_idx].fwd_hit) begin
-          load_req.valid = 1'b1;
-          load_req.addr = ldq[p.ldq_idx].addr;
-          load_req.tag.ldq_idx = p.ldq_idx;
-          load_req.brmask = apply_br_resolve(ldq[p.ldq_idx].brmask, br_update_ff);
-        end
-        if (ldq[p.ldq_idx].fwd_hit && stq_fwd[ldq[p.ldq_idx].fwd_stq_idx].data_valid) begin
-          fwd_cand.valid   = 1'b1;
-          fwd_cand.ldq_idx = p.ldq_idx;
-          fwd_cand.stq_idx = ldq[p.ldq_idx].fwd_stq_idx;
-        end
+      ld_cand[i] = ldq[i].valid && ldq[i].addr_valid && !ldq[i].ld_requested && !ldq[i].gone_to_wb &&
+        !ldq[i].fwd_hit && !br_kill_check(ldq[i].brmask, br_update_ff) && !flush;
+      ld_cand_half[i] = ld_cand[i] && ldq_idx_t'(i) >= ldq_head_idx;
+    end
+
+    // 条件満たす一番古いものをgrant
+    if (|ld_cand_half) begin
+      // 折り返す前にある場合
+      ld_grant = ld_cand_half & -ld_cand_half;
+    end else begin
+      // 折り返した後から
+      ld_grant = ld_cand & -ld_cand;
+    end
+
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      if (ld_grant[i]) begin
+        ld_req.valid |= 1'b1;
+        ld_req.addr |= ldq[i].addr;
+        ld_req.tag.ldq_idx |= ldq_idx_t'(i);
+      end
+    end
+    ld_req.brmask = apply_br_resolve(ld_req.brmask, br_update_ff);
+  end
+
+  // fwdのreq
+  fwd_cand_t fwd_req;
+  always_comb begin
+    logic [LDQ_SIZE-1:0] fwd_cand, fwd_cand_half, fwd_grant;
+    fwd_req = '0;
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      // 今のサイクルのkillとflush当てる
+      fwd_cand[i] = ldq[i].fwd_ready && !br_kill_check(ldq[i].brmask, br_update_ff) && !flush;
+      fwd_cand_half[i] = fwd_cand[i] && ldq_idx_t'(i) >= ldq_head_idx;
+    end
+
+    // 条件満たす一番古いものをgrant
+    if (|fwd_cand_half) begin
+      // 折り返す前にある場合
+      fwd_grant = fwd_cand_half & -fwd_cand_half;
+    end else begin
+      // 折り返した後から
+      fwd_grant = fwd_cand & -fwd_cand;
+    end
+
+    for (int i = 0; i < LDQ_SIZE; i++) begin
+      if (fwd_grant[i]) begin
+        fwd_req.valid |= 1'b1;
+        fwd_req.ldq_idx |= ldq_idx_t'(i);
+        fwd_req.stq_idx |= ldq[i].fwd_stq_idx;
       end
     end
   end
@@ -138,11 +165,11 @@ module lsu_controller
 
     if (!n_dc_req_ff.valid || dc_accepted) begin
       n_dc_req_ff.valid = 1'b0;
-      if (load_req.valid && (load_turn_ff || !store_req.valid)) begin
+      if (ld_req.valid && (load_turn_ff || !store_req.valid)) begin
         // loadをreq
-        n_dc_req_ff = load_req;
+        n_dc_req_ff = ld_req;
         ld_requested.valid = 1'b1;
-        ld_requested.ldq_idx = load_req.tag.ldq_idx;
+        ld_requested.ldq_idx = ld_req.tag.ldq_idx;
         // storeが詰まりそうでなければ次もload
         n_load_turn_ff = stq_cnt < stq_cnt_t'(STQ_SIZE >> 1);
       end else if (store_req.valid) begin
@@ -182,12 +209,12 @@ module lsu_controller
       wb_mem.rd = ldq[resp_ldq_idx].rd;
       wb_mem.value = dc_resp.rdata;
       wb_mem.rob_idx = ldq[resp_ldq_idx].rob_idx;
-    end else if (fwd_cand.valid && !stale_mask[fwd_cand.ldq_idx]) begin
+    end else if (fwd_req.valid && !stale_mask[fwd_req.ldq_idx]) begin
       // 空いていればforward
       wb_mem.valid = 1'b1;
-      wb_mem.rd = ldq[fwd_cand.ldq_idx].rd;
-      wb_mem.value = stq_fwd[fwd_cand.stq_idx].data;
-      wb_mem.rob_idx = ldq[fwd_cand.ldq_idx].rob_idx;
+      wb_mem.rd = ldq[fwd_req.ldq_idx].rd;
+      wb_mem.value = stq_fwd[fwd_req.stq_idx].data;
+      wb_mem.rob_idx = ldq[fwd_req.ldq_idx].rob_idx;
       forwarded = 1'b1;
     end
   end
@@ -198,7 +225,7 @@ module lsu_controller
   always_comb begin
     ld_gone_to_wb = '0;
     ld_gone_to_wb.valid = wb_mem.valid;
-    ld_gone_to_wb.ldq_idx = forwarded ? fwd_cand.ldq_idx : resp_ldq_idx;
+    ld_gone_to_wb.ldq_idx = forwarded ? fwd_req.ldq_idx : resp_ldq_idx;
   end
 
 endmodule

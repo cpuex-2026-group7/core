@@ -7,7 +7,7 @@ module lsu_searcher
   import ex_types::*;
   import lsu_types::*;
 (
-  // bypassとかload違反を探す
+  // forward元とload違反を探す
 
   // LDQ
   input wire ldq_searcher_t ldq[LDQ_SIZE],
@@ -73,6 +73,7 @@ module lsu_searcher
         if (ldq[ex_lsu.ldq_idx].older_st_mask[p.stq_idx] && stq[p.stq_idx].addr_valid && stq[p.stq_idx].addr == ex_lsu.addr) begin
           nload_fwd_src.hit = 1'b1;
           nload_fwd_src.stq_idx = p.stq_idx;
+          nload_fwd_src.data_valid = stq[p.stq_idx].data_valid;
         end
         p = stq_ptr_inc(p);
       end
