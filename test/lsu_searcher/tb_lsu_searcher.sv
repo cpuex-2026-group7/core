@@ -22,7 +22,7 @@
 //
 // 期待値
 //   nload_fwd_src：load のアドレスが来たときだけ。その load より古い store（seq が [H, T)）で addr_valid かつ
-//     アドレスが ex_lsu.addr と同じもののうち seq が最大のもの
+//     アドレスが ex_lsu.addr と同じもののうち seq が最大のもの。data_valid はその store の data_valid
 //   違反：AGU の store より新しい（S < T）、valid かつ addr_valid でアドレスが同じ load について
 //     forward 元の seq が S より大きければ何も立てない。そうでなければ
 //     gone_to_wb なら violation、そうでなければ stale（ld_requested では絞らない。絞るのは LDQ）
@@ -216,6 +216,9 @@ module tb_lsu_searcher
         else if (int'(nload_fwd_src.stq_idx) != best % SN)
           err($sformatf("nload_fwd_src：load %0d（tail %0d）の stq_idx = %0d、期待値 %0d（H %0d n %0d）", k, T[k] % SN,
                         nload_fwd_src.stq_idx, best % SN, H % SN, n));
+        else if (nload_fwd_src.data_valid != s[best%SN].data_valid)
+          err($sformatf("nload_fwd_src：load %0d の data_valid = %0b、期待値 %0b（STQ %0d）", k, nload_fwd_src.data_valid,
+                        s[best%SN].data_valid, best % SN));
       end
     end else begin
       if (nload_fwd_src.hit) err("nload_fwd_src：load のアドレスが来ていないのに hit");

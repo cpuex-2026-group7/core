@@ -32,6 +32,10 @@
 //     その後で stq_release_mask[fwd_stq_idx] なら fwd_hit=0（同じサイクルに入れた分にも当てる）
 //     dispatch で fwd_hit=0。gone_to_wb では変えない
 //   - load_violation[k] は head から k 番目のエントリで、valid は valid && violated
+//   - fwd_ready は、次の状態で valid && addr_valid && !ld_requested && !gone_to_wb && fwd_hit で、
+//     forward 元の store のデータが来ているもの。STQ の data_valid（stq_data_valid_ff）は
+//     store のデータが AGU から来たら 1、release で 0 に戻る。nload_fwd_src.data_valid は
+//     forward 元の stq_data_valid_ff と同じ（load と store のデータが同じサイクルに来ることは無い）
 
 module tb_ldq
   import types::*;
@@ -59,6 +63,7 @@ module tb_ldq
   br_tag_t             disp_br_tag      [  DISP_W];
   older_st_t           older_st         [  DISP_W];
   stq_mask_t           stq_release_mask;
+  stq_mask_t           stq_data_valid_ff;
   ex_lsu_t             ex_lsu;
   ldq_idx_with_valid_t ld_requested;
   ldq_idx_with_valid_t ld_nack;
@@ -88,6 +93,7 @@ module tb_ldq
   br_tag_t             t_disp_br_tag    [  DISP_W];
   older_st_t           t_older_st       [  DISP_W];
   stq_mask_t           t_stq_release_mask;
+  stq_mask_t           t_stq_data_valid_ff;
   ex_lsu_t             t_ex_lsu;
   ldq_idx_with_valid_t t_ld_requested;
   ldq_idx_with_valid_t t_ld_nack;
@@ -105,6 +111,7 @@ module tb_ldq
     disp_br_tag <= t_disp_br_tag;
     older_st <= t_older_st;
     stq_release_mask <= t_stq_release_mask;
+    stq_data_valid_ff <= t_stq_data_valid_ff;
     ex_lsu <= t_ex_lsu;
     ld_requested <= t_ld_requested;
     ld_nack <= t_ld_nack;
@@ -140,6 +147,7 @@ module tb_ldq
   preg_t m_rd[N];
   rob_idx_t m_rob[N];
   brmask_t m_brmask[N];
+  bit m_dv[STQ_SIZE];  // STQ の data_valid
 
   // 生きている分岐（古い順）
   int br_tag_q[$];
@@ -182,7 +190,7 @@ module tb_ldq
 
   int n_disp, n_full, n_kill_disp, n_wrap, n_commit, n_mispredict, n_flush;
   int n_agu, n_req, n_gone, n_nack, n_stale_set, n_viol_out, n_kill_entry;
-  int n_fwd_ld, n_fwd_st, n_fwd_rel, n_fwd_rel_same, n_st_agu;
+  int n_fwd_ld, n_fwd_st, n_fwd_rel, n_fwd_rel_same, n_st_agu, n_fwd_ready;
 
   task automatic err(string msg);
     errors++;
@@ -211,6 +219,7 @@ module tb_ldq
           err($sformatf("ldq_controller_ff[%0d].valid = 1、空のエントリのはず（head %0d tail %0d）", i, head_pos % N,
                         tail_pos % N));
         if (ldq_searcher_ff[i].valid) err($sformatf("ldq_searcher_ff[%0d].valid = 1、空のエントリのはず", i));
+        if (ldq_controller_ff[i].fwd_ready) err($sformatf("ldq_controller_ff[%0d].fwd_ready = 1、空のエントリのはず", i));
         continue;
       end
       if (!ldq_controller_ff[i].valid) err($sformatf("ldq_controller_ff[%0d].valid = 0、期待値 1", i));
@@ -263,6 +272,11 @@ module tb_ldq
       else if (m_fwd[i] && ldq_controller_ff[i].fwd_stq_idx != m_fwd_idx[i])
         err($sformatf("ldq_controller_ff[%0d].fwd_stq_idx = %0d、期待値 %0d", i, ldq_controller_ff[i].fwd_stq_idx,
                       m_fwd_idx[i]));
+      exp_v = m_addr_valid[i] && !m_req[i] && !m_gone[i] && m_fwd[i] && m_dv[m_fwd_idx[i]];
+      if (ldq_controller_ff[i].fwd_ready != exp_v)
+        err($sformatf("ldq_controller_ff[%0d].fwd_ready = %0b、期待値 %0b（fwd_hit %0b fwd_stq_idx %0d data_valid %0b）", i,
+                      ldq_controller_ff[i].fwd_ready, exp_v, m_fwd[i], m_fwd_idx[i], m_dv[m_fwd_idx[i]]));
+      if (exp_v) n_fwd_ready++;
     end
 
     for (int k = 0; k < COMMIT_W; k++) begin
@@ -391,6 +405,7 @@ module tb_ldq
     // load のアドレスが来ていないサイクルの nload_fwd_src は無視されるはず
     lf.hit = rnd(2) == 1;
     lf.stq_idx = stq_idx_t'($urandom());
+    lf.data_valid = m_dv[lf.stq_idx];
 
     // ---- controller と searcher ----
     r_idx = -1;
@@ -514,6 +529,7 @@ module tb_ldq
     t_disp_br_tag = d_br_tag;
     t_older_st = d_older;
     t_stq_release_mask = rel;
+    for (int i = 0; i < STQ_SIZE; i++) t_stq_data_valid_ff[i] = m_dv[i];
     t_commit_ld = d_commit;
     t_flush = do_flush;
     t_br_update_ff = u;
@@ -596,6 +612,11 @@ module tb_ldq
         m_fwd[idx] = 1'b0;
         n_fwd_rel++;
       end
+    end
+    // STQ の data_valid。release したエントリはすぐ使い回されたことにする
+    if (ex.is_store && ex.data_valid) m_dv[ex.stq_idx] = 1'b1;
+    for (int i = 0; i < STQ_SIZE; i++) begin
+      if (rel[i]) m_dv[i] = 1'b0;
     end
 
     if (kill_cycle) begin
@@ -682,6 +703,8 @@ module tb_ldq
     t_stale_mask = '0;
     t_ld_fwd = '0;
     t_stq_release_mask = '0;
+    t_stq_data_valid_ff = '0;
+    for (int i = 0; i < STQ_SIZE; i++) m_dv[i] = 1'b0;
     for (int i = 0; i < DISP_W; i++) begin
       t_disp_ld[i] = '0;
       t_disp_br_valid[i] = 1'b0;
@@ -723,6 +746,7 @@ module tb_ldq
     $display("stale_mask で stale になった %0d、load_violation を出した %0d", n_stale_set, n_viol_out);
     $display("store の AGU %0d、forward 元：load の到着で %0d、store の到着で %0d、解放で消えた %0d（入れたサイクルに %0d）",
              n_st_agu, n_fwd_ld, n_fwd_st, n_fwd_rel, n_fwd_rel_same);
+    $display("fwd_ready が立っていたエントリ（のべ）%0d", n_fwd_ready);
     if (errors == 0) $display("PASS");
     else $display("FAIL（%0d 件）", errors);
     $finish;

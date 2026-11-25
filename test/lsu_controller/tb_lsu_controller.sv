@@ -17,6 +17,7 @@
 //   - D$ に出すのは fwd_hit でない load のうち一番古いもの
 //   - forward するのは fwd_hit かつ forward 元の data_valid な load のうち一番古いもの
 //     fwd_hit で data がまだの load は飛ばす
+//     fwd_ready は LDQ が作る FF で、kill と flush 以外の条件を全部含む（テストはその形で LDQ の見え方を作る）
 //   - dc_req_ff は accept されるまで保持する。load は kill_mask / flush で消し、brmask に resolve を当てる
 //     空いた（valid でない、kill された、accept された）サイクルに次を選ぶ
 //     load の番か store が無ければ load、そうでなければ store。
@@ -252,6 +253,11 @@ module tb_lsu_controller
       l[ri].addr_valid = 1'b1;
       l[ri].ld_requested = 1'b1;
       l[ri].gone_to_wb = 1'b0;
+    end
+    // LDQ の fwd_ready（kill と flush は含まない）
+    for (int i = 0; i < LN; i++) begin
+      l[i].fwd_ready = l[i].valid && l[i].addr_valid && !l[i].ld_requested && !l[i].gone_to_wb && l[i].fwd_hit
+          && f[l[i].fwd_stq_idx].data_valid;
     end
     acc = m_valid && rnd(100) < accept_rate;
 

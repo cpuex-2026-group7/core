@@ -100,7 +100,7 @@ module stq
       // olderを詰める
       older_st[i].tail_stq_idx = disp_tail[i].stq_idx;
       for (int j = 0; j < STQ_SIZE; j++) begin
-        older_st[i].older_st_mask[j] = stq_in_range(j, stq_head, disp_tail[i]) && !stq_release_mask[j];
+        older_st[i].older_st_mask[j] = stq_in_range(stq_idx_t'(j), stq_head, disp_tail[i]) && !stq_release_mask[j];
       end
 
       // snapshotを詰める
@@ -212,7 +212,7 @@ module stq
     end else if (st_nack.valid) begin
       // nackされたstoreからやりなおし
       for (int i = 0; i < STQ_SIZE; i++) begin
-        if (stq_in_range(i, st_nack_ptr, n_stq_exec_head)) begin
+        if (stq_in_range(stq_idx_t'(i), st_nack_ptr, n_stq_exec_head)) begin
           n_stq_ff[i].stored = 1'b0;
           n_stq_ff[i].stale  = n_stq_ff[i].st_requested;
         end

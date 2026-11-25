@@ -63,6 +63,7 @@ module tb_stq
   stq_cnt_t            stq_cnt;
   stq_searcher_t       stq_searcher_ff [STQ_SIZE];
   stq_fwd_t            stq_fwd_ff      [STQ_SIZE];
+  stq_mask_t           stq_data_valid_ff;
   br_update_t          br_update_ff;
   logic                commit_st       [COMMIT_W];
   complete_t           complete_st;
@@ -444,6 +445,8 @@ module tb_stq
         err($sformatf("stq_fwd_ff[%0d].data_valid = %0b、期待値 %0b", idx, stq_fwd_ff[idx].data_valid, m_data_valid[idx]));
       else if (m_data_valid[idx] && stq_fwd_ff[idx].data != m_data[idx])
         err($sformatf("stq_fwd_ff[%0d].data = %h、期待値 %h", idx, stq_fwd_ff[idx].data, m_data[idx]));
+      if (stq_data_valid_ff[idx] != m_data_valid[idx])
+        err($sformatf("stq_data_valid_ff[%0d] = %0b、期待値 %0b", idx, stq_data_valid_ff[idx], m_data_valid[idx]));
     end
 
     // ---- モデルを進める ----
