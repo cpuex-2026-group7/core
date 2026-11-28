@@ -94,11 +94,11 @@ module test_frontend;
           checks++;
         end
         if (dut.fire_instr) begin
-          if (dut.instr_F3 !== isa::instr_t'(dut.u_i_mem.mem[dut.pc_F3[9:0]]))
+          if (dut.instr_F3 !== isa::instr_t'(dut.u_i_mem.u_ram.g_single.mem[dut.pc_F3[9:0]]))
             $fatal(1, "PC/instruction mismatch at PC=%0d", dut.pc_F3);
           pushed_pcs.push_back(dut.pc_F3);
           pushed_cycles.push_back(cycle);
-          expected_fetchq.push_back(isa::instr_t'(dut.u_i_mem.mem[dut.pc_F3[9:0]]));
+          expected_fetchq.push_back(isa::instr_t'(dut.u_i_mem.u_ram.g_single.mem[dut.pc_F3[9:0]]));
           checks++;
         end
       end
@@ -119,8 +119,8 @@ module test_frontend;
     ftq_pop = 0;
     ftq_restore_idx = '1;
     for (int i = 0; i < 1024; i++) begin
-      dut.u_i_mem.mem[i] = marker(i);
-      reset_dut.u_i_mem.mem[i] = marker(i);
+      dut.u_i_mem.u_ram.g_single.mem[i] = marker(i);
+      reset_dut.u_i_mem.u_ram.g_single.mem[i] = marker(i);
     end
     repeat (2) tick();
     @(negedge clk);
@@ -165,7 +165,7 @@ module test_frontend;
     $display("PASS: reset vectors and sequential fetch");
 
     reset_all();
-    dut.u_i_mem.mem[0] = jal(100);
+    dut.u_i_mem.u_ram.g_single.mem[0] = jal(100);
     repeat (12) tick();
     expect_pc(0, 0);
     expect_linear(1, 100);
@@ -192,8 +192,8 @@ module test_frontend;
 
     reset_all();
     ftq_pop = 1;
-    dut.u_i_mem.mem[0] = jal(4);
-    dut.u_i_mem.mem[4] = jal(-4);
+    dut.u_i_mem.u_ram.g_single.mem[0] = jal(4);
+    dut.u_i_mem.u_ram.g_single.mem[4] = jal(-4);
     repeat (22) tick();
     if (pushed_pcs.size() < 6) $fatal(1, "Branch loop made no progress");
     for (int i = 0; i < pushed_pcs.size(); i++) begin
@@ -236,7 +236,7 @@ module test_frontend;
     $display("PASS: backend redirect overrides Fetch Queue stall");
 
     reset_all();
-    for (int i = 0; i < NENTRY; i++) dut.u_i_mem.mem[i] = jal(1);
+    for (int i = 0; i < NENTRY; i++) dut.u_i_mem.u_ram.g_single.mem[i] = jal(1);
     repeat (16) tick();
     if (!dut.ftq_full || !dut.stall || dut.pc_F3 !== 3)
       $fatal(1, "Expected branch stalled by full FTQ");
@@ -258,7 +258,7 @@ module test_frontend;
 
     reset_all();
     fetchq_pop = 0;
-    dut.u_i_mem.mem[3] = jal(7);
+    dut.u_i_mem.u_ram.g_single.mem[3] = jal(7);
     repeat (10) tick();
     if (!dut.stall || !dut.frontend_redirect_F3 || dut.pc_F3 !== 3)
       $fatal(1, "Expected stalled frontend redirect at PC3");
@@ -281,7 +281,7 @@ module test_frontend;
     $display("PASS: stalled frontend redirect is applied once when output resumes");
 
     reset_all();
-    dut.u_i_mem.mem[0] = jal(100);
+    dut.u_i_mem.u_ram.g_single.mem[0] = jal(100);
     repeat (3) tick();
     if (!dut.frontend_redirect_F3) $fatal(1, "Expected pending frontend redirect");
     @(negedge clk);
@@ -327,7 +327,7 @@ module test_frontend;
 
     // backend redirect で src の PC に飛び先を学習し、次にそこを通るときはバブル無しで予測する
     reset_all();
-    dut.u_i_mem.mem[5] = jal(95);
+    dut.u_i_mem.u_ram.g_single.mem[5] = jal(95);
     @(negedge clk);
     backend_redirect = 1;
     pc_backend_redirect = 100;

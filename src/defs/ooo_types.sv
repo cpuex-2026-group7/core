@@ -58,15 +58,16 @@ package ooo_types;
 
   // ex_topでFFに入れた後配られる
   typedef struct packed {
-    brmask_t  resolve_mask;  // 予測が当たった分岐
-    brmask_t  kill_mask;     // 予測が外れた分岐
-    logic     mispredict;
+    brmask_t                resolve_mask;  // 予測が当たった分岐
+    brmask_t                kill_mask;     // 予測が外れた分岐
+    logic                   mispredict;
+    ftq_idx_t ftq_idx;
     // これ以降は復帰用の情報
-    br_tag_t  tag;
-    logic     taken;
-    pc_t      pc;
-    pc_t      target;
-    rob_idx_t rob_idx;
+    br_tag_t                tag;
+    logic                   taken;
+    pc_t                    pc;
+    pc_t                    target;
+    rob_idx_t               rob_idx;
   } br_update_t;
 endpackage
 

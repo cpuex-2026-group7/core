@@ -10,7 +10,7 @@ module fetchq #(
     input wire frontend_pkg::fetch_packet_t din,
     input wire logic push,
 
-    output isa::frontend_pkg::fetch_packet_t dout,
+    output frontend_pkg::fetch_packet_t dout,
     input wire logic pop,
 
     output logic ready,

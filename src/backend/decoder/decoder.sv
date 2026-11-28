@@ -39,7 +39,7 @@ module decoder #(
     for (int i = 0; i < FETCH_W; i++) begin
       dec_uop[i].pc = fetch_packet.pc_head + pc_t'(i);
       dec_uop[i].predict_pc = fetch_packet.predict_pc[i];
-      dec_uop[i].ftq_idx = fetch_packet.ftq_idx[i];
+      dec_uop[i].ftq_idx = fetch_packet.ftq_idx;
       dec_uop[i].brmask = fetch_packet.brmask[i];
       dec_uop[i].br_tag = fetch_packet.brtag[i];
     end

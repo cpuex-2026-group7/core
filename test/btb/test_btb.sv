@@ -13,8 +13,8 @@ module test_btb;
   localparam addr_t PC_B = 32'h0000_0101;
   localparam addr_t PC_C = 32'h0000_0082;
 
-  logic clk = 0;
-  logic rst = 0;
+  logic  clk = 0;
+  logic  rst = 0;
   addr_t pc = '0;
   frontend_pkg::btb_resp_t resp, resp_F0;
   logic en = 1;
@@ -24,30 +24,28 @@ module test_btb;
   addr_t update_target = '0;
   int checks = 0;
 
-  btb #(.TAG_WIDTH(TAG_WIDTH), .IDX_WIDTH(IDX_WIDTH)) dut (
-    .clk(clk),
-    .rst(rst),
-    .en(en),
-    .pc(pc),
-    .resp(resp),
-    .resp_F0(resp_F0),
-    .update_en(update_en),
-    .update_validness(update_validness),
-    .update_pc(update_pc),
-    .update_target(update_target)
+  btb #(
+      .TAG_WIDTH(TAG_WIDTH),
+      .IDX_WIDTH(IDX_WIDTH)
+  ) dut (
+      .clk(clk),
+      .rst(rst),
+      .en(en),
+      .pc(pc),
+      .resp(resp),
+      .resp(resp_F0),
+      .update_en(update_en),
+      .update_validness(update_validness),
+      .update_pc(update_pc),
+      .update_target(update_target)
   );
 
   always #5 clk = ~clk;
 
   // 立ち下がりで入力を準備し、次の立ち上がりで取り込ませる。
   // 次の立ち下がりで制御信号を戻し、意図しない再書き込みを防ぐ。
-  task automatic apply_cycle(
-    input logic reset_value,
-    input logic enable_value,
-    input addr_t addr,
-    input addr_t target,
-    input logic validness = 1
-  );
+  task automatic apply_cycle(input logic reset_value, input logic enable_value, input addr_t addr,
+                             input addr_t target, input logic validness = 1);
     @(negedge clk);
     rst = reset_value;
     update_en = enable_value;
@@ -62,38 +60,33 @@ module test_btb;
     update_validness = 1;
   endtask
 
-  task automatic check_response(
-    input string label_text,
-    input logic expected_valid,
-    input addr_t expected_target
-  );
-    if (resp.valid !== expected_valid)
-      $fatal(1, "%s: valid expected=%b actual=%b",
-             label_text, expected_valid, resp.valid);
+  task automatic check_response(input string label_text, input logic expected_valid,
+                                input addr_t expected_target);
+    if (resp.hit !== expected_valid)
+      $fatal(1, "%s: valid expected=%b actual=%b", label_text, expected_valid, resp.hit);
     // valid=0 のとき、呼び出し側は target を利用しない。
     if (expected_valid && resp.target !== expected_target)
-      $fatal(1, "%s: target expected=%h actual=%h",
-             label_text, expected_target, resp.target);
+      $fatal(1, "%s: target expected=%h actual=%h", label_text, expected_target, resp.target);
     checks++;
   endtask
 
-  task automatic check_f0_response(
-    input string label_text,
-    input logic expected_valid,
-    input addr_t expected_target
-  );
+  task automatic check_f0_response(input string label_text, input logic expected_valid,
+                                   input addr_t expected_target);
     if (resp_F0 !== {expected_valid, expected_target})
-      $fatal(1, "%s: F1 feedback expected=%b/%h actual=%b/%h",
-             label_text, expected_valid, expected_target, resp_F0.valid, resp_F0.target);
+      $fatal(
+          1,
+          "%s: F1 feedback expected=%b/%h actual=%b/%h",
+          label_text,
+          expected_valid,
+          expected_target,
+          resp_F0.hit,
+          resp_F0.target
+      );
     checks++;
   endtask
 
-  task automatic check_lookup(
-    input string label_text,
-    input addr_t addr,
-    input logic expected_valid,
-    input addr_t expected_target
-  );
+  task automatic check_lookup(input string label_text, input addr_t addr,
+                              input logic expected_valid, input addr_t expected_target);
     @(negedge clk);
     pc = addr;
     // 1回目の立ち上がりで PC が F1 に入り、その検索結果が F0 へ戻る。
@@ -107,14 +100,10 @@ module test_btb;
   endtask
 
   // 毎クロック PC を変え、出力には1つ前のサイクルに投入した PC の応答を期待する。
-  task automatic stream_cycle(
-    input string label_text,
-    input addr_t addr,
-    input logic expected_valid,
-    input addr_t expected_target,
-    input logic expected_feedback_valid,
-    input addr_t expected_feedback_target
-  );
+  task automatic stream_cycle(input string label_text, input addr_t addr,
+                              input logic expected_valid, input addr_t expected_target,
+                              input logic expected_feedback_valid,
+                              input addr_t expected_feedback_target);
     @(negedge clk);
     pc = addr;
     @(posedge clk);
@@ -129,8 +118,7 @@ module test_btb;
 
     // 1. リセット後は、すべての index でミスする。
     apply_cycle(1, 0, '0, '0);
-    for (int i = 0; i < NENTRY; i++)
-      check_lookup("initial reset", addr_t'(i), 0, '0);
+    for (int i = 0; i < NENTRY; i++) check_lookup("initial reset", addr_t'(i), 0, '0);
 
     // 2. update_en=0 の入力は登録されない。
     apply_cycle(0, 0, PC_A, 32'h200);
@@ -160,15 +148,12 @@ module test_btb;
     check_lookup("unrelated entry", PC_C, 1, 32'h500);
 
     // 7. 全 index を登録する。端の index と target=0 も含む。
-    for (int i = 0; i < NENTRY; i++)
-      apply_cycle(0, 1, addr_t'(i), addr_t'(i * 4));
-    for (int i = 0; i < NENTRY; i++)
-      check_lookup("all entries", addr_t'(i), 1, addr_t'(i * 4));
+    for (int i = 0; i < NENTRY; i++) apply_cycle(0, 1, addr_t'(i), addr_t'(i * 4));
+    for (int i = 0; i < NENTRY; i++) check_lookup("all entries", addr_t'(i), 1, addr_t'(i * 4));
 
     // 8. rst と update_en が同時ならリセットが優先される。
     apply_cycle(1, 1, PC_A, 32'h600);
-    for (int i = 0; i < NENTRY; i++)
-      check_lookup("reset populated table", addr_t'(i), 0, '0);
+    for (int i = 0; i < NENTRY; i++) check_lookup("reset populated table", addr_t'(i), 0, '0);
     check_lookup("reset beats update", PC_A, 0, '0);
 
     // 9. 再リセット後にも新しいエントリを登録できる。

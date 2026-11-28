@@ -121,7 +121,10 @@ module multi_port_ram #(
   parameter int SIZE = 64,
   parameter int ENTRY_WIDTH = 32,
   parameter int R = 4,
-  parameter int W = 3
+  parameter int W = 3,
+  // Optional file initialization for the single-write-port configuration.
+  parameter string INIT_FILE = "",
+  parameter string INIT_FILE_PLUSARG = ""
 ) (
   input wire logic clk,
   input wire logic w_en[W],
@@ -138,7 +141,17 @@ module multi_port_ram #(
     if (W == 1) begin : g_single
       (* ram_style = "distributed" *) logic [ENTRY_WIDTH-1:0] mem[SIZE];
 
-      initial for (int i = 0; i < SIZE; i++) mem[i] = '0;
+      initial begin
+        string path;
+        for (int i = 0; i < SIZE; i++) mem[i] = '0;
+        path = INIT_FILE;
+`ifdef VERILATOR
+        if (INIT_FILE_PLUSARG != "") begin
+          void'($value$plusargs({INIT_FILE_PLUSARG, "=%s"}, path));
+        end
+`endif
+        if (path != "") $readmemh(path, mem);
+      end
 
       always_ff @(posedge clk) begin
         if (w_en[0]) mem[w_addr[0]] <= w_data[0];

@@ -1,61 +1,63 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
+// TODO need fix; save only JALR
 module btb
   import types::*;
 #(
-    parameter int TAG_WIDTH = 9,
-    parameter int IDX_WIDTH = 7   // 2^IDX_WIDTH entries.
+    parameter int FETCH_W = 2,
+    parameter int BTB_ENTRY_SIZE = 128,
+    parameter int BTB_TAG_WIDTH = 9
 ) (
     input wire logic clk,
     input wire logic rst,
-    input wire logic en,
-    input wire addr_t pc,
+
+    input wire pc_t pc,
+
     output frontend_pkg::btb_resp_t resp,
-    output frontend_pkg::btb_resp_t resp_F0,
+
     input wire logic update_en,
-    input wire logic update_validness,
-    input wire addr_t update_pc,
-    input wire addr_t update_target
+    input wire frontend_pkg::btb_update_t btb_update
 );
 
-  localparam int NENTRY = 2 ** IDX_WIDTH;
+  frontend_pkg::btb_entry_t btb_entry[BTB_ENTRY_SIZE];
 
-  logic [NENTRY-1:0] valid;
-  logic [TAG_WIDTH-1:0] tags[NENTRY];
-  addr_t targets[NENTRY];
-
-  addr_t pc_F1;
   frontend_pkg::btb_resp_t lookup_resp_F1;
 
-  assign resp_F0 = lookup_resp_F1;
+  frontend_pkg::btb_idx_t pc_idx, btb_upd_idx;
+  frontend_pkg::btb_tag_t pc_tag, btb_upd_tag;
 
-  always_comb begin
+  function automatic frontend_pkg::btb_idx_t get_idx(input types::pc_t pc);
+    return pc[$clog2(BTB_ENTRY_SIZE)-1:0];
+  endfunction
+
+  function automatic frontend_pkg::btb_tag_t get_tag(input types::pc_t pc);
+    return pc[BTB_TAG_WIDTH+$clog2(BTB_ENTRY_SIZE)-1:$clog2(BTB_ENTRY_SIZE)];
+  endfunction
+
+  assign resp = lookup_resp_F1;
+  assign pc_idx = get_idx(pc);
+  assign pc_tag = get_tag(pc);
+  assign btb_upd_idx = get_idx(btb_update.pc);
+  assign btb_upd_tag = get_tag(btb_update.pc);
+
+  always_comb begin : find_entry
     lookup_resp_F1 = '0;
-    if (valid[pc_F1[IDX_WIDTH-1:0]] &&
-        tags[pc_F1[IDX_WIDTH-1:0]] == pc_F1[IDX_WIDTH+TAG_WIDTH-1:IDX_WIDTH]) begin
-      lookup_resp_F1.valid  = 1'b1;
-      lookup_resp_F1.target = targets[pc_F1[IDX_WIDTH-1:0]];
+    if (btb_entry[pc_idx].valid && btb_entry[pc_idx].tag == pc_tag) begin
+      lookup_resp_F1.hit = 1'b1;
+      lookup_resp_F1.content = btb_entry[pc_idx];
     end
   end
 
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk) begin : update_btb_entries
     if (rst) begin
-      pc_F1 <= '0;
-      resp  <= '0;
-    end else if (en) begin
-      pc_F1 <= pc;
-      resp  <= lookup_resp_F1;
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      valid <= '0;
+      for (int i = 0; i < BTB_ENTRY_SIZE; i++) begin
+        btb_entry[i] <= '0;
+      end
     end else if (update_en) begin
-      valid[update_pc[IDX_WIDTH-1:0]] <= update_validness;
-      tags[update_pc[IDX_WIDTH-1:0]] <= update_pc[IDX_WIDTH+TAG_WIDTH-1:IDX_WIDTH];
-      targets[update_pc[IDX_WIDTH-1:0]] <= update_target;
+      btb_entry[btb_upd_idx].tag <= btb_upd_tag;
+      btb_entry[btb_upd_idx].valid <= btb_update.valid;
+      btb_entry[btb_upd_idx].target <= btb_update.target;
     end
   end
 

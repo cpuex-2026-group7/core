@@ -1,7 +1,9 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-// need to resolve some problems.
+// ひとまず、backend redirectのときにfrontend
+// が使用するための専用読み出しポートを用意
+// する。汎用ポートは消すことになる気がする。
 
 module ftq #(
     parameter int IDX_WIDTH = 5
@@ -12,8 +14,10 @@ module ftq #(
     input wire frontend_pkg::ftq_data_t din,
     input wire logic push,
 
-    input wire logic [IDX_WIDTH-1:0] get_idx,
-    output frontend_pkg::ftq_data_t dout,
+    output ooo_types::ftq_idx_t next_ftq_idx,
+
+    input wire logic [IDX_WIDTH-1:0] ftq_idx_req_redirect,
+    output frontend_pkg::ftq_data_t ftq_resp_redirect,
 
     input wire logic pop,
 
@@ -28,11 +32,13 @@ module ftq #(
 
   frontend_pkg::ftq_data_t data[NENTRY];
 
-  assign dout = data[get_idx];
+  assign ftq_resp_redirect = data[ftq_idx_req_redirect];
 
   logic [IDX_WIDTH-1:0] ptr_head, ptr_tail, ptr_head_next, ptr_tail_next;
   assign ptr_head_next = ptr_head + IDX_WIDTH'(1);
   assign ptr_tail_next = ptr_tail + IDX_WIDTH'(1);
+
+  assign next_ftq_idx = ptr_tail;
 
   assign full = ptr_head == ptr_tail_next;
   assign empty = ptr_head == ptr_tail;

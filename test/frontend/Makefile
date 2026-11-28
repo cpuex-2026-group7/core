@@ -14,6 +14,7 @@ RTL := $(ROOT_DIR)/src/defs/types.sv \
        $(ROOT_DIR)/src/frontend/bpd.sv \
        $(ROOT_DIR)/src/frontend/fetchq.sv \
        $(ROOT_DIR)/src/frontend/ftq.sv \
+       $(ROOT_DIR)/src/common/multi_port_ram.sv \
        $(ROOT_DIR)/src/memory/i_mem.sv
 SOURCES := $(RTL) $(TEST_DIR)/test_frontend.sv
 EXE := $(BUILD_DIR)/Vtest_frontend
